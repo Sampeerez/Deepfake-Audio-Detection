@@ -1,0 +1,362 @@
+# -*- coding: utf-8 -*-
+"""
+src/jobs.py — Background execution for the long "full comparison" benchmark.
+
+Why a background thread:
+  * the UI stays responsive — you can browse other pages while it runs (the
+    thread is not tied to Streamlit's per-script execution, so navigating away
+    does not kill it);
+  * the classic models (CPU: sklearn / XGBoost) and the CNN (GPU: PyTorch) run
+    in PARALLEL, so wall-clock time ≈ max(classic, CNN) instead of the sum.
+
+The compute functions never call ``st`` and receive already-fetched data, so
+they are safe to run off the Streamlit ScriptRunContext.
+"""
+
+import concurrent.futures as _cf
+import contextlib
+import io
+import json
+import os
+import threading
+from typing import Callable, Dict, List, Optional, Tuple
+
+import joblib
+
+from src.data_loader import stratified_subsample
+from src.pipeline import (
+    MODEL_OPTIONS, extract_feature_matrix, run_classic_models,
+    train_and_evaluate_cnn,
+)
+from src.reporting import COL_EER, COL_FEATURES, COL_MIN_DCF, COL_MODEL
+
+FEATURE_ORDER = ["1", "2", "3", "4", "6", "5"]   # CQCC before Fusion
+
+# One job at a time; persists across Streamlit reruns (module-level).
+_pool = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="bench")
+
+# Live progress shared with the UI (the worker can't call st). Read via progress().
+_lock  = threading.Lock()
+_state = {"total": 0, "done": 0, "label": "Starting…"}
+
+# Per-stream progress so the leaderboard can show classic (CPU) and CNN (GPU)
+# side by side while they run in parallel.
+def _blank_stream():
+    return {"done": 0, "total": 0, "label": "Waiting…", "items": []}
+
+
+_streams = {"classic": _blank_stream(), "cnn": _blank_stream()}
+
+# Cooperative cancellation: the UI sets this; the workers check it at safe
+# checkpoints (between extractors / before each CNN epoch) and stop early.
+_cancel = threading.Event()
+
+
+def request_cancel() -> None:
+    _cancel.set()
+
+
+def cancel_requested() -> bool:
+    return _cancel.is_set()
+
+
+def progress() -> Dict:
+    """Snapshot of the running job's progress (overall + per-stream)."""
+    with _lock:
+        total = max(_state["total"], 1)
+        streams = {k: {**v, "items": list(v["items"])} for k, v in _streams.items()}
+        return {"frac": _state["done"] / total, "done": _state["done"],
+                "total": _state["total"], "label": _state["label"],
+                "streams": streams}
+
+
+def _reset_streams(classic_total: int, cnn_total: int) -> None:
+    with _lock:
+        _streams["classic"] = _blank_stream(); _streams["classic"]["total"] = classic_total
+        _streams["cnn"]     = _blank_stream(); _streams["cnn"]["total"]     = cnn_total
+
+
+def _stream(name: str, label=None, inc: int = 0, item: str = None) -> None:
+    with _lock:
+        s = _streams[name]
+        if label is not None:
+            s["label"] = label
+        s["done"] += inc
+        if item:
+            s["items"].append(item)
+
+
+def _step(label: str, inc: int = 0) -> None:
+    with _lock:
+        _state["done"] += inc
+        _state["label"] = label
+
+
+# Live per-epoch records for a background CNN training (worker appends, UI polls).
+_cnn_epochs: List[Dict] = []
+
+
+def cnn_epochs() -> List[Dict]:
+    """Snapshot of the epoch records produced so far by a background training."""
+    with _lock:
+        return [dict(r) for r in _cnn_epochs]
+
+
+def _run_cnn(train_samples, dev_samples, extractor, params,
+             eval_samples=None, eval_sets=None):
+    """Background CNN training. Mirrors each epoch into the shared progress so the
+    UI can draw a live loss curve and a progress bar without touching the worker."""
+    _cancel.clear()
+    max_ep = int(params.get("epochs", 1))
+    with _lock:
+        _cnn_epochs.clear()
+        _state.update({"total": max_ep, "done": 0, "label": "Training CNN…"})
+
+    def _cb(rec):
+        with _lock:
+            _cnn_epochs.append(dict(rec))
+            _state["done"]  = int(rec.get("epoch", _state["done"]))
+            _state["label"] = (f"Epoch {rec.get('epoch')}/{max_ep} · "
+                               f"val={rec.get('val_loss', 0):.4f}")
+
+    log = io.StringIO()
+    with contextlib.redirect_stdout(log):
+        model, history, results = train_and_evaluate_cnn(
+            train_samples, dev_samples, extractor, params,
+            eval_samples=eval_samples, eval_sets=eval_sets, epoch_callback=_cb,
+            should_stop=_cancel.is_set,
+            checkpoint_path="asvspoof_model_checkpoint.pth",
+        )
+    return model, history, results
+
+
+def submit_cnn_training(**kwargs) -> "_cf.Future":
+    """Launch a single CNN training in the background; returns a Future of
+    (model, history, results). Reuses the one-job pool so it never collides with
+    a full comparison (the UI already forbids starting two jobs at once)."""
+    return _pool.submit(_run_cnn, **kwargs)
+
+
+def _tag_split(results: List[Dict], base_split: str) -> List[Dict]:
+    out = []
+    for r in results:
+        r = dict(r)
+        if "[EVAL]" in str(r.get(COL_MODEL, "")):
+            r[COL_MODEL]    = r[COL_MODEL].replace("[EVAL]", "").strip()
+            r[COL_FEATURES] = str(r.get(COL_FEATURES, "")).replace("[EVAL]", "").strip()
+            _c = str(r.get("Corpus", "")).strip()
+            r["Split"]      = f"eval · {_c}" if _c else "eval"
+        else:
+            r["Split"] = base_split
+        out.append(r)
+    return out
+
+
+# ===========================================================================
+# Demo-model export (Full comparison, LOCAL)
+# ===========================================================================
+# As the full sweep runs locally it also PERSISTS the registry models (the two
+# CNNs as .pth, the XGBoost × DSP detectors as .joblib) and records their
+# dev/eval EER & minDCF, so the leaderboard the cloud demo serves is produced
+# straight from the UI — no external console script needed.
+_leaderboard: Dict[str, Dict] = {}
+
+
+def _registry():
+    """Lazy import of the model registry (defers the Streamlit-heavy ui_helpers
+    import out of module load and worker threads)."""
+    from src.ui_helpers import (
+        DEMO_LEADERBOARD_PATH, MODELS_DIR, PRETRAINED_REGISTRY,
+    )
+    return MODELS_DIR, DEMO_LEADERBOARD_PATH, PRETRAINED_REGISTRY
+
+
+def _as_float(row: Dict, key: str) -> Optional[float]:
+    try:
+        return float(row.get(key))
+    except (TypeError, ValueError):
+        return None
+
+
+def _metrics_from_rows(rows: List[Dict], match: Callable[[Dict], bool]
+                       ) -> Dict[str, Optional[float]]:
+    """dev + eval EER/minDCF for the first model matching `match`. Operates on the
+    RAW result rows (before _tag_split), where [EVAL] is still in COL_MODEL."""
+    dev = next((r for r in rows if match(r)
+                and "[EVAL]" not in str(r.get(COL_MODEL, ""))), {})
+    ev  = next((r for r in rows if match(r)
+                and "[EVAL]" in str(r.get(COL_MODEL, ""))), {})
+    return {"eer_dev":  _as_float(dev, COL_EER), "mindcf_dev":  _as_float(dev, COL_MIN_DCF),
+            "eer_eval": _as_float(ev,  COL_EER), "mindcf_eval": _as_float(ev,  COL_MIN_DCF)}
+
+
+def _record(key: str, metrics: Dict) -> None:
+    with _lock:
+        _leaderboard[key] = metrics
+
+
+def _write_leaderboard() -> None:
+    """Persist accumulated metrics to demo_leaderboard.json, merging with any
+    existing entries so a partial (classic-only / CNN-only) run keeps the rest."""
+    if not _leaderboard:
+        return
+    _, path, _ = _registry()
+    board: Dict = {}
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                board = json.load(fh)
+        except (ValueError, OSError):
+            board = {}
+    with _lock:
+        board.update(_leaderboard)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(board, fh, indent=2)
+
+
+def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
+                   classic_paths=None, classic_keys=None):
+    classic_paths = classic_paths or {}
+    classic_keys  = classic_keys or {}
+    rows = []
+    for fk in FEATURE_ORDER:
+        if _cancel.is_set():
+            _stream("classic", label="Cancelled")
+            break
+        _step(f"Classic · {feat_labels[fk]}")
+        _stream("classic", label=f"{feat_labels[fk]} — extracting…")
+        x_tr, y_tr, _  = extract_feature_matrix(train, ext, fk, "train", n_workers=4, use_cache=True)
+        x_pr, y_pr, ms = extract_feature_matrix(primary, ext, fk, pname, n_workers=4, use_cache=True)
+        # Extract features for each chosen eval corpus and score them all.
+        eval_sets = []
+        for label, samples in (eval_corpora or []):
+            if samples:
+                x_se, y_se, _ = extract_feature_matrix(
+                    samples, ext, fk, f"eval[{label}]", n_workers=4, use_cache=True)
+                eval_sets.append((label, x_se, y_se))
+
+        # If this front-end has a registry XGBoost model, persist it to .joblib
+        # as it is fitted (the sink fires inside run_classic_models after fit).
+        _path = classic_paths.get(fk)
+        def _sink(name, model, _p=_path):
+            if name == "xgboost" and _p:
+                try:
+                    joblib.dump(model, _p)
+                except Exception as exc:                     # noqa: BLE001 — non-fatal
+                    _stream("classic", label=f"save failed: {exc}")
+        res = run_classic_models(MODEL_OPTIONS["4"], x_tr, y_tr, x_pr, y_pr,
+                                 feat_labels[fk], ms, seed, eval_sets=eval_sets,
+                                 model_sink=_sink if _path else None)
+        if fk in classic_keys:
+            _record(classic_keys[fk],
+                    _metrics_from_rows(res, lambda r: "XGBoost" in str(r.get(COL_MODEL, ""))))
+        rows.extend(_tag_split(res, pname))
+        try:
+            _best = min(float(r["minDCF"]) for r in res
+                        if "[EVAL]" not in str(r.get("Model", "")))
+            _item = f"{feat_labels[fk]} · best minDCF {_best:.3f}"
+        except (ValueError, KeyError):
+            _item = f"{feat_labels[fk]} · done"
+        _stream("classic", label=f"{feat_labels[fk]} done", inc=1, item=_item)
+        _step(f"Classic · {feat_labels[fk]} done", inc=1)
+    return rows
+
+
+def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
+               cnn_paths=None, cnn_keys=None):
+    cnn_paths = cnn_paths or {}
+    cnn_keys  = cnn_keys or {}
+    rows = []
+    _arch_name = {"resnet": "ResNet + SE", "cnn": "2-D CNN"}
+    for arch in ["resnet", "cnn"]:
+        if _cancel.is_set():
+            _stream("cnn", label="Cancelled")
+            break
+        _step(f"CNN · {arch} (training on the full train set)")
+        _stream("cnn", label=f"{_arch_name[arch]} — starting…")
+        p = dict(base_params)
+        # More DataLoader workers → faster FLAC decode each epoch (the CNN's
+        # main cost, since spectrograms are re-extracted per epoch).
+        p.update({"semilla": seed, "augment": True, "arch": arch,
+                  "num_workers": max(int(base_params.get("num_workers", 2)), 6)})
+        _ep = int(p.get("epochs", 1))
+
+        def _cb(rec, _a=arch):
+            _stream("cnn", label=(f"{_arch_name[_a]} · epoch {rec.get('epoch')}/{_ep} "
+                                  f"· val={rec.get('val_loss', 0):.4f}"))
+
+        # Persist the best weights to the registry path so the demo can serve them.
+        _, _, cres = train_and_evaluate_cnn(
+            train, primary, ext, p, eval_sets=(eval_corpora or []),
+            epoch_callback=_cb, should_stop=_cancel.is_set,
+            checkpoint_path=cnn_paths.get(arch))
+        if arch in cnn_keys and not _cancel.is_set():
+            _record(cnn_keys[arch], _metrics_from_rows(cres, lambda r: True))
+        rows.extend(_tag_split(cres, "dev"))
+        try:
+            _best = min(float(r["minDCF"]) for r in cres
+                        if "[EVAL]" not in str(r.get("Model", "")))
+            _item = f"{_arch_name[arch]} · dev minDCF {_best:.3f}"
+        except (ValueError, KeyError):
+            _item = f"{_arch_name[arch]} · done"
+        _stream("cnn", label=f"{_arch_name[arch]} done", inc=1, item=_item)
+        _step(f"CNN · {arch} done", inc=1)
+    return rows
+
+
+def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
+         classic_subset, cnn_subset, include_cnn, seed=42, export=True
+         ) -> Tuple[List[Dict], List[Dict]]:
+    _cancel.clear()
+    _reset_streams(len(FEATURE_ORDER), 2 if include_cnn else 0)
+    with _lock:
+        _leaderboard.clear()
+        _state.update({"total": len(FEATURE_ORDER) + (2 if include_cnn else 0),
+                       "done": 0, "label": "Preparing data…"})
+
+    # Map the registry models to their on-disk paths so the sweeps can persist
+    # them (.pth / .joblib) and record their metrics for demo_leaderboard.json.
+    classic_paths = classic_keys = cnn_paths = cnn_keys = {}
+    if export:
+        models_dir, _, reg = _registry()
+        os.makedirs(models_dir, exist_ok=True)
+        classic_paths = {e["feat"]: os.path.join(models_dir, e["file"])
+                         for e in reg if e["kind"] == "classic"}
+        classic_keys  = {e["feat"]: e["key"] for e in reg if e["kind"] == "classic"}
+        cnn_paths = {("resnet" if e["key"] == "resnet" else "cnn"):
+                     os.path.join(models_dir, e["file"])
+                     for e in reg if e["kind"] == "cnn"}
+        cnn_keys  = {("resnet" if e["key"] == "resnet" else "cnn"): e["key"]
+                     for e in reg if e["kind"] == "cnn"}
+
+    log = io.StringIO()
+    with contextlib.redirect_stdout(log):
+        def _sub(samples, n, s):
+            return stratified_subsample(samples, n, s) if (n and n > 0) else samples
+
+        eval_corpora = eval_corpora or []
+        c_tr = _sub(train, classic_subset, seed)
+        c_pr = _sub(primary, classic_subset, seed + 1)
+        c_ev = [(lbl, _sub(s, classic_subset, seed + 2)) for lbl, s in eval_corpora]
+        n_tr = _sub(train, cnn_subset, seed)
+        n_pr = _sub(primary, cnn_subset, seed + 1)
+        n_ev = [(lbl, _sub(s, cnn_subset, seed + 2)) for lbl, s in eval_corpora]
+
+        # Classic (CPU) and CNN (GPU) in parallel.
+        with _cf.ThreadPoolExecutor(max_workers=2) as pool:
+            f_c = pool.submit(_classic_sweep, ext, feat_labels, c_tr, c_pr, c_ev,
+                              pname, seed, classic_paths, classic_keys)
+            f_n = (pool.submit(_cnn_sweep, ext, base_params, n_tr, n_pr, n_ev, seed,
+                               cnn_paths, cnn_keys) if include_cnn else None)
+            classic_rows = f_c.result()
+            cnn_rows     = f_n.result() if f_n is not None else []
+
+    # Write the deployment leaderboard once the sweep finished cleanly.
+    if export and not _cancel.is_set():
+        _write_leaderboard()
+    return classic_rows, cnn_rows
+
+
+def submit_benchmark(**kwargs) -> "_cf.Future":
+    """Launch the full benchmark in the background; returns a Future."""
+    return _pool.submit(_run, **kwargs)

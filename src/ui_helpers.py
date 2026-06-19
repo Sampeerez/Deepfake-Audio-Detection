@@ -1,0 +1,2067 @@
+# -*- coding: utf-8 -*-
+"""
+src/ui_helpers.py — Shared helpers for the Streamlit GUI.
+
+Cached resource loaders, plotting helpers, and reusable UI components.
+Keeps page files thin and avoids recomputation across reruns.
+"""
+
+import os
+from typing import Dict, List, Optional, Tuple
+
+import librosa
+import librosa.display
+import matplotlib
+import numpy as np
+import streamlit as st
+import yaml
+from scipy.fft import dct
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+from src.data_loader import (  # noqa: E402
+    LABEL_BONAFIDE, LABEL_SPOOF, parse_protocol, parse_protocol_2021,
+)
+from src.features import FeatureExtractor  # noqa: E402
+
+CONFIG_PATH = os.path.join("config", "config.yaml")
+_EPS = 1e-10
+
+# ── Colour palette ────────────────────────────────────────────────────────── #
+BONAFIDE_COLOR = "#42A5F5"   # blue  — real voice  (lighter for dark bg)
+SPOOF_COLOR    = "#EF5350"   # red   — deepfake
+NEUTRAL_COLOR  = "#78909C"   # slate — unknown / upload
+
+# ── Dark matplotlib theme (matches the Streamlit dark background) ──────────── #
+_DARK_BG   = "#161C2D"
+_DARK_AXES = "#1E2640"
+_DARK_GRID = "#263050"
+_DARK_TEXT = "#C5CDE8"
+_DARK_EDGE = "#2E3A58"
+
+plt.rcParams.update({
+    "figure.facecolor":  _DARK_BG,
+    "axes.facecolor":    _DARK_AXES,
+    "axes.edgecolor":    _DARK_EDGE,
+    "axes.labelcolor":   _DARK_TEXT,
+    "xtick.color":       _DARK_TEXT,
+    "ytick.color":       _DARK_TEXT,
+    "text.color":        _DARK_TEXT,
+    "grid.color":        _DARK_GRID,
+    "grid.alpha":        0.55,
+    "font.size":         9,
+    "legend.facecolor":  _DARK_AXES,
+    "legend.edgecolor":  _DARK_EDGE,
+    "figure.dpi":        110,
+})
+
+# ── Shared CSS injected at the top of every page ──────────────────────────── #
+PAGE_CSS = """
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — only continuous ambient motion; never entry animations
+   (those replay on every rerun and read as flicker).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes gradientShift {
+    0%,100% { background-position:0% 50%; }
+    50%      { background-position:100% 50%; }
+}
+@keyframes float {
+    0%,100% { transform:translateY(0); }
+    50%      { transform:translateY(-10px); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-track { background:rgba(9,28,78,0.25); border-radius:3px; }
+::-webkit-scrollbar-thumb { background:rgba(79,139,249,0.38); border-radius:3px; }
+::-webkit-scrollbar-thumb:hover { background:rgba(79,139,249,0.65); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STREAMLIT HEADER — hidden so sidebar can reach the very top
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stHeader"] {
+    display: none !important;
+}
+
+/* Invisible helper host for the dropdown auto-close script: the iframe must
+   stay in the DOM (so its script runs) but must NOT occupy a slot in the main
+   flex flow — otherwise it adds one vertical-block gap at the top of every page
+   and makes the content overflow the viewport by a hair (a faint scroll on
+   otherwise-short pages). position:absolute removes it from the flow entirely. */
+[class*="st-key-ddac_host"] {
+    position: absolute !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+}
+[class*="st-key-ddac_host"] iframe { height: 0 !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAIN CONTENT
+   — sin animación de entrada: se re-dispararía en cada rerun y provoca el
+     "flash" al navegar entre páginas o tocar cualquier widget.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.main .block-container,
+[data-testid="stMainBlockContainer"] {
+    padding-top: 0.6rem !important;      /* titles/hero sit higher on the page */
+    padding-bottom: 1.4rem !important;   /* no dead scroll past the footer */
+}
+
+/* A page-local style block injected via st.markdown still occupies an element
+   slot (plus a vertical-block gap), which pushes that page's title lower than
+   pages without one — so titles ended up at different heights. Collapse any
+   element container whose only child is a style element; its rules still apply
+   (a style element works regardless of an ancestor's display:none).
+   NOTE: never write the literal closing style tag inside this block — the HTML
+   parser would end the whole stylesheet there and dump the rest as text. */
+[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] style),
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {
+    display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR — fixed, always visible, navigation-first.
+   (The previous hover auto-hide collapsed while interacting with dropdown
+   popovers — selectbox menus render outside the sidebar, hover was lost and
+   the panel slid shut mid-selection. Root cause removed, not patched.)
+   ═══════════════════════════════════════════════════════════════════════════ */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg,
+        #06101F 0%, #09193A 35%, #0B1E48 65%, #07131E 100%) !important;
+    border-right: 1px solid rgba(79,139,249,0.12) !important;
+    width: 17.5rem !important;
+}
+section[data-testid="stSidebar"] > div:first-child {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+[data-testid="stSidebarContent"] {
+    padding-top: 0 !important;
+}
+/* Always-open sidebar: remove the collapse affordance entirely */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] { display:none !important; }
+
+/* Remove the sidebar resize/drag handle — the 8px-wide `cursor: col-resize`
+   strip on the sidebar's inner edge that lets you drag its width. It is a
+   styled div with the emotion target class below (build-specific to this
+   Streamlit version); hiding it also drops the draggable border affordance. */
+section[data-testid="stSidebar"] [class*="eelgd2m3"],
+[class*="st-key-"] [class*="eelgd2m3"],
+[class*="eelgd2m3"] { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR NAV LINKS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stSidebarNav"]::before {
+    content: "DEEPFAKE AUDIO DETECTION";
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #8AABEF;
+    background: linear-gradient(90deg,
+        rgba(79,139,249,0.12) 0%, rgba(8,145,178,0.08) 100%);
+    padding: 1.25rem 1.1rem 1.05rem;
+    margin-bottom: 0.55rem;       /* breathing room before the first nav link */
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(79,139,249,0.18);
+    white-space: nowrap;
+}
+/* Extra gap between the section title and the nav list */
+[data-testid="stSidebarNav"] ul { padding-top: 0.35rem !important; }
+[data-testid="stSidebarNavLink"] {
+    border-radius: 0.55rem !important;
+    margin: 0.2rem 0.6rem !important;
+    padding: 0.6rem 0.95rem !important;
+    font-size: 1.02rem !important;       /* larger, more readable nav labels */
+    transition: background 0.22s ease, transform 0.22s ease !important;
+    position: relative;
+    overflow: hidden;
+}
+/* The label text inside each nav link */
+[data-testid="stSidebarNavLink"] span,
+[data-testid="stSidebarNavLink"] p { font-size: 1.02rem !important; }
+[data-testid="stSidebarNavLink"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+        transparent 0%, rgba(79,139,249,0.07) 50%, transparent 100%);
+    transform: translateX(-100%);
+    transition: transform 0.5s ease;
+}
+[data-testid="stSidebarNavLink"]:hover {
+    background: rgba(79,139,249,0.12) !important;
+    transform: translateX(5px) !important;
+}
+[data-testid="stSidebarNavLink"]:hover::after {
+    transform: translateX(100%);
+}
+[data-testid="stSidebarNavLink"][aria-current="page"] {
+    background: linear-gradient(90deg,
+        rgba(79,139,249,0.22) 0%, rgba(79,139,249,0.06) 100%) !important;
+    border-left: 3px solid #4F8BF9 !important;
+    font-weight: 700 !important;
+    box-shadow: 0 0 14px rgba(79,139,249,0.3) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   METRIC CARDS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stMetric"] {
+    background: linear-gradient(135deg,
+        rgba(12,25,70,0.65) 0%, rgba(18,38,95,0.45) 100%) !important;
+    backdrop-filter: blur(14px) !important;
+    border: 1px solid rgba(79,139,249,0.18) !important;
+    border-radius: 0.8rem !important;
+    padding: 0.9rem 1.1rem !important;
+    transition: transform 0.24s ease, box-shadow 0.24s ease !important;
+    position: relative;
+    overflow: hidden;
+}
+[data-testid="stMetric"]::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg,
+        transparent, rgba(79,139,249,0.5), transparent);
+}
+[data-testid="stMetric"]:hover {
+    transform: translateY(-4px) !important;
+    box-shadow: 0 10px 32px rgba(79,139,249,0.22),
+                0 0 0 1px rgba(79,139,249,0.28) !important;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 0.7rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+    opacity: 0.5 !important;
+}
+[data-testid="stMetricValue"] {
+    font-size: 1.3rem !important;
+    font-weight: 700 !important;
+    background: linear-gradient(135deg, #82B1FF, #4FC3F7) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUTTONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stBaseButton-primary"] {
+    background: linear-gradient(135deg, #2952C4 0%, #0891B2 100%) !important;
+    border: none !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.04em !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease !important;
+}
+[data-testid="stBaseButton-primary"]:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 22px rgba(79,139,249,0.5) !important;
+    filter: brightness(1.1) !important;
+}
+[data-testid="stBaseButton-secondary"] {
+    border-color: rgba(79,139,249,0.35) !important;
+    transition: transform 0.2s ease, border-color 0.2s ease,
+                box-shadow 0.2s ease !important;
+}
+[data-testid="stBaseButton-secondary"]:hover {
+    transform: translateY(-2px) !important;
+    border-color: rgba(79,139,249,0.7) !important;
+    box-shadow: 0 4px 16px rgba(79,139,249,0.18) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TABS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stTabs"] { margin-top: 0.2rem; }
+button[data-baseweb="tab"] {
+    transition: color 0.18s ease, background 0.18s ease !important;
+    border-radius: 0.45rem 0.45rem 0 0 !important;
+    padding: 0.5rem 1.1rem !important;
+}
+button[data-baseweb="tab"]:hover {
+    color: #82B1FF !important;
+    background: rgba(79,139,249,0.07) !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    font-weight: 700 !important;
+    color: #82B1FF !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EXPANDERS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stExpander"] {
+    border: 1px solid rgba(79,139,249,0.16) !important;
+    border-radius: 0.7rem !important;
+    transition: box-shadow 0.22s ease, border-color 0.22s ease !important;
+    overflow: hidden !important;
+}
+[data-testid="stExpander"]:hover {
+    border-color: rgba(79,139,249,0.32) !important;
+    box-shadow: 0 4px 18px rgba(79,139,249,0.1) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROGRESS BARS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stProgress"] > div > div {
+    background: linear-gradient(90deg, #4F8BF9, #00BCD4) !important;
+    border-radius: 4px !important;
+    transition: width 0.3s ease !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DIVIDER
+   ═══════════════════════════════════════════════════════════════════════════ */
+hr { border-color: rgba(79,139,249,0.1) !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GRADIENT ACCENT BAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+.gradient-bar {
+    height: 3px;
+    background: linear-gradient(90deg, #4F8BF9, #00BCD4, #9C27B0, #4F8BF9);
+    background-size: 300% 300%;
+    animation: gradientShift 5s ease infinite;
+    border-radius: 2px;
+    margin: 0.6rem 0 1.4rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HERO BANNER
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hero-banner {
+    background: linear-gradient(135deg,
+        #070F2B 0%, #0C2272 28%, #1548C0 55%, #0B7AB0 80%, #065A8A 100%);
+    background-size: 300% 300%;
+    animation: gradientShift 12s ease infinite;
+    padding: 1.9rem 3rem 1.8rem;          /* shorter hero — less wasted vertical space */
+    border-radius: 1.1rem;
+    color: #E8EDF8;
+    box-shadow: 0 16px 60px rgba(7,15,43,0.7),
+                0 0 0 1px rgba(79,139,249,0.18),
+                inset 0 1px 0 rgba(255,255,255,0.06);
+    position: relative;
+    overflow: hidden;
+}
+/* Floating orbs */
+.hero-banner::before {
+    content: "";
+    position: absolute;
+    top: -50%; right: -8%;
+    width: 520px; height: 520px;
+    background: radial-gradient(circle,
+        rgba(79,139,249,0.14) 0%, transparent 65%);
+    pointer-events: none;
+    animation: float 9s ease-in-out infinite;
+}
+.hero-banner::after {
+    content: "";
+    position: absolute;
+    bottom: -45%; left: 25%;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle,
+        rgba(8,145,178,0.1) 0%, transparent 60%);
+    pointer-events: none;
+    animation: float 14s ease-in-out infinite reverse;
+}
+.hero-banner h1 {
+    font-size: 3.1rem;
+    font-weight: 850;
+    margin: 0 0 0.5rem;
+    line-height: 1.08;
+    letter-spacing: -0.028em;
+    text-shadow: 0 3px 30px rgba(79,139,249,0.45);
+}
+.hero-banner p {
+    font-size: 1rem;
+    margin: 0;
+    opacity: 0.82;
+    line-height: 1.68;
+    max-width: none;          /* span the full hero width, no early wrap */
+    padding-right: 1rem;
+}
+.hero-author {
+    margin-top: 1.15rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.9rem;
+    font-size: 0.82rem;
+    letter-spacing: 0.03em;
+}
+.hero-author .ha-name { font-weight: 700; color: #B9CCF2; }
+.hero-author a {
+    color: #9BB8F4 !important;
+    text-decoration: none;
+    font-weight: 600;
+    border: 1px solid rgba(155,184,244,0.35);
+    border-radius: 1.4rem;
+    padding: 0.12rem 0.7rem;
+    transition: background 0.2s ease, border-color 0.2s ease,
+                transform 0.2s ease, color 0.2s ease;
+}
+.hero-author a:hover {
+    background: rgba(155,184,244,0.16);
+    border-color: rgba(155,184,244,0.7);
+    color: #E8EDF8 !important;
+    transform: translateY(-1px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HERO WAVE — two audio sine-waves travelling across the WHOLE header, behind
+   the text (continuous scroll, no entry flicker).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes heroWaveScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.hero-wave {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
+}
+.hero-wave .hw {
+    position: absolute;
+    top: 0; left: 0;
+    width: 200%; height: 100%;
+    will-change: transform;
+}
+.hero-wave .hw path { fill: none; vector-effect: non-scaling-stroke; stroke-width: 2; }
+.hero-wave .hw1 { animation: heroWaveScroll 9s linear infinite; }
+.hero-wave .hw1 path { stroke: rgba(130,177,255,0.42); }
+.hero-wave .hw2 { animation: heroWaveScroll 15s linear infinite; opacity: 0.85; }
+.hero-wave .hw2 path { stroke: rgba(79,195,247,0.26); }
+/* Keep all hero text/badges/author above the wave. */
+.hero-banner > div:not(.hero-wave),
+.hero-banner > h1,
+.hero-banner > p { position: relative; z-index: 1; }
+.hero-meta {
+    position: relative; z-index: 1;
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: #9BB8F4;
+    opacity: 0.92;
+}
+.hero-badge {
+    display: inline-block;
+    background: rgba(79,139,249,0.16);
+    border: 1px solid rgba(79,139,249,0.36);
+    border-radius: 2rem;
+    padding: 0.2rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    margin: 0 0.28rem 0.7rem 0;
+    color: #A8C4FF;
+    backdrop-filter: blur(4px);
+    transition: background 0.22s ease, transform 0.22s ease,
+                box-shadow 0.22s ease;
+}
+.hero-badge:hover {
+    background: rgba(79,139,249,0.28);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(79,139,249,0.25);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PANEL CARDS
+   — equal height via min-height (NOT a global column-flex hack: stretching
+     every column's first child distorted unrelated layouts and caused
+     overlapping controls).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.panel-card {
+    min-height: 16.5rem;
+    margin-bottom: 0.65rem;
+    background: linear-gradient(145deg,
+        rgba(10,22,62,0.62) 0%, rgba(14,28,75,0.38) 100%);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(79,139,249,0.18);
+    border-radius: 1rem;
+    padding: 1.6rem 1.7rem 1.8rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1),
+                box-shadow 0.3s ease,
+                border-color 0.3s ease;
+}
+/* Top gradient line */
+.panel-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg,
+        transparent 0%, #4F8BF9 40%, #00BCD4 60%, transparent 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+/* Shimmer sweep on hover */
+.panel-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg,
+        transparent 35%, rgba(79,139,249,0.06) 50%, transparent 65%);
+    transform: translateX(-100%) skewX(-10deg);
+    transition: none;
+}
+.panel-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 18px 44px rgba(7,15,43,0.6),
+                0 0 0 1px rgba(79,139,249,0.35),
+                0 0 32px rgba(79,139,249,0.08);
+    border-color: rgba(79,139,249,0.35);
+}
+.panel-card:hover::before { opacity: 1; }
+.panel-card:hover::after {
+    transform: translateX(200%) skewX(-10deg);
+    transition: transform 0.65s ease;
+}
+.panel-card h4 {
+    margin: 0 0 0.9rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #82B1FF 0%, #4FC3F7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.panel-card ul { padding-left: 1.1rem; margin: 0; flex: 1; }
+.panel-card li {
+    margin-bottom: 0.4rem;
+    font-size: 0.87rem;
+    opacity: 0.72;
+    line-height: 1.45;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.panel-card:hover li { opacity: 0.88; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EMPTY STATE — sober glyph in a dashed ring instead of an emoji
+   ═══════════════════════════════════════════════════════════════════════════ */
+.empty-state {
+    text-align: center;
+    padding: 2.4rem 2rem 2.6rem;
+    background: rgba(79,139,249,0.04);
+    border: 1px dashed rgba(79,139,249,0.22);
+    border-radius: 1rem;
+    margin: 0.8rem 0;
+}
+.empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px; height: 64px;
+    border: 1px dashed rgba(79,139,249,0.45);
+    border-radius: 50%;
+    font-size: 1.6rem;
+    font-weight: 300;
+    color: #5E7FD4;
+    margin-bottom: 1rem;
+    animation: float 5s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PILLS & SEGMENTED CONTROL  — modern chip-style selectors.
+   Streamlit renders segmented-control buttons FLUSH against each other;
+   chip styling (rounded + bordered segments) makes them overlap. Forcing a
+   real flex gap on the group turns every option into a separate chip.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* The real flex row of options is baseweb's button-group INSIDE stButtonGroup
+   (stButtonGroup itself also wraps the widget label, so spacing it does
+   nothing to the buttons). Space the options on the button-group and reset the
+   negative border-collapse margins baseweb puts between adjacent segments. */
+[data-testid="stButtonGroup"] [data-baseweb="button-group"] {
+    display: inline-flex !important;
+    flex-wrap: wrap !important;
+    gap: 0.7rem !important;
+}
+[data-testid="stButtonGroup"] [data-baseweb="button-group"] > * {
+    margin: 0 !important;
+}
+[data-testid="stBaseButton-pills"],
+[data-testid="stBaseButton-segmented_control"] {
+    background: rgba(79,139,249,0.06) !important;
+    border: 1px solid rgba(79,139,249,0.22) !important;
+    color: #AFC3E8 !important;
+    border-radius: 2rem !important;
+    transition: background 0.18s ease, border-color 0.18s ease,
+                transform 0.18s ease, box-shadow 0.18s ease !important;
+}
+[data-testid="stBaseButton-pills"]:hover,
+[data-testid="stBaseButton-segmented_control"]:hover {
+    border-color: rgba(79,139,249,0.55) !important;
+    background: rgba(79,139,249,0.14) !important;
+    transform: translateY(-1px) !important;
+}
+[data-testid="stBaseButton-pillsActive"],
+[data-testid="stBaseButton-segmented_controlActive"] {
+    background: linear-gradient(135deg, #2952C4 0%, #0891B2 100%) !important;
+    border: 1px solid rgba(130,177,255,0.55) !important;
+    color: #FFFFFF !important;
+    border-radius: 2rem !important;
+    font-weight: 600 !important;
+    box-shadow: 0 3px 14px rgba(41,82,196,0.45) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BORDERED CONTAINERS  (st.container(border=True)) — glass panels
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] {
+    gap: 0.65rem;
+}
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: linear-gradient(150deg,
+        rgba(10,22,62,0.45) 0%, rgba(14,28,75,0.22) 100%);
+    border: 1px solid rgba(79,139,249,0.16) !important;
+    border-radius: 0.9rem !important;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    border-color: rgba(79,139,249,0.3) !important;
+    box-shadow: 0 6px 24px rgba(7,15,43,0.35);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INFO CARDS  — generic editorial card (CNN Learning, Run Experiment, …)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.info-card {
+    background: linear-gradient(145deg,
+        rgba(8,18,52,0.55) 0%, rgba(12,24,65,0.32) 100%);
+    border: 1px solid rgba(79,139,249,0.14);
+    border-left: 3px solid rgba(79,139,249,0.45);
+    border-radius: 0.75rem;
+    padding: 0.85rem 1.05rem 0.9rem;
+    margin-bottom: 0.7rem;
+    transition: transform 0.22s ease, border-color 0.22s ease,
+                box-shadow 0.22s ease;
+}
+.info-card:hover {
+    transform: translateX(3px);
+    border-left-color: #4F8BF9;
+    box-shadow: 0 6px 20px rgba(9,28,78,0.4);
+}
+.info-card .ic-title {
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: #82B1FF;
+    margin-bottom: 0.3rem;
+    letter-spacing: 0.01em;
+}
+.info-card .ic-tag {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #B39DDB;
+    background: rgba(156,39,176,0.14);
+    border: 1px solid rgba(156,39,176,0.3);
+    border-radius: 1rem;
+    padding: 0.06rem 0.55rem;
+    margin-left: 0.4rem;
+    vertical-align: 1px;
+}
+.info-card .ic-body {
+    font-size: 0.8rem;
+    line-height: 1.6;
+    opacity: 0.74;
+    margin: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INFORMATIONAL CARDS — normal arrow cursor (not the text I-beam) over any
+   non-interactive info surface. cursor is inherited, so children get it too;
+   real links/buttons inside keep their own pointer cursor.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.info-card, .panel-card, .corpus-card, .method-card, .pipe-step, .pipe-arrow,
+.stat-strip, .stat-cell, .cfg-chip, .chip-row, .side-status, .dist-cards,
+.dist-row, .mini-note, .sec-head, .sec-sub, .best-banner, .empty-state,
+.hero-badge, .rep-card, .rep-grid,
+.hero-banner h1, .hero-banner p, .hero-overline, .hero-author .ha-name {
+    cursor: default;
+}
+.hero-author a { cursor: pointer; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REPRESENTATION CARDS — pretty grid for the Signal Explorer "what does each
+   representation show?" expander.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.rep-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.55rem;
+    margin: 0.2rem 0 0.55rem;   /* bottom gap so the last cards don't touch the expander edge */
+}
+.rep-card {
+    background: linear-gradient(145deg,
+        rgba(8,18,52,0.5) 0%, rgba(12,24,65,0.3) 100%);
+    border: 1px solid rgba(79,139,249,0.14);
+    border-left: 3px solid #4F8BF9;
+    border-radius: 0.6rem;
+    padding: 0.6rem 0.85rem 0.65rem;
+    transition: transform 0.2s ease, border-color 0.2s ease,
+                box-shadow 0.2s ease;
+}
+.rep-card:hover {
+    transform: translateX(3px);
+    border-left-color: #00BCD4;
+    box-shadow: 0 5px 16px rgba(9,28,78,0.35);
+}
+.rep-card .rep-name {
+    font-weight: 700;
+    color: #82B1FF;
+    font-size: 0.84rem;
+    margin-bottom: 0.2rem;
+    letter-spacing: 0.01em;
+}
+.rep-card .rep-desc {
+    font-size: 0.76rem;
+    opacity: 0.74;
+    line-height: 1.45;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PIPELINE STEPS  — Run Experiment header strip
+   ═══════════════════════════════════════════════════════════════════════════ */
+.pipe-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 0.6rem;
+    align-items: stretch;
+    margin: 0.6rem 0 0.9rem;
+}
+.pipe-step {
+    background: linear-gradient(145deg,
+        rgba(10,22,62,0.6) 0%, rgba(14,28,75,0.35) 100%);
+    border: 1px solid rgba(79,139,249,0.18);
+    border-radius: 0.85rem;
+    padding: 0.85rem 1.05rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.24s ease, border-color 0.24s ease,
+                box-shadow 0.24s ease;
+}
+.pipe-step::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, #4F8BF9, #00BCD4);
+    opacity: 0.55;
+}
+.pipe-step:hover {
+    transform: translateY(-3px);
+    border-color: rgba(79,139,249,0.4);
+    box-shadow: 0 10px 28px rgba(9,28,78,0.45);
+}
+.pipe-step .ps-step {
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6E87C9;
+    margin-bottom: 0.18rem;
+}
+.pipe-step .ps-value {
+    font-size: 0.98rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #82B1FF, #4FC3F7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.3;
+}
+.pipe-step .ps-sub {
+    font-size: 0.72rem;
+    opacity: 0.58;
+    margin-top: 0.15rem;
+    line-height: 1.45;
+}
+.pipe-arrow {
+    align-self: center;
+    color: rgba(79,139,249,0.55);
+    font-size: 1.25rem;
+    font-weight: 700;
+    padding: 0 0.1rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONFIG CHIPS  — small key:value summary badges
+   ═══════════════════════════════════════════════════════════════════════════ */
+.chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.15rem 0 0.6rem;
+}
+.cfg-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    background: rgba(79,139,249,0.07);
+    border: 1px solid rgba(79,139,249,0.2);
+    border-radius: 2rem;
+    padding: 0.18rem 0.75rem;
+    font-size: 0.73rem;
+    color: #AFC3E8;
+}
+.cfg-chip b { color: #82B1FF; font-weight: 700; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SECTION LABEL  — small uppercase heading used above control groups
+   ═══════════════════════════════════════════════════════════════════════════ */
+.section-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6E87C9;
+    margin: 0.1rem 0 0.35rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EDITORIAL SECTION HEADER — index number + title + fading rule
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+    margin: 0.6rem 0 0.35rem;
+}
+.sec-head .sh-num {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #4F8BF9;
+    letter-spacing: 0.1em;
+    font-variant-numeric: tabular-nums;
+}
+.sec-head .sh-title {
+    margin: 0;
+    font-size: 1.32rem;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+    color: #E8EDF8;
+    line-height: 1.2;
+}
+.sec-head .sh-rule {
+    /* Fill ALL the remaining width up to the content edge (long accent that
+       adapts to the page). The sweep uses a percentage background-position, so
+       the highlight sits at the same FRACTION of every rule at any instant —
+       they stay coordinated even though each fills a slightly different width. */
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 1px;
+    align-self: center;
+    background: linear-gradient(90deg, rgba(79,139,249,0.45), transparent);
+}
+.sec-sub {
+    font-size: 0.82rem;
+    opacity: 0.55;
+    margin: 0 0 0.9rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAGE LINK — ghost-button navigation cards (Home panel links)
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stPageLink"] a {
+    border: 1px solid rgba(79,139,249,0.3) !important;
+    border-radius: 0.6rem !important;
+    padding: 0.42rem 0.9rem !important;
+    transition: background 0.2s ease, border-color 0.2s ease,
+                transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+[data-testid="stPageLink"] a:hover {
+    background: rgba(79,139,249,0.14) !important;
+    border-color: rgba(79,139,249,0.6) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 16px rgba(79,139,249,0.2) !important;
+}
+[data-testid="stPageLink"] a p { font-weight: 600 !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ALIGN-RIGHT UTILITY — wrap a widget in st.container(key="alignr_…").
+   Covers button groups, buttons and download buttons so right-edge
+   alignment reads as intentional, not floating.
+   ═══════════════════════════════════════════════════════════════════════════ */
+[class*="st-key-alignr"] [data-testid="stButtonGroup"],
+[class*="st-key-alignr"] [data-testid="stButton"],
+[class*="st-key-alignr"] [data-testid="stDownloadButton"] {
+    display: flex !important;
+    justify-content: flex-end !important;
+    width: 100% !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DROPDOWN-ONLY SELECTBOXES — wrap in st.container(key="nosearch_…") to block
+   type-to-filter so the control behaves as a pure dropdown (still clickable).
+   ═══════════════════════════════════════════════════════════════════════════ */
+[class*="st-key-nosearch"] [data-baseweb="select"] input {
+    pointer-events: none !important;
+    caret-color: transparent !important;
+}
+[class*="st-key-nosearch"] [data-baseweb="select"] > div {
+    cursor: pointer !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LABEL GAP — extra space between a segmented control's own label and its
+   buttons. Wrap the control in st.container(key="lblgap_…"). Only affects
+   visible labels; collapsed-label controls render no stWidgetLabel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+[class*="st-key-lblgap"] [data-testid="stWidgetLabel"] {
+    margin-bottom: 0.6rem !important;
+}
+
+/* COMPACT "Evaluation" group — "Evaluate on" and (only for 2019) "Score on"
+   laid out side by side in a fit-content blue frame (short, not full width). */
+[class*="st-key-evalgrp_"] {
+    display: flex !important; flex-direction: row; flex-wrap: wrap;
+    column-gap: 1.2rem; row-gap: 0.2rem; align-items: flex-end;
+    width: fit-content; max-width: 100%;
+    border: 1px solid rgba(79,139,249,0.2);
+    border-left: 3px solid rgba(79,139,249,0.45);
+    border-radius: 0.55rem;
+    padding: 0.35rem 0.7rem 0.45rem;
+    background: rgba(79,139,249,0.05);
+}
+[class*="st-key-evalgrp_"] > [data-testid="stElementContainer"] { width: auto !important; }
+/* Vertical divider between "Evaluate on" and "Score on". */
+[class*="st-key-evalgrp_"] > [data-testid="stElementContainer"]:last-child {
+    border-left: 1px solid rgba(79,139,249,0.28);
+    padding-left: 1.1rem; margin-left: 0.1rem;
+}
+/* The fixed "Score on · Eval" shown for the eval-only 2021 corpora. */
+.eval-fixed { display: flex; flex-direction: column; gap: 0.32rem; padding-top: 0.05rem; }
+.eval-fixed .ef-lbl { font-size: 0.7rem; font-weight: 700; opacity: 0.75;
+    text-transform: uppercase; letter-spacing: 0.05em; }
+.eval-fixed .ef-val { font-size: 0.82rem; font-weight: 700; color: #C9D7F5;
+    background: rgba(79,139,249,0.12); border: 1px solid rgba(79,139,249,0.25);
+    border-radius: 0.45rem; padding: 0.18rem 0.7rem; width: fit-content; }
+[class*="st-key-evalgrp_"] [data-testid="stWidgetLabel"] {
+    margin-bottom: 0.2rem !important;
+}
+[class*="st-key-evalgrp_"] [data-testid="stWidgetLabel"] p {
+    font-size: 0.7rem !important; font-weight: 700; opacity: 0.75;
+    text-transform: uppercase; letter-spacing: 0.05em;
+}
+[class*="st-key-evalgrp_"] [data-baseweb="button-group"] button {
+    padding-top: 0.18rem !important; padding-bottom: 0.18rem !important;
+    font-size: 0.78rem !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HERO REFINEMENTS — overline kicker, flush-top placement
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hero-overline {
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: #9BB8F4;
+    margin-bottom: 0.55rem;
+}
+.hero-banner { margin-top: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STAT STRIP — large editorial numerals under the hero
+   ═══════════════════════════════════════════════════════════════════════════ */
+.stat-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: rgba(79,139,249,0.16);
+    border: 1px solid rgba(79,139,249,0.16);
+    border-radius: 0.9rem;
+    overflow: hidden;
+    margin: 1rem 0 0.4rem;
+}
+.stat-cell {
+    background: #0D1426;
+    padding: 1rem 1.3rem 0.95rem;
+    transition: background 0.22s ease;
+}
+.stat-cell:hover { background: #111A33; }
+.stat-cell .st-num {
+    font-size: 1.55rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #82B1FF, #4FC3F7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+.stat-cell .st-lbl {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    opacity: 0.5;
+    margin-top: 0.18rem;
+    font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STATUS DOTS — sober availability indicators (sidebar + cards)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    margin-right: 0.45rem;
+    vertical-align: 1px;
+}
+.dot-ok  { background: #66BB6A; box-shadow: 0 0 6px rgba(102,187,106,0.6); }
+.dot-err { background: #EF5350; box-shadow: 0 0 6px rgba(239,83,80,0.5); }
+.dot-na  { background: #5C6B8A; }
+.side-status {
+    border: 1px solid rgba(79,139,249,0.14);
+    border-radius: 0.7rem;
+    background: rgba(79,139,249,0.05);
+    padding: 0.7rem 0.9rem 0.65rem;
+    margin-bottom: 0.85rem;        /* air between stacked sidebar panels */
+    font-size: 0.86rem;            /* larger, more readable sidebar panels */
+    line-height: 1.9;
+    color: #AFC3E8;
+}
+.side-status .ss-title {
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6E87C9;
+    margin-bottom: 0.25rem;
+}
+.side-status .ss-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+    line-height: 1.75;
+}
+.side-status .ss-row .ss-k { opacity: 0.6; white-space: nowrap; }
+.side-status .ss-row .ss-v {
+    color: #C9D7F5;
+    font-weight: 600;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 11rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MINI NOTE — fixed-height inline notice. Always rendered (info or warn
+   variant) so toggling options never resizes the surrounding panel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.mini-note {
+    display: flex;
+    align-items: center;          /* text vertically centred against the bar */
+    gap: 0.55rem;
+    min-height: 2.2em;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    color: #8FA3CE;
+    margin: 0.1rem 0 0.55rem;     /* hugs the control above, breathes below */
+}
+.mini-note::before {
+    content: "";
+    flex: 0 0 3px;
+    align-self: stretch;
+    border-radius: 2px;
+    background: rgba(79,139,249,0.45);
+}
+.mini-note.warn { color: #D9BC8A; }
+.mini-note.warn::before { background: rgba(255,179,0,0.55); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   APP FOOTER — closed page ending: top rule, colophon, no trailing scroll
+   ═══════════════════════════════════════════════════════════════════════════ */
+.app-footer {
+    margin-top: 2.2rem;
+    border-top: 1px solid rgba(79,139,249,0.16);
+    padding: 1.1rem 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.4rem 1.5rem;
+    font-size: 0.74rem;
+    color: #7487B0;
+}
+.app-footer .af-left  { font-weight: 700; letter-spacing: 0.04em; color: #8FA3CE; }
+.app-footer .af-right { opacity: 0.8; }
+
+/* Pin the footer to the very bottom of the viewport on pages that have one
+   (only when content is shorter than the screen). Scoped via :has(.app-footer)
+   so it never affects the tool pages. NOTE: the page's elements live inside a
+   stVerticalBlock *inside* the block-container, so the flex column + auto
+   margin must be applied there (the footer is the last element of THAT block). */
+[data-testid="stMainBlockContainer"]:has(.app-footer) {
+    min-height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+}
+[data-testid="stMainBlockContainer"]:has(.app-footer) > [data-testid="stVerticalBlock"] {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+}
+[data-testid="stMainBlockContainer"]:has(.app-footer) > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
+    margin-top: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOTION & DYNAMISM — cohesive, slow, CONTINUOUS ambient motion only (never
+   entry animations: those replay on every rerun and read as flicker). Overrides
+   a few earlier static rules to make the signal/audio theme feel alive.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Animated particle-network ("spider-web") background, drawn on a <canvas>
+   that the helper iframe injects behind everything. The dark base colour moves
+   to the page root so the canvas (z-index:-1) shows through the now-transparent
+   app containers; the sidebar keeps its own opaque background. */
+html, body { background-color: #0E1117 !important; }
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"] { background: transparent !important; }
+#bgWeb {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* A bright highlight that TRAVELS along thin accent rules — clearly moving,
+   unlike a subtle hue shift on a 1-3px bar. */
+@keyframes sweepX { 0% { background-position: -45% 0; } 100% { background-position: 145% 0; } }
+.gradient-bar {
+    height: 3px; border-radius: 2px; margin: 0.6rem 0 1.4rem;
+    background-color: rgba(79,139,249,0.18) !important;
+    background-image: linear-gradient(90deg,
+        rgba(0,229,255,0) 0%, #00E5FF 45%, #4FC3F7 55%, rgba(0,229,255,0) 100%) !important;
+    background-size: 36% 100% !important;
+    background-repeat: no-repeat !important;
+    animation: sweepX 2.8s linear infinite !important;
+}
+.sec-head .sh-rule {
+    background-color: rgba(79,139,249,0.14) !important;
+    background-image: linear-gradient(90deg,
+        rgba(79,195,247,0) 0%, #4FC3F7 50%, rgba(79,195,247,0) 100%) !important;
+    background-size: 45% 100% !important;
+    background-repeat: no-repeat !important;
+    animation: sweepX 5s linear infinite !important;
+}
+
+/* Headline numerals breathe with a slow flowing gradient. */
+[data-testid="stMetricValue"],
+.stat-cell .st-num,
+.pipe-step .ps-value {
+    background-size: 220% 220% !important;
+    animation: gradientShift 7s ease infinite;
+}
+
+/* Metric cards: a permanent (not hover-only) faint flowing top accent. */
+[data-testid="stMetric"]::after {
+    background: linear-gradient(90deg,
+        transparent, rgba(79,139,249,0.55), rgba(0,188,212,0.55), transparent) !important;
+    background-size: 220% 100% !important;
+    animation: gradientShift 6s ease infinite;
+}
+
+/* Panel cards: reveal a softly flowing top line even at rest (subtle). */
+.panel-card::before {
+    opacity: 0.45;
+    background: linear-gradient(90deg,
+        transparent 0%, #4F8BF9 40%, #00BCD4 60%, transparent 100%);
+    background-size: 220% 100%;
+    animation: gradientShift 6s ease infinite;
+}
+.panel-card:hover::before { opacity: 1; }
+
+/* ── Global background-job banner — PINNED to the bottom of the sidebar ────── */
+@keyframes obGlow { 0%,100% { box-shadow: 0 0 0 1px rgba(179,136,255,0.30),
+                                          0 0 16px rgba(156,39,176,0.20); }
+                    50%      { box-shadow: 0 0 0 1px rgba(179,136,255,0.6),
+                                          0 0 30px rgba(156,39,176,0.42); } }
+@keyframes obDot  { 0%,100% { opacity: 0.35; transform: scale(0.8); }
+                    50%      { opacity: 1;    transform: scale(1.15); } }
+/* The sidebar has a fixed 17.5rem width, so pin the banner there near the
+   bottom. It is position:fixed (does NOT add to the content height), so it never
+   forces the sidebar to scroll; the page's own panels are short enough to sit
+   above it. */
+[class*="st-key-opbanner"], [class*="st-key-opcta"] {
+    position: fixed; bottom: 3rem; left: 0; width: 17.5rem; z-index: 60;
+    padding: 0 0.9rem;
+}
+.op-cta-head {
+    font-size: 0.72rem; line-height: 1.4; color: #9FB6E0;
+    margin-bottom: 0.45rem; opacity: 0.85;
+}
+/* The whole running banner is a click target: an invisible button overlays it
+   and jumps to the page where the job is running. */
+[class*="st-key-opbanner"] .op-banner { cursor: pointer; }
+[class*="st-key-opbanner"] [data-testid="stElementContainer"]:last-child {
+    position: absolute; inset: 0; margin: 0 !important; z-index: 5;
+}
+[class*="st-key-opbanner"] [data-testid="stButton"],
+[class*="st-key-opbanner"] [data-testid="stButton"] button {
+    width: 100% !important; height: 100% !important; margin: 0 !important;
+}
+[class*="st-key-opbanner"] [data-testid="stButton"] button {
+    opacity: 0 !important; min-height: 0 !important; border: none !important;
+    padding: 0 !important;
+}
+.op-banner .ob-go { margin-left: auto; font-size: 0.66rem; color: #C9A6FF;
+    font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; flex: 0 0 auto; }
+.op-banner .ob-head { flex-wrap: nowrap; }
+.op-banner .ob-head > span:nth-child(3) {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-banner {
+    background: linear-gradient(150deg, rgba(74,20,110,0.62), rgba(34,16,74,0.6));
+    border: 1px solid rgba(179,136,255,0.42); border-radius: 0.8rem;
+    padding: 0.85rem 0.95rem; animation: obGlow 2.6s ease-in-out infinite;
+    backdrop-filter: blur(3px);
+}
+.op-banner .ob-head {
+    display: flex; align-items: center; gap: 0.45rem;
+    font-size: 0.86rem; font-weight: 750; color: #E6D6FF; margin-bottom: 0.5rem;
+}
+.op-banner .ob-ic { display: inline-flex; color: #C9A6FF; }
+.op-banner .ob-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: #C77DFF;
+    box-shadow: 0 0 8px #C77DFF; animation: obDot 1.1s ease-in-out infinite; flex: 0 0 auto;
+}
+.op-banner .ob-sub { font-size: 0.74rem; color: #C7B6E6; margin-bottom: 0.45rem; }
+.op-banner .ob-track {
+    height: 6px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden;
+}
+.op-banner .ob-track span {
+    display: block; height: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, #B388FF, #7C4DFF);
+    transition: width 0.4s ease;
+}
+.op-banner .ob-pct { font-size: 0.7rem; color: #A98FD0; margin-top: 0.35rem; }
+.op-banner .ob-note { font-size: 0.68rem; color: #8A78AE; margin-top: 0.5rem; line-height: 1.4; }
+</style>
+"""
+
+
+# ===========================================================================
+# Cached resources
+# ===========================================================================
+
+@st.cache_resource
+def load_config() -> Dict:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+@st.cache_resource
+def get_extractor() -> FeatureExtractor:
+    return FeatureExtractor(CONFIG_PATH)
+
+
+@st.cache_data(show_spinner=False)
+def get_samples(subset: str) -> List[Tuple[str, int]]:
+    config    = load_config()
+    root_dir  = config["dataset"]["path_la2019"]
+    proto_dir = os.path.join(root_dir, config["dataset"]["protocols_dir"])
+    proto     = config["dataset"]["protocols"].get(subset)
+    if not proto:
+        return []
+    try:
+        return parse_protocol(os.path.join(proto_dir, proto), root_dir, subset)
+    except (FileNotFoundError, ValueError):
+        return []
+
+
+@st.cache_data(show_spinner=False)
+def get_samples_2021_la() -> List[Tuple[str, int]]:
+    """Load and cache the full ASVspoof 2021 LA eval split."""
+    config = load_config()
+    cfg    = config.get("dataset_2021", {}).get("la", {})
+    eval_dir = cfg.get("eval_dir", "")
+    keys     = cfg.get("keys", "")
+    try:
+        return parse_protocol_2021(keys, [eval_dir])
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"[WARNING] 2021 LA unavailable: {exc}")
+        return []
+
+
+@st.cache_data(show_spinner=False)
+def get_samples_2021_df() -> List[Tuple[str, int]]:
+    """Load and cache the full ASVspoof 2021 DF eval split (all 3 partitions)."""
+    config    = load_config()
+    cfg       = config.get("dataset_2021", {}).get("df", {})
+    eval_dirs = cfg.get("eval_dirs", [])
+    keys      = cfg.get("keys", "")
+    try:
+        return parse_protocol_2021(keys, eval_dirs)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"[WARNING] 2021 DF unavailable: {exc}")
+        return []
+
+
+def corpus_available_2021_la() -> bool:
+    return len(get_samples_2021_la()) > 0
+
+
+def corpus_available_2021_df() -> bool:
+    return len(get_samples_2021_df()) > 0
+
+
+def corpus_configured_2021_la() -> bool:
+    """Lightweight check (single stat call) — does NOT load audio index."""
+    cfg = load_config().get("dataset_2021", {}).get("la", {})
+    return os.path.isfile(cfg.get("keys", ""))
+
+
+def corpus_configured_2021_df() -> bool:
+    """Lightweight check (single stat call) — does NOT load audio index."""
+    cfg = load_config().get("dataset_2021", {}).get("df", {})
+    return os.path.isfile(cfg.get("keys", ""))
+
+
+def split_by_label(
+    samples: List[Tuple[str, int]],
+) -> Tuple[List[str], List[str]]:
+    bonafide = [p for p, e in samples if e == LABEL_BONAFIDE]
+    spoof    = [p for p, e in samples if e == LABEL_SPOOF]
+    return bonafide, spoof
+
+
+def corpus_available() -> bool:
+    return len(get_samples("train")) > 0
+
+
+# ===========================================================================
+# Public / CPU demo mode + pretrained model registry (Streamlit Cloud)
+# ===========================================================================
+# On the free public cloud there is no GPU and the multi-GB ASVspoof corpus is
+# not on disk, so training / full-benchmark features cannot run. Instead, EVERY
+# pretrained model (the two CNNs and the classic XGBoost × DSP detectors) is
+# downloaded on demand from Hugging Face and run on CPU against a single clip
+# the visitor uploads — a live, side-by-side comparison of the whole zoo.
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Pretrained weights are cached here (git-ignored). The trainer's legacy single
+# checkpoint also lives at the repo root (src/pipeline.py / load_checkpoint.py).
+MODELS_DIR      = os.path.join(_REPO_ROOT, "models")
+CHECKPOINT_PATH = os.path.join(_REPO_ROOT, "asvspoof_model_checkpoint.pth")
+
+# ── Per-model download URLs ────────────────────────────────────────────────
+# Paste each Hugging Face "https://huggingface.co/<user>/<repo>/resolve/main/<file>"
+# direct link to enable that model in the web demo. Leave the placeholder to
+# disable a model (it still loads locally if its file is already in models/).
+RESNET_URL     = "TU_ENLACE_RESNET"        # ResNet + SE   (.pth)
+CNN3X3_URL     = "TU_ENLACE_CNN3X3"        # 3-Block CNN   (.pth)
+XGB_MFCC_URL   = "TU_ENLACE_XGB_MFCC"      # XGBoost · MFCC   (.joblib)
+XGB_LFCC_URL   = "TU_ENLACE_XGB_LFCC"      # XGBoost · LFCC   (.joblib)
+XGB_CQCC_URL   = "TU_ENLACE_XGB_CQCC"      # XGBoost · CQCC   (.joblib)
+XGB_FUSION_URL = "TU_ENLACE_XGB_FUSION"    # XGBoost · Fusion (.joblib)
+
+# Backward-compatible alias: the single checkpoint a fresh local training writes
+# is treated as the ResNet entry by default.
+MODEL_URL = RESNET_URL
+
+# Registry of every servable pretrained detector. Fields:
+#   kind  : "cnn" (torch .pth) or "classic" (joblib-dumped sklearn/xgb estimator)
+#   feat  : FeatureExtractor option key for classic models (CNNs read the STFT
+#           spectrogram directly, so feat is None for them)
+#   front : human-readable front-end, for the comparison table
+PRETRAINED_REGISTRY: List[Dict] = [
+    {"key": "resnet",     "name": "ResNet + SE",       "kind": "cnn",
+     "feat": None, "front": "STFT-dB spectrogram",
+     "file": "resnet_checkpoint.pth", "url": RESNET_URL},
+    {"key": "cnn3x3",     "name": "3-Block CNN (3×3)", "kind": "cnn",
+     "feat": None, "front": "STFT-dB spectrogram",
+     "file": "cnn3x3_checkpoint.pth", "url": CNN3X3_URL},
+    {"key": "xgb_mfcc",   "name": "XGBoost · MFCC",    "kind": "classic",
+     "feat": "2", "front": "MFCC",
+     "file": "xgb_mfcc.joblib", "url": XGB_MFCC_URL},
+    {"key": "xgb_lfcc",   "name": "XGBoost · LFCC",    "kind": "classic",
+     "feat": "3", "front": "LFCC",
+     "file": "xgb_lfcc.joblib", "url": XGB_LFCC_URL},
+    {"key": "xgb_cqcc",   "name": "XGBoost · CQCC",    "kind": "classic",
+     "feat": "6", "front": "CQCC",
+     "file": "xgb_cqcc.joblib", "url": XGB_CQCC_URL},
+    {"key": "xgb_fusion", "name": "XGBoost · Fusion",  "kind": "classic",
+     "feat": "5", "front": "Fusion (all DSP)",
+     "file": "xgb_fusion.joblib", "url": XGB_FUSION_URL},
+]
+
+
+def running_on_gpu() -> bool:
+    """True when a CUDA GPU is available (local workstation), False on the
+    CPU-only public cloud."""
+    import torch
+    return torch.cuda.is_available()
+
+
+def demo_mode() -> bool:
+    """Public-demo mode: the heavy ASVspoof corpus is NOT on disk (the case on
+    Streamlit Community Cloud). Corpus-dependent sections degrade to notices;
+    the pretrained multi-model file analysis remains fully usable."""
+    return not corpus_available()
+
+
+def _url_set(url: Optional[str]) -> bool:
+    """Whether a download URL has been filled in (not a placeholder)."""
+    return (isinstance(url, str) and "TU_ENLACE" not in url
+            and url.startswith(("http://", "https://")))
+
+
+def _model_path(entry: Dict) -> str:
+    return os.path.join(MODELS_DIR, entry["file"])
+
+
+def model_available(entry: Dict) -> bool:
+    """A model is servable if its weights are already on disk or a URL is set."""
+    return os.path.isfile(_model_path(entry)) or _url_set(entry["url"])
+
+
+def available_pretrained_models() -> List[Dict]:
+    """Every registry entry whose weights are present or downloadable."""
+    return [e for e in PRETRAINED_REGISTRY if model_available(e)]
+
+
+def pretrained_available() -> bool:
+    """True when at least one pretrained model can be served."""
+    return len(available_pretrained_models()) > 0
+
+
+def model_downloaded(entry: Dict) -> bool:
+    """True when a model's weights are already cached on disk (not just a URL)."""
+    return os.path.isfile(_model_path(entry))
+
+
+# Pre-computed metrics for the pretrained models, written by export_models.py and
+# committed to the repo so the web demo can show the real EER/minDCF leaderboard
+# without the corpus. Maps model key -> {"eer_dev", "mindcf_dev", "eer_eval", ...}.
+DEMO_LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "demo_leaderboard.json")
+
+
+def load_demo_leaderboard() -> Dict[str, Dict]:
+    """Read the committed metrics table (empty dict if it has not been generated)."""
+    if not os.path.isfile(DEMO_LEADERBOARD_PATH):
+        return {}
+    import json
+    try:
+        with open(DEMO_LEADERBOARD_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (ValueError, OSError):
+        return {}
+
+
+def _download_if_missing(url: str, path: str, label: str) -> None:
+    if os.path.isfile(path):
+        return
+    if not _url_set(url):
+        raise FileNotFoundError(
+            f"{label}: no weights on disk and no download URL configured. "
+            "Paste a Hugging Face link in ui_helpers (e.g. RESNET_URL), or run "
+            "export_models.py locally to generate the files."
+        )
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    import urllib.request
+    with st.spinner(f"Downloading {label} (first run only)…"):
+        urllib.request.urlretrieve(url, path)
+
+
+@st.cache_resource(show_spinner=False)
+def load_pretrained_torch(file: str, url: str, name: str):
+    """Load a torch CNN checkpoint on CPU (downloading it first if needed).
+    Returns (model_in_eval_mode, checkpoint_meta). Cached per (file)."""
+    import torch
+
+    from src.models import AudioDeepfakeCNN, ResNetCNN
+
+    path = file if os.path.isabs(file) else os.path.join(MODELS_DIR, file)
+    _download_if_missing(url, path, name)
+    with st.spinner(f"Loading {name} on CPU…"):
+        ckpt = torch.load(path, map_location=torch.device("cpu"))
+        model_cls = ResNetCNN if ckpt.get("arch") == "resnet" else AudioDeepfakeCNN
+        model = model_cls(dropout=float(ckpt.get("dropout", 0.3)))
+        model.load_state_dict(ckpt["state_dict"])
+        model.to("cpu").eval()
+    return model, ckpt
+
+
+@st.cache_resource(show_spinner=False)
+def load_pretrained_classic(file: str, url: str, name: str):
+    """Load a joblib-dumped classic estimator (downloading it first if needed)."""
+    import joblib
+
+    path = os.path.join(MODELS_DIR, file)
+    _download_if_missing(url, path, name)
+    with st.spinner(f"Loading {name}…"):
+        return joblib.load(path)
+
+
+def load_pretrained_model(entry: Dict):
+    """Load one registry entry (torch model or classic estimator) on CPU."""
+    if entry["kind"] == "cnn":
+        model, _ = load_pretrained_torch(entry["file"], entry["url"], entry["name"])
+        return model
+    return load_pretrained_classic(entry["file"], entry["url"], entry["name"])
+
+
+def load_pretrained_cnn():
+    """Backward-compatible helper: load the first available CNN entry (or the
+    legacy single checkpoint) and return (model, meta)."""
+    for entry in available_pretrained_models():
+        if entry["kind"] == "cnn":
+            return load_pretrained_torch(entry["file"], entry["url"], entry["name"])
+    if os.path.isfile(CHECKPOINT_PATH):
+        return load_pretrained_torch(CHECKPOINT_PATH, "", "Pretrained CNN")
+    raise FileNotFoundError("No pretrained CNN available.")
+
+
+def demo_corpus_notice(title: str = "Disabled in the web demo",
+                       body: Optional[str] = None) -> None:
+    """Styled notice replacing the bare 'corpus not found' error: explains why a
+    corpus-dependent section is unavailable in the public CPU demo."""
+    body = body or (
+        "This section runs on the full ASVspoof corpus, which is not bundled in "
+        "the public CPU demo (it is several GB). Clone the repository and run "
+        "the app locally with the dataset — and a GPU for training — to use it."
+    )
+    st.markdown(
+        f'<div class="info-card" style="border-left:3px solid #4F8BF9;">'
+        f'<div class="ic-title">{title}</div>'
+        f'<p class="ic-body">{body}</p></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def test_audio_cta(
+    text: str = "Instead, hear the state of the art in real time: upload your own "
+                "clip and watch every pretrained model judge it side by side.",
+) -> None:
+    """Attractive redirect from a corpus-only section to the multi-model file
+    analysis that DOES work in the web demo."""
+    st.markdown(
+        f'<p style="margin:0.9rem 0 0.4rem;opacity:0.8;">{text}</p>',
+        unsafe_allow_html=True,
+    )
+    st.page_link("app_pages/3_Detection_Analysis.py",
+                 label="Try the live multi-model analysis",
+                 icon=":material/graphic_eq:")
+
+
+# ===========================================================================
+# Reusable UI components
+# ===========================================================================
+
+def show_empty_state(title: str, message: str, icon: str = "◌") -> None:
+    """Centred empty-state card: sober glyph in a dashed ring, heading, text."""
+    st.markdown(
+        f'<div class="empty-state">'
+        f'<div class="empty-icon">{icon}</div>'
+        f'<h3 style="color:#82B1FF;margin:0 0 .45rem;font-weight:700;">{title}</h3>'
+        f'<p style="max-width:480px;margin:.3rem auto;line-height:1.65;opacity:0.65;">{message}</p>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def label_badge(label: str) -> str:
+    """Return an HTML colour badge (dot + text) for a class label string."""
+    is_spoof = "spoof" in label.lower()
+    color = SPOOF_COLOR if is_spoof else BONAFIDE_COLOR
+    return (
+        f'<span style="color:{color};font-weight:600;">'
+        f'<span class="dot" style="background:{color};'
+        f'box-shadow:0 0 6px {color};"></span>{label}</span>'
+    )
+
+
+def section_header(num: str, title: str, caption: Optional[str] = None) -> None:
+    """Editorial section header: index number, title, fading rule, caption."""
+    st.markdown(
+        f'<div class="sec-head"><span class="sh-num">{num}</span>'
+        f'<h3 class="sh-title">{title}</h3><span class="sh-rule"></span></div>'
+        + (f'<p class="sec-sub">{caption}</p>' if caption else ""),
+        unsafe_allow_html=True,
+    )
+
+
+def sidebar_panel(
+    title: str,
+    rows: Optional[List[Tuple[str, str]]] = None,
+    text: Optional[str] = None,
+) -> None:
+    """Compact sidebar block: optional key/value rows and/or a short text.
+
+    rows: list of (label, value) pairs rendered right-aligned.
+    text: free-form sentence rendered below the rows.
+    """
+    body = "".join(
+        f'<div class="ss-row"><span class="ss-k">{k}</span>'
+        f'<span class="ss-v">{v}</span></div>'
+        for k, v in (rows or [])
+    )
+    if text:
+        body += f'<div style="margin-top:.3rem;">{text}</div>'
+    st.markdown(
+        f'<div class="side-status"><div class="ss-title">{title}</div>{body}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def mini_note(text: str, warn: bool = False) -> None:
+    """Fixed-height inline notice — never resizes the surrounding panel."""
+    cls = "mini-note warn" if warn else "mini-note"
+    st.markdown(f'<div class="{cls}"><span>{text}</span></div>',
+                unsafe_allow_html=True)
+
+
+def app_footer(left: str, right: str) -> None:
+    """Closed page ending: top rule + colophon, no trailing scroll space."""
+    st.markdown(
+        f'<div class="app-footer"><span class="af-left">{left}</span>'
+        f'<span class="af-right">{right}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+
+# Evaluation corpus options. Only 2019 LA has a dev split (seen attacks); the
+# 2021 corpora are eval-only, so the available "Score on" options DEPEND on the
+# corpus (see score_options_for / dev_corpus).
+EVAL_CORPUS_CHOICES = ["2019 LA", "2021 LA", "2021 DF"]
+
+
+def eval_corpora_for(choice: str):
+    """Return [(label, eval_samples)] for the chosen eval corpus (a 1-item list,
+    or empty if that corpus is unavailable)."""
+    if choice == "2019 LA":
+        samples = get_samples("eval")
+    elif choice == "2021 LA":
+        samples = get_samples_2021_la()
+    else:
+        samples = get_samples_2021_df()
+    return [(choice, samples)] if samples else []
+
+
+def score_options_for(corpus: str):
+    """The valid 'Score on' options for a corpus. 2019 LA has dev + eval; the
+    2021 corpora are eval-only."""
+    return ["Dev", "Eval", "Dev + Eval"] if corpus == "2019 LA" else ["Eval"]
+
+
+def eval_score_controls(prefix: str, disabled: bool = False):
+    """Unified 'Evaluation' group: the eval-corpus picker and the dependent
+    score-on picker inside one framed block (used by every benchmark mode so
+    they look consistent). Returns (corpus, score_split).
+
+    Keys are f'{prefix}_corpus' and f'{prefix}_split'.
+    """
+    ck, sk = f"{prefix}_corpus", f"{prefix}_split"
+    # Defaults (and self-heal any stale/invalid persisted value).
+    if st.session_state.get(ck) not in EVAL_CORPUS_CHOICES:
+        st.session_state[ck] = "2019 LA"
+    if st.session_state.get(sk) not in ("Dev", "Eval", "Dev + Eval"):
+        st.session_state[sk] = "Dev + Eval"
+    # The two controls live in one flex-row, fit-content frame (CSS) so the
+    # "Score on" sits right NEXT TO "Evaluate on" and the blue box stays short.
+    with st.container(key=f"evalgrp_{prefix}"):
+        corpus = st.segmented_control(
+            "Evaluate on", EVAL_CORPUS_CHOICES, key=ck, disabled=disabled)
+        corpus = corpus or "2019 LA"
+        if corpus == "2019 LA":          # only 2019 LA has a dev split → show it
+            score = st.segmented_control(
+                "Score on", ["Dev", "Eval", "Dev + Eval"], key=sk, disabled=disabled)
+            score = score or "Dev + Eval"
+        else:                            # 2021 corpora are eval-only → a single
+            # selected "Eval" pill so it looks identical to the 2019 control.
+            st.segmented_control("Score on", ["Eval"], default="Eval",
+                                 key=f"{prefix}_split_only", disabled=disabled)
+            score = "Eval"
+    return corpus, score
+
+
+def op_in_progress() -> bool:
+    """True while ANY background job (full comparison OR CNN training) runs."""
+    for key in ("bench_future", "cnn_future"):
+        fut = st.session_state.get(key)
+        if fut is not None and not fut.done():
+            return True
+    return False
+
+
+def op_status():
+    """Return (kind, label) of the running background job, or (None, None).
+
+    kind is 'full' or 'cnn'; label is a short human description for the banner.
+    """
+    fut = st.session_state.get("bench_future")
+    if fut is not None and not fut.done():
+        return "full", "Full comparison running"
+    fut = st.session_state.get("cnn_future")
+    if fut is not None and not fut.done():
+        return "cnn", "Training CNN"
+    return None, None
+
+
+def op_busy_notice() -> bool:
+    """Return True while a background job runs (the running banner now lives in
+    the sidebar, so this no longer renders anything in the page body — pages
+    just use the return value to disable their run/train controls)."""
+    return op_in_progress()
+
+
+# Geometric symbols for the banner (no emoji): a small node-graph for the CNN
+# and a bar-chart for the full comparison.
+_OP_ICON_CNN = ('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" '
+                'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+                'stroke-linejoin="round"><circle cx="5" cy="6" r="1.8"/>'
+                '<circle cx="5" cy="18" r="1.8"/><circle cx="12.5" cy="12" r="1.8"/>'
+                '<circle cx="20" cy="6" r="1.8"/><circle cx="20" cy="18" r="1.8"/>'
+                '<path d="M6.6 6.8 11 11M6.6 17.2 11 13M14 11 18.4 6.8M14 13 18.4 17.2"/>'
+                '</svg>')
+_OP_ICON_FULL = ('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" '
+                 'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+                 'stroke-linejoin="round"><path d="M4 20V11M10 20V4M16 20v-6M3 20h18"/></svg>')
+
+
+@st.fragment(run_every=2.0)
+def op_banner_fragment() -> None:
+    """Global background-job banner, pinned to the bottom of the sidebar.
+
+    Implemented as an auto-refreshing fragment so it (a) appears on EVERY page —
+    even ones that call st.stop() — since it is rendered before the page script
+    runs, and (b) updates its progress on its own every 2 s without forcing the
+    whole app to rerun. When the job finishes it triggers ONE full app rerun so
+    app.py collects the result and the page updates."""
+    for key in ("bench_future", "cnn_future"):
+        fut = st.session_state.get(key)
+        if fut is not None and fut.done():
+            st.rerun(scope="app")
+            return
+
+    kind, label = op_status()
+    if kind is None:
+        return
+
+    from src.jobs import progress as _progress
+    pr  = _progress()
+    pct = int(round(pr["frac"] * 100))
+    sym = _OP_ICON_CNN if kind == "cnn" else _OP_ICON_FULL
+    # Called inside a `with st.sidebar:` block (see app.py) — a fragment may only
+    # write to its own parent container, so we do NOT open st.sidebar here. The
+    # whole banner is a click target (invisible overlay button) that jumps to the
+    # page where the job runs.
+    with st.container(key="opbanner"):
+        st.markdown(
+            f'<div class="op-banner"><div class="ob-head">'
+            f'<span class="ob-dot"></span><span class="ob-ic">{sym}</span>'
+            f'<span>{label}</span><span class="ob-go">open ›</span></div>'
+            f'<div class="ob-sub">{pr["label"]}</div>'
+            f'<div class="ob-track"><span style="width:{pct}%"></span></div>'
+            f'<div class="ob-pct">{pct}% · stage {pr["done"]}/{max(pr["total"], 1)}'
+            '</div></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("open", key="opbanner_go", width="stretch"):
+            st.session_state["bench_choice"] = "cnn" if kind == "cnn" else "full"
+            if kind == "cnn":
+                st.session_state["cnn_focus_curves"] = True   # open Training curves
+            st.switch_page("app_pages/2_Benchmark.py")
+
+
+def launch_full_comparison(classic_subset: int = 4000, include_cnn: bool = True) -> None:
+    """Submit a full comparison with sensible defaults (2019 LA, dev + eval).
+
+    Used by the sidebar quick-launch button so the headline benchmark — the base
+    for everything else in the app — is one click away from any page."""
+    from src.jobs import submit_benchmark
+    ext = get_extractor()
+    st.session_state["bench_future"] = submit_benchmark(
+        ext=ext, feat_labels=FeatureExtractor.OPTION_NAMES,
+        base_params=dict(load_config()["train_params"]),
+        train=get_samples("train"), primary=get_samples("dev"), pname="dev",
+        eval_corpora=eval_corpora_for("2019 LA"),
+        classic_subset=int(classic_subset), cnn_subset=0,
+        include_cnn=include_cnn, seed=42,
+    )
+    st.session_state["bench_score"] = "Dev + Eval"
+    st.session_state["op_running"] = True
+
+
+def render_full_cta() -> None:
+    """Sidebar quick-launch for the full comparison, pinned to the same bottom
+    spot the running banner uses (shown only when nothing is running). Once a
+    full comparison has finished, it turns into a shortcut to its leaderboard."""
+    with st.sidebar:
+        with st.container(key="opcta"):
+            if st.session_state.get("bench_done"):
+                if st.button("See full comparison", key="cta_see_full",
+                             type="primary", width="stretch",
+                             icon=":material/leaderboard:"):
+                    st.session_state["bench_choice"] = "full"
+                    st.switch_page("app_pages/2_Benchmark.py")
+            elif st.button("Run full comparison", key="cta_full_cmp",
+                           type="primary", width="stretch",
+                           icon=":material/playlist_play:",
+                           disabled=not corpus_available()):
+                launch_full_comparison()
+                # Land on the full-comparison page so its live progress is visible.
+                st.session_state["bench_choice"] = "full"
+                st.switch_page("app_pages/2_Benchmark.py")
+
+
+# ===========================================================================
+# Signal statistics
+# ===========================================================================
+
+def compute_signal_stats(y: np.ndarray, sr: int) -> Dict:
+    """Return a dict with key audio statistics for display as metric cards."""
+    duration   = len(y) / sr
+    rms        = float(np.sqrt(np.mean(y ** 2)))
+    rms_db     = float(20 * np.log10(rms + _EPS))   # dBFS: ~-30 to -6 for speech
+    zcr        = float(np.mean(librosa.feature.zero_crossing_rate(y)))
+    centroid   = float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
+    return {
+        "duration_s":   duration,
+        "rms":          rms,
+        "rms_db":       rms_db,
+        "zcr":          zcr,
+        "centroid_hz":  centroid,
+    }
+
+
+# ===========================================================================
+# Plotting helpers — all return a plt.Figure for st.pyplot()
+# ===========================================================================
+
+def _fig_style(ax: plt.Axes) -> None:
+    """Apply a clean, dark-theme-consistent style to any axis."""
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["left", "bottom"]].set_color(_DARK_EDGE)
+    ax.grid(True, alpha=0.4, linewidth=0.5, color=_DARK_GRID)
+    ax.tick_params(labelsize=8, colors=_DARK_TEXT)
+
+
+def fig_waveform(
+    y: np.ndarray,
+    sr: int,
+    title: str = "Waveform",
+    label: Optional[str] = None,
+) -> plt.Figure:
+    """Time-domain amplitude plot, colour-coded by class label."""
+    if label and "spoof" in str(label).lower():
+        color = SPOOF_COLOR
+    elif label and "bonafide" in str(label).lower():
+        color = BONAFIDE_COLOR
+    else:
+        color = NEUTRAL_COLOR
+
+    fig, ax = plt.subplots(figsize=(9, 2.5))
+    t = np.arange(len(y)) / sr
+    ax.fill_between(t, y, alpha=0.22, color=color)
+    ax.plot(t, y, linewidth=0.6, color=color)
+    ax.axhline(0, color="#aaa", linewidth=0.4, linestyle="--", alpha=0.6)
+    ax.set_xlabel("Time (s)", fontsize=9)
+    ax.set_ylabel("Amplitude", fontsize=9)
+    ax.set_title(title, fontsize=10, fontweight="bold")
+    ax.margins(x=0)
+    _fig_style(ax)
+    fig.tight_layout()
+    return fig
+
+
+def _specshow(
+    matrix: np.ndarray,
+    sr: int,
+    hop_length: int,
+    title: str,
+    y_axis: Optional[str] = None,
+    cmap: str = "magma",
+) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(9, 3.2))
+    img = librosa.display.specshow(
+        matrix, sr=sr, hop_length=hop_length,
+        x_axis="time", y_axis=y_axis, ax=ax, cmap=cmap,
+    )
+    fig.colorbar(img, ax=ax, format="%+.0f", pad=0.01)
+    ax.set_title(title, fontsize=10, fontweight="bold")
+    ax.tick_params(labelsize=8)
+    fig.tight_layout()
+    return fig
+
+
+def fig_stft_db(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
+    mag = np.abs(librosa.stft(y, n_fft=extractor.n_fft,
+                              hop_length=extractor.hop_length, window="hann"))
+    db  = librosa.amplitude_to_db(mag, ref=np.max)
+    return _specshow(db, extractor.sample_rate, extractor.hop_length,
+                     "STFT Magnitude (dB)", y_axis="hz")
+
+
+def fig_cnn_input(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
+    matrix = extractor.get_spectrogram_matrix(y)
+    fig, ax = plt.subplots(figsize=(9, 3.2))
+    img = ax.imshow(matrix, aspect="auto", origin="lower", cmap="viridis")
+    fig.colorbar(img, ax=ax, pad=0.01)
+    ax.set_title(
+        f"CNN Input — z-scored STFT-dB  "
+        f"({extractor.freq_bins} freq bins × {extractor.time_frames} time frames)",
+        fontsize=10, fontweight="bold",
+    )
+    ax.set_xlabel("Time frames", fontsize=9)
+    ax.set_ylabel("Frequency bins", fontsize=9)
+    ax.tick_params(labelsize=8)
+    fig.tight_layout()
+    return fig
+
+
+def fig_mfcc(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
+    mfcc = librosa.feature.mfcc(
+        y=y, sr=extractor.sample_rate, n_mfcc=extractor.n_mfcc,
+        n_fft=extractor.n_fft, hop_length=extractor.hop_length,
+        n_mels=extractor.n_mels, window="hann",
+    )
+    return _specshow(mfcc, extractor.sample_rate, extractor.hop_length,
+                     f"MFCC  ({extractor.n_mfcc} coefficients)", cmap="coolwarm")
+
+
+def fig_lfcc(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
+    power      = extractor._stft_magnitude(y) ** 2
+    band_energy = extractor._linear_filterbank @ power
+    log_energy  = np.log(band_energy + _EPS)
+    cepstrum    = dct(log_energy, type=2, axis=0, norm="ortho")[: extractor.n_lfcc]
+    return _specshow(cepstrum, extractor.sample_rate, extractor.hop_length,
+                     f"LFCC  ({extractor.n_lfcc} linear cepstral coefficients)",
+                     cmap="coolwarm")
+
+
+def fig_cqcc(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
+    cqt        = librosa.cqt(y, sr=extractor.sample_rate,
+                             hop_length=extractor.hop_length,
+                             n_bins=extractor.cqcc_n_bins,
+                             bins_per_octave=extractor.cqcc_bins_per_octave)
+    log_energy = np.log(np.abs(cqt) ** 2 + _EPS)
+    cepstrum   = dct(log_energy, type=2, axis=0, norm="ortho")[: extractor.n_cqcc]
+    return _specshow(cepstrum, extractor.sample_rate, extractor.hop_length,
+                     f"CQCC  ({extractor.n_cqcc} constant-Q cepstral coefficients)",
+                     cmap="coolwarm")
+
+
+def fig_activation_grid(
+    activation: np.ndarray,
+    title: str,
+    max_maps: int = 16,
+) -> plt.Figure:
+    """Grid of feature maps from one CNN convolutional block.
+
+    Args:
+        activation: shape (channels, H, W) for a single sample.
+        title:      Block title.
+        max_maps:   Maximum channels to display.
+    """
+    n    = min(activation.shape[0], max_maps)
+    cols = 4
+    rows = (n + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(10, 2.4 * rows))
+    axes = np.atleast_1d(axes).ravel()
+    for i in range(len(axes)):
+        ax = axes[i]
+        if i < n:
+            ax.imshow(activation[i], aspect="auto", origin="lower", cmap="inferno")
+            ax.set_title(f"ch {i}", fontsize=7)
+        ax.axis("off")
+    fig.suptitle(title, fontsize=11, fontweight="bold", y=1.01)
+    fig.tight_layout()
+    return fig
+
+
+def fig_overall_split_bar(n_bonafide: int, n_spoof: int) -> plt.Figure:
+    """Tiny 100%-stacked horizontal bar of the overall bonafide/spoof share.
+
+    Only short "NN%" labels go inside the segments (a long word would overflow
+    the narrow bonafide slice); a legend below names the colours.
+    """
+    total = max(n_bonafide + n_spoof, 1)
+    pb = 100 * n_bonafide / total
+    ps = 100 * n_spoof / total
+    fig, ax = plt.subplots(figsize=(4.8, 1.25))
+    ax.barh([0], [pb], color=BONAFIDE_COLOR, edgecolor=_DARK_BG,
+            height=0.5, label="Bonafide")
+    ax.barh([0], [ps], left=[pb], color=SPOOF_COLOR, edgecolor=_DARK_BG,
+            height=0.5, label="Spoof")
+    ax.text(pb / 2, 0, f"{pb:.0f}%", ha="center", va="center",
+            color="white", fontsize=9, fontweight="bold")
+    ax.text(pb + ps / 2, 0, f"{ps:.0f}%", ha="center", va="center",
+            color="white", fontsize=9, fontweight="bold")
+    ax.set_xlim(0, 100)
+    ax.set_ylim(-0.6, 0.6)
+    ax.axis("off")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.05), ncol=2,
+              frameon=False, fontsize=8, handlelength=1.1, columnspacing=1.6)
+    ax.set_title("Overall class share · train + dev", fontsize=8.5,
+                 fontweight="bold", color=_DARK_TEXT, pad=10)
+    fig.tight_layout()
+    return fig
+
+
+def fig_corpus_overview(
+    train_samples: List[Tuple[str, int]],
+    dev_samples:   List[Tuple[str, int]],
+) -> plt.Figure:
+    """Stacked bar showing bonafide / spoof split for train and dev subsets."""
+    labels = ["Train", "Dev"]
+    bon = [sum(1 for _, l in s if l == LABEL_BONAFIDE)
+           for s in (train_samples, dev_samples)]
+    spo = [sum(1 for _, l in s if l == LABEL_SPOOF)
+           for s in (train_samples, dev_samples)]
+    totals = [b + s for b, s in zip(bon, spo)]
+
+    x   = np.arange(len(labels))
+    fig, ax = plt.subplots(figsize=(5, 3.6))
+    ax.bar(x, bon, label="Bonafide (real)",    color=BONAFIDE_COLOR, alpha=0.9, width=0.6)
+    ax.bar(x, spo, bottom=bon, label="Spoof (deepfake)", color=SPOOF_COLOR, alpha=0.9, width=0.6)
+
+    for i, (b, s, t) in enumerate(zip(bon, spo, totals)):
+        ax.text(i, t + max(totals) * 0.02, f"{t:,}",
+                ha="center", va="bottom", fontsize=9, fontweight="bold",
+                color=_DARK_TEXT)
+        ax.text(i, b / 2, f"{b:,}", ha="center", va="center",
+                fontsize=8, color="white", fontweight="600")
+        ax.text(i, b + s / 2, f"{s:,}", ha="center", va="center",
+                fontsize=8, color="white", fontweight="600")
+
+    # Headroom so the total labels never collide with the top spine.
+    ax.set_ylim(0, max(totals) * 1.15)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.set_ylabel("Audio files", fontsize=9)
+    ax.set_title("Class distribution by subset", fontsize=10, fontweight="bold")
+    ax.spines[["top", "right"]].set_visible(False)
+    # Legend BELOW the axes — never overlaps the bars.
+    ax.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.1),
+              ncol=2, frameon=False, handlelength=1.2, columnspacing=1.4)
+    ax.grid(axis="y", alpha=0.2, linewidth=0.5)
+    fig.tight_layout()
+    return fig

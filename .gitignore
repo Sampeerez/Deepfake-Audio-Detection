@@ -1,0 +1,41 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Virtual environments ────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Datasets & generated artifacts (regenerable) ────────
+data/
+cache/
+
+# ── Pretrained model weights (exported locally, hosted on Hugging Face) ──
+# Large binaries: the web demo downloads them at runtime, never from git.
+# (demo_leaderboard.json is intentionally NOT ignored — it is tiny and committed
+#  so the web hub can show the comparison without the weights.)
+models/
+*.pth
+*.joblib
+*.pkl
+
+# ── Secrets & local settings ────────────────────────────
+.env
+.env.*
+.streamlit/secrets.toml
+.claude/settings.local.json
+
+# ── Logs ────────────────────────────────────────────────
+*.log
+
+# ── OS & editor cruft ───────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

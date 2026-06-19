@@ -1,0 +1,72 @@
+# =============================================================================
+# CONFIGURACIÓN GLOBAL DEL BANCO DE PRUEBAS ANTI-SPOOFING (TFG)
+# =============================================================================
+# Este fichero centraliza los parámetros FÍSICOS de la señal y las rutas del
+# dataset. El código nunca incrusta "números mágicos": todo módulo (features,
+# data_loader, main) lee de aquí, garantizando reproducibilidad experimental.
+#
+# NOTA SOBRE EL ADC (Conversión Analógico-Digital):
+#   ASVspoof 2019 LA está distribuido a 16 kHz / 16 bits (PCM). Esto implica:
+#   - Frecuencia de Nyquist = sample_rate / 2 = 8000 Hz. Cualquier componente
+#     analógica superior fue eliminada con filtros pasabajo (anti-aliasing)
+#     antes del muestreo para evitar el repliegue espectral (aliasing).
+#   - Bit depth de 16 bits -> 65536 niveles de cuantización: mayor rango
+#     dinámico y menor error de aproximación que con 8 bits.
+# =============================================================================
+
+audio:
+  sample_rate: 16000        # Tasa de muestreo (Hz). Nyquist = 8000 Hz.
+  n_fft: 1024               # Tamaño del frame para la FFT. Potencia exacta de 2
+                            # para que la FFT alcance complejidad O(N log2 N)
+                            # frente al O(N^2) de la DFT directa.
+  hop_length: 512           # Desplazamiento entre frames (50% de solape).
+                            # Compensa la señal atenuada en los bordes por la
+                            # ventana de Hann superponiendo frames consecutivos.
+  n_mels: 80                # Nº de bandas del banco de filtros de Mel (MFCC).
+  n_mfcc: 20                # Nº de coeficientes cepstrales de Mel a conservar.
+  n_lfcc: 20                # Nº de coeficientes cepstrales lineales (LFCC).
+  n_filtros_lineales: 40    # Nº de filtros triangulares LINEALES previos a la
+                            # DCT en el pipeline analítico del LFCC.
+  wavelet_mother: "db4"     # Wavelet madre (Daubechies-4) para la DWT.
+
+# Dimensiones fijas de la "imagen" espectral que alimenta a la CNN 2D.
+# La red convolucional exige tensores de tamaño constante por lote (batch).
+cnn_input:
+  freq_bins: 128            # Bandas de frecuencia tras compresión por bloques.
+  time_frames: 300          # Frames temporales (padding/truncado estricto).
+                            # 300 frames * 512 hop / 16000 Hz ~= 9.6 segundos.
+
+dataset:
+  path_la2019: "./data/ASVspoof2019/LA/LA"   # Raíz del corpus LA (Logical Access).
+  protocols_dir: "ASVspoof2019_LA_cm_protocols"
+  protocols:
+    train: "ASVspoof2019.LA.cm.train.trn.txt"
+    dev: "ASVspoof2019.LA.cm.dev.trl.txt"
+    eval: "ASVspoof2019.LA.cm.eval.trl.txt"
+
+train_params:
+  epochs: 20                # Pasadas completas sobre el subset de entrenamiento.
+  batch_size: 32            # Tamaño de lote para el descenso por gradiente.
+  lr: 0.001                 # Tasa de aprendizaje del optimizador Adam.
+  dropout: 0.3              # Probabilidad de apagado de neuronas (anti-sobreajuste).
+  num_workers: 2            # Procesos paralelos de carga de audio en PyTorch.
+  semilla: 42               # Semilla global de reproducibilidad.
+  early_stopping_patience: 5  # Épocas sin mejora de loss_val antes de parar.
+
+experiment:
+  usar_cache: true          # Caché de vectores DSP en disco (directorio cache/).
+  n_workers_dsp: 4          # Hilos para extracción DSP paralela (1 = secuencial).
+
+# ASVspoof 2021 — solo split eval (sin train/dev oficial).
+# La pista LA tiene condiciones de canal telefónico real.
+# La pista DF incluye deepfakes "en la naturaleza" (3 particiones).
+dataset_2021:
+  la:
+    eval_dir: "./data/ASVspoof2021/ASVspoof2021_LA_eval/ASVspoof2021_LA_eval"
+    keys:     "./data/ASVspoof2021/LA-keys-full/keys/LA/CM/trial_metadata.txt"
+  df:
+    eval_dirs:
+      - "./data/ASVspoof2021/ASVspoof2021_DF_eval_part00/ASVspoof2021_DF_eval"
+      - "./data/ASVspoof2021/ASVspoof2021_DF_eval_part01/ASVspoof2021_DF_eval"
+      - "./data/ASVspoof2021/ASVspoof2021_DF_eval_part02/ASVspoof2021_DF_eval"
+    keys:     "./data/ASVspoof2021/DF-keys-full/keys/DF/CM/trial_metadata.txt"
