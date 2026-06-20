@@ -26,11 +26,12 @@ import joblib
 from src.data_loader import stratified_subsample
 from src.pipeline import (
     MODEL_OPTIONS, extract_feature_matrix, run_classic_models,
+    score_fitted_classic, evaluate_cnn_on_set,
     train_and_evaluate_cnn,
 )
 from src.reporting import COL_EER, COL_FEATURES, COL_MIN_DCF, COL_MODEL
 
-FEATURE_ORDER = ["1", "2", "3", "4", "6", "5"]   # CQCC before Fusion
+FEATURE_ORDER = ["1", "2", "3", "4", "6"]
 
 # One job at a time; persists across Streamlit reruns (module-level).
 _pool = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="bench")
@@ -119,12 +120,17 @@ def _run_cnn(train_samples, dev_samples, extractor, params,
             _state["label"] = (f"Epoch {rec.get('epoch')}/{max_ep} · "
                                f"val={rec.get('val_loss', 0):.4f}")
 
+    def _cb_batch(epoch, n_batch, loss):
+        with _lock:
+            _state["label"] = (f"Epoch {epoch}/{max_ep} · "
+                               f"batch {n_batch} · loss={loss:.4f}")
+
     log = io.StringIO()
     with contextlib.redirect_stdout(log):
         model, history, results = train_and_evaluate_cnn(
             train_samples, dev_samples, extractor, params,
             eval_samples=eval_samples, eval_sets=eval_sets, epoch_callback=_cb,
-            should_stop=_cancel.is_set,
+            batch_callback=_cb_batch, should_stop=_cancel.is_set,
             checkpoint_path="asvspoof_model_checkpoint.pth",
         )
     return model, history, results
@@ -160,6 +166,11 @@ def _tag_split(results: List[Dict], base_split: str) -> List[Dict]:
 # dev/eval EER & minDCF, so the leaderboard the cloud demo serves is produced
 # straight from the UI — no external console script needed.
 _leaderboard: Dict[str, Dict] = {}
+
+# Distinctive token in each classifier's COL_MODEL display name, for picking its
+# rows out of run_classic_models' results (which trains all three per feature).
+_CLF_TOKEN = {"logistic_regression": "Logistic", "svm_lineal": "SVM",
+              "xgboost": "XGBoost"}
 
 
 def _registry():
@@ -216,8 +227,8 @@ def _write_leaderboard() -> None:
 
 def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
                    classic_paths=None, classic_keys=None):
-    classic_paths = classic_paths or {}
-    classic_keys  = classic_keys or {}
+    classic_paths = classic_paths or {}   # (feat, clf_name) -> .joblib path
+    classic_keys  = classic_keys or {}    # (feat, clf_name) -> registry key
     rows = []
     for fk in FEATURE_ORDER:
         if _cancel.is_set():
@@ -235,21 +246,24 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
                     samples, ext, fk, f"eval[{label}]", n_workers=4, use_cache=True)
                 eval_sets.append((label, x_se, y_se))
 
-        # If this front-end has a registry XGBoost model, persist it to .joblib
-        # as it is fitted (the sink fires inside run_classic_models after fit).
-        _path = classic_paths.get(fk)
-        def _sink(name, model, _p=_path):
-            if name == "xgboost" and _p:
+        # Persist EVERY classifier for this front-end to its .joblib as it is
+        # fitted (the sink fires inside run_classic_models after each fit).
+        def _sink(name, model, _fk=fk):
+            p = classic_paths.get((_fk, name))
+            if p:
                 try:
-                    joblib.dump(model, _p)
+                    joblib.dump(model, p)
                 except Exception as exc:                     # noqa: BLE001 — non-fatal
                     _stream("classic", label=f"save failed: {exc}")
         res = run_classic_models(MODEL_OPTIONS["4"], x_tr, y_tr, x_pr, y_pr,
                                  feat_labels[fk], ms, seed, eval_sets=eval_sets,
-                                 model_sink=_sink if _path else None)
-        if fk in classic_keys:
-            _record(classic_keys[fk],
-                    _metrics_from_rows(res, lambda r: "XGBoost" in str(r.get(COL_MODEL, ""))))
+                                 model_sink=_sink)
+        # Record dev/eval metrics for each classifier of this front-end.
+        for cname, token in _CLF_TOKEN.items():
+            key = classic_keys.get((fk, cname))
+            if key:
+                _record(key, _metrics_from_rows(
+                    res, lambda r, t=token: t in str(r.get(COL_MODEL, ""))))
         rows.extend(_tag_split(res, pname))
         try:
             _best = min(float(r["minDCF"]) for r in res
@@ -281,14 +295,25 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
                   "num_workers": max(int(base_params.get("num_workers", 2)), 6)})
         _ep = int(p.get("epochs", 1))
 
+        # Clear epoch list for each new architecture so the live chart always
+        # shows the CURRENT model's curves (not a mix of resnet + cnn3x3).
+        with _lock:
+            _cnn_epochs.clear()
+
         def _cb(rec, _a=arch):
+            with _lock:
+                _cnn_epochs.append(dict(rec))
             _stream("cnn", label=(f"{_arch_name[_a]} · epoch {rec.get('epoch')}/{_ep} "
                                   f"· val={rec.get('val_loss', 0):.4f}"))
+
+        def _cb_batch(epoch, n_batch, loss, _a=arch):
+            _stream("cnn", label=(f"{_arch_name[_a]} · epoch {epoch}/{_ep} "
+                                  f"· batch {n_batch} · loss={loss:.4f}"))
 
         # Persist the best weights to the registry path so the demo can serve them.
         _, _, cres = train_and_evaluate_cnn(
             train, primary, ext, p, eval_sets=(eval_corpora or []),
-            epoch_callback=_cb, should_stop=_cancel.is_set,
+            epoch_callback=_cb, batch_callback=_cb_batch, should_stop=_cancel.is_set,
             checkpoint_path=cnn_paths.get(arch))
         if arch in cnn_keys and not _cancel.is_set():
             _record(cnn_keys[arch], _metrics_from_rows(cres, lambda r: True))
@@ -311,6 +336,7 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
     _reset_streams(len(FEATURE_ORDER), 2 if include_cnn else 0)
     with _lock:
         _leaderboard.clear()
+        _cnn_epochs.clear()   # reset so the full-comparison live view shows fresh curves
         _state.update({"total": len(FEATURE_ORDER) + (2 if include_cnn else 0),
                        "done": 0, "label": "Preparing data…"})
 
@@ -320,9 +346,10 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
     if export:
         models_dir, _, reg = _registry()
         os.makedirs(models_dir, exist_ok=True)
-        classic_paths = {e["feat"]: os.path.join(models_dir, e["file"])
+        classic_paths = {(e["feat"], e["clf"]): os.path.join(models_dir, e["file"])
                          for e in reg if e["kind"] == "classic"}
-        classic_keys  = {e["feat"]: e["key"] for e in reg if e["kind"] == "classic"}
+        classic_keys  = {(e["feat"], e["clf"]): e["key"]
+                         for e in reg if e["kind"] == "classic"}
         cnn_paths = {("resnet" if e["key"] == "resnet" else "cnn"):
                      os.path.join(models_dir, e["file"])
                      for e in reg if e["kind"] == "cnn"}
@@ -360,3 +387,111 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
 def submit_benchmark(**kwargs) -> "_cf.Future":
     """Launch the full benchmark in the background; returns a Future."""
     return _pool.submit(_run, **kwargs)
+
+
+def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
+                   base_params, seed=42) -> Tuple[List[Dict], List[Dict]]:
+    """Load every saved registry model and score on eval_corpora (no training)."""
+    import torch
+    from src.models import AudioDeepfakeCNN, ResNetCNN
+
+    _cancel.clear()
+    _reset_streams(len(FEATURE_ORDER), 2)
+    with _lock:
+        _cnn_epochs.clear()
+        _state.update({"total": len(FEATURE_ORDER) + 2, "done": 0,
+                       "label": "Evaluating saved models…"})
+
+    models_dir, _, reg = _registry()
+    eval_corpora = eval_corpora or []
+    classic_rows: List[Dict] = []
+    cnn_rows: List[Dict] = []
+
+    # ── Classic models ─────────────────────────────────────────────────────── #
+    for fk in FEATURE_ORDER:
+        if _cancel.is_set():
+            _stream("classic", label="Cancelled")
+            break
+        _stream("classic", label=f"{feat_labels[fk]} — loading saved models…")
+
+        fitted: Dict[str, object] = {}
+        for e in reg:
+            if e["kind"] != "classic" or e["feat"] != fk:
+                continue
+            path = os.path.join(models_dir, e["file"])
+            if not os.path.isfile(path):
+                continue
+            try:
+                fitted[e["clf"]] = joblib.load(path)
+            except Exception:
+                pass
+
+        if not fitted:
+            _stream("classic", label=f"{feat_labels[fk]} — no saved models", inc=1)
+            _step(f"Classic · {feat_labels[fk]} skipped", inc=1)
+            continue
+
+        for lbl, samples in eval_corpora:
+            if not samples:
+                continue
+            s = (stratified_subsample(samples, classic_subset, seed + 2)
+                 if classic_subset else samples)
+            _stream("classic", label=f"{feat_labels[fk]} — features for {lbl}…")
+            x_ev, y_ev, _ = extract_feature_matrix(
+                s, ext, fk, f"eval[{lbl}]", n_workers=4, use_cache=True)
+            _stream("classic", label=f"{feat_labels[fk]} — scoring on {lbl}…")
+            rows = score_fitted_classic(fitted, x_ev, y_ev, feat_labels[fk],
+                                        corpus_label=lbl)
+            classic_rows.extend(_tag_split(rows, "dev"))
+
+        _stream("classic", label=f"{feat_labels[fk]} done", inc=1,
+                item=f"{feat_labels[fk]} evaluated")
+        _step(f"Classic · {feat_labels[fk]} done", inc=1)
+
+    # ── CNN models ─────────────────────────────────────────────────────────── #
+    _arch_name = {"resnet": "ResNet + SE", "cnn": "2-D CNN"}
+    for e in [e for e in reg if e["kind"] == "cnn"]:
+        if _cancel.is_set():
+            _stream("cnn", label="Cancelled")
+            break
+        arch_key   = "resnet" if e["key"] == "resnet" else "cnn"
+        arch_label = _arch_name.get(arch_key, e["name"])
+        path       = os.path.join(models_dir, e["file"])
+
+        if not os.path.isfile(path):
+            _stream("cnn", label=f"{arch_label} — no saved model", inc=1)
+            _step(f"CNN · {arch_label} skipped", inc=1)
+            continue
+
+        _stream("cnn", label=f"{arch_label} — loading…")
+        try:
+            ckpt = torch.load(path, map_location=torch.device("cpu"))
+            model_cls = ResNetCNN if ckpt.get("arch") == "resnet" else AudioDeepfakeCNN
+            model = model_cls(dropout=float(ckpt.get("dropout",
+                                                      base_params.get("dropout", 0.3))))
+            model.load_state_dict(ckpt["state_dict"])
+            model.to("cpu").eval()
+        except Exception as exc:
+            _stream("cnn", label=f"{arch_label} — load failed: {exc}", inc=1)
+            _step(f"CNN · {arch_label} failed", inc=1)
+            continue
+
+        for lbl, samples in eval_corpora:
+            if not samples:
+                continue
+            _stream("cnn", label=f"{arch_label} — evaluating on {lbl}…")
+            rows = evaluate_cnn_on_set(model, samples, ext, dict(base_params),
+                                       corpus_label=lbl, arch_label=arch_label)
+            cnn_rows.extend(_tag_split(rows, "dev"))
+
+        _stream("cnn", label=f"{arch_label} done", inc=1,
+                item=f"{arch_label} evaluated")
+        _step(f"CNN · {arch_label} done", inc=1)
+
+    return classic_rows, cnn_rows
+
+
+def submit_eval_benchmark(**kwargs) -> "_cf.Future":
+    """Evaluate every saved registry model on eval_corpora; returns a Future of
+    (classic_rows, cnn_rows).  No training — models must already be on disk."""
+    return _pool.submit(_run_eval_only, **kwargs)

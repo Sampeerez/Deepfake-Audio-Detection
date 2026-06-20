@@ -33,15 +33,17 @@ from src.data_loader import (  # noqa: E402
 from src.metrics import calculate_eer, calculate_min_dcf  # noqa: E402
 from src.models import AudioDeepfakeCNN, ResNetCNN  # noqa: E402
 from src.jobs import cnn_epochs, request_cancel, submit_cnn_training  # noqa: E402
+from src.pipeline import evaluate_cnn_on_set  # noqa: E402
 from src.reporting import (  # noqa: E402
     COL_ACCURACY, COL_EER, COL_MIN_DCF, COL_MODEL,
 )
 from src.ui_helpers import (  # noqa: E402
     BONAFIDE_COLOR, EVAL_CORPUS_CHOICES, SPOOF_COLOR,
-    corpus_available, demo_corpus_notice, eval_corpora_for, eval_score_controls,
+    available_pretrained_models, corpus_available, demo_corpus_notice,
+    eval_corpora_for, eval_score_controls,
     fig_activation_grid, fig_cnn_input, fig_waveform, get_extractor, get_samples,
-    load_config, mini_note, op_busy_notice, show_empty_state, sidebar_panel,
-    test_audio_cta,
+    load_config, load_pretrained_torch, model_downloaded, op_busy_notice, op_in_progress,
+    running_on_gpu, show_empty_state, sidebar_panel, test_audio_cta,
 )
 
 config    = load_config()
@@ -72,68 +74,96 @@ if not corpus_available():
 ARCH_BASELINE = "3-Block CNN"
 ARCH_RESNET   = "ResNet + SE"
 
+# Right column tweaks: the Evaluate/Score box fills the full column width and
+# the Train CNN button matches the height of the classifier row (like Classic).
+st.markdown("""
+<style>
+[class*="st-key-evalgrp_cnn"] { width: 100% !important; justify-content: space-between; }
+[class*="st-key-trainbtn_cnn"] button { min-height: 3.4rem; }
+[class*="st-key-advbtn_cnn"]   button { min-height: 3.4rem; }
+</style>
+""", unsafe_allow_html=True)
+
 with st.container(border=True):
     st.markdown('<div class="section-label">Training configuration</div>',
                 unsafe_allow_html=True)
 
-    c_arch, c_eval, c_adv = st.columns([1, 1.45, 0.7], gap="large")
-    with c_arch:
-        with st.container(key="lblgap_arch"):
-            arch = st.segmented_control(
-                "Architecture", [ARCH_RESNET, ARCH_BASELINE],
-                default=ARCH_RESNET, key="cnn_arch",
-                help="ResNet adds residual connections and SE channel attention "
-                     "— better generalisation to unseen spoofing attacks.",
+    _is_busy = op_in_progress()
+
+    # Row 1: Architecture | Train on / Evaluate on / Score on controls
+    _r1l, _r1r = st.columns(2, gap="large")
+    with _r1l:
+        with st.container(key="nosearch_arch"):
+            arch = st.selectbox(
+                "Architecture", [ARCH_RESNET, ARCH_BASELINE], key="cnn_arch",
             )
-        if arch is None:
-            arch = ARCH_RESNET
-        mini_note(
-            "Residual + SE attention — recommended."
-            if arch == ARCH_RESNET else
-            "Plain 3-block baseline — fast, less robust to unseen attacks."
+    with _r1r:
+        _train_lbl = "Trained on" if "cnn_history" in st.session_state else "Train on"
+        eval_corpus, score_split = eval_score_controls("cnn", train_label=_train_lbl)
+        _busy = op_busy_notice()
+
+    # Row 2: Advanced + Clear | Train CNN + Evaluate (same row → natural alignment)
+    _r2l, _r2r = st.columns(2, gap="large")
+    with _r2l:
+        with st.container(key="advbtn_cnn"):
+            with st.popover("Advanced", icon=":material/tune:", width="stretch"):
+                _a1, _a2 = st.columns(2)
+                with _a1:
+                    subset = st.number_input(
+                        "Files / subset", 20, 25400, 2000, step=100,
+                        help="2019 LA train has ~25 380 files. MORE DATA = LOWER error. "
+                             "On CPU keep ≤ 1 000; on GPU the full set is fine.")
+                    epochs = st.number_input("Max epochs", 1, 30,
+                                             int(config["train_params"]["epochs"]))
+                    batch_size = st.selectbox(
+                        "Batch size", [8, 16, 32, 64],
+                        index=[8, 16, 32, 64].index(int(config["train_params"]["batch_size"])))
+                with _a2:
+                    seed = st.number_input("Seed", 0, value=42, step=1)
+                    patience = st.number_input(
+                        "Patience", 1, 10,
+                        int(config["train_params"].get("early_stopping_patience", 3)),
+                        help="Early-stopping patience in epochs.")
+                    _lr_opts = [0.0001, 0.0005, 0.001, 0.005, 0.01]
+                    lr = st.selectbox(
+                        "Learning rate", _lr_opts,
+                        index=_lr_opts.index(float(config["train_params"]["lr"])),
+                        format_func=lambda v: f"{v:g}")
+                augment = st.toggle(
+                    "SpecAugment (recommended)", value=True,
+                    help="Random time + frequency masking on each training "
+                         "spectrogram. Strongly reduces overfitting on small subsets.")
+        clear_btn = st.button("Clear results", icon=":material/delete:",
+                              width="stretch", disabled=_is_busy)
+
+    with _r2r:
+        # Evaluate is enabled only when the selected architecture is actually on disk.
+        arch_hf_key = "resnet" if arch == ARCH_RESNET else "cnn3x3"
+        _hf_cnn = [e for e in available_pretrained_models() if e["kind"] == "cnn"]
+        _hf_for_arch = [e for e in _hf_cnn if e["key"] == arch_hf_key and model_downloaded(e)]
+        _has_model_for_eval = "cnn_model" in st.session_state or bool(_hf_for_arch)
+        with st.container(key="trainbtn_cnn"):
+            train_btn = st.button(
+                "Train CNN", type="primary",
+                icon=":material/play_arrow:", width="stretch",
+                disabled=_busy or not running_on_gpu(),
+                help=None if running_on_gpu() else "GPU required for CNN training.",
+            )
+        eval_btn = st.button(
+            "Evaluate", icon=":material/query_stats:", width="stretch",
+            disabled=_busy or not _has_model_for_eval,
+            help=None if _has_model_for_eval else
+                 "Train a model first, or configure HF_BASE_URL for pretrained weights.",
         )
-    with c_eval:
-        eval_corpus, score_split = eval_score_controls("cnn")
-    with c_adv:
-        # All numeric hyper-parameters tucked into an Advanced popover (like the
-        # classic-models page) to keep the panel clean.
-        st.markdown('<div style="height:1.75rem;"></div>', unsafe_allow_html=True)
-        with st.popover("Advanced", icon=":material/tune:", width="stretch"):
-            subset = st.number_input(
-                "Files / subset", 20, 25400, 2000, step=100,
-                help="2019 LA train has ~25 380 files. MORE DATA = LOWER error. "
-                     "On CPU keep ≤ 1 000; on GPU the full set is fine.")
-            _a1, _a2 = st.columns(2)
-            with _a1:
-                epochs = st.number_input("Max epochs", 1, 30,
-                                         int(config["train_params"]["epochs"]))
-                batch_size = st.selectbox(
-                    "Batch size", [8, 16, 32, 64],
-                    index=[8, 16, 32, 64].index(int(config["train_params"]["batch_size"])))
-                seed = st.number_input("Seed", 0, value=42, step=1)
-            with _a2:
-                patience = st.number_input(
-                    "Patience", 1, 10,
-                    int(config["train_params"].get("early_stopping_patience", 3)),
-                    help="Early-stopping patience in epochs.")
-                _lr_opts = [0.0001, 0.0005, 0.001, 0.005, 0.01]
-                lr = st.selectbox(
-                    "Learning rate", _lr_opts,
-                    index=_lr_opts.index(float(config["train_params"]["lr"])),
-                    format_func=lambda v: f"{v:g}")
-            augment = st.toggle(
-                "SpecAugment (recommended)", value=True,
-                help="Random time + frequency masking on each training "
-                     "spectrogram. Strongly reduces overfitting on small subsets.")
 
-    train_corpus = "2019 LA"
-    arch_key = "resnet" if arch == ARCH_RESNET else "cnn"
+train_corpus = "2019 LA"
+arch_key = "resnet" if arch == ARCH_RESNET else "cnn"
 
-    # Full-width primary action — long and prominent.
-    _busy = op_busy_notice()
-    train_btn = st.button("Train CNN", type="primary",
-                          icon=":material/play_arrow:", width="stretch",
-                          disabled=_busy)
+if clear_btn:
+    for _k in ["cnn_history", "cnn_model", "cnn_dev", "cnn_results",
+               "cnn_runs", "cnn_arch_trained", "cnn_train_corpus"]:
+        st.session_state.pop(_k, None)
+    st.rerun()
 
 # ===========================================================================
 # Architecture & design panels — defined as reusable renderers so they stay
@@ -277,25 +307,57 @@ if train_btn:
         "arch":                    arch_key,
     })
 
-    # Eval scoring on the chosen corpus/corpora (subsampled to the same size),
-    # produced only when the score choice includes Eval.
-    eval_sets = []
-    if score_split in ("Eval", "Dev + Eval"):
-        eval_sets = [(lbl, stratified_subsample(s, int(subset), int(seed) + 2))
-                     for lbl, s in eval_corpora_for(eval_corpus)]
-
-    # Train in the BACKGROUND (like the full comparison): you can leave this page
-    # and it keeps training — the running banner shows in the sidebar. The data
-    # is prefetched here on the main thread (the worker never touches st.cache),
-    # and the trained model is collected back into session_state in app.py.
+    # Train ONLY — no eval corpus scoring (use Evaluate button for that).
+    # The background worker still uses dev_samples for val loss / early stopping,
+    # but we mark train_only so app.py skips adding rows to cnn_runs.
+    st.session_state["cnn_train_only"] = True
     st.session_state["cnn_future"] = submit_cnn_training(
         train_samples=train_samples, dev_samples=dev_samples,
-        extractor=extractor, params=params, eval_sets=eval_sets,
+        extractor=extractor, params=params, eval_sets=[],
     )
     st.session_state["cnn_pending"] = {"dev": dev_samples, "arch": arch,
-                                       "corpus": train_corpus, "score": score_split}
+                                       "corpus": train_corpus}
     st.session_state["op_running"] = True
     st.session_state["cnn_focus_curves"] = True   # redirect to Training curves
+    st.rerun()
+
+if eval_btn:
+    _eval_params = dict(config["train_params"])
+    # Resolve which model to use: prefer session-trained, fall back to HF pretrained.
+    _model = st.session_state.get("cnn_model")
+    _arch_lbl = st.session_state.get("cnn_arch_trained", arch)
+    if _model is None:
+        _entry = next((e for e in _hf_for_arch), None)
+        if _entry is None:
+            st.error("No CNN model available. Train first or configure HF_BASE_URL.")
+            st.stop()
+        _model, _ = load_pretrained_torch(_entry["file"], _entry["url"], _entry["name"])
+        _arch_lbl = _entry["name"]
+
+    _new_rows = []
+    if score_split in ("Dev", "Dev + Eval"):
+        _dev_samps = get_samples("dev")
+        if subset > 0:
+            _dev_samps = stratified_subsample(_dev_samps, int(subset), int(seed) + 1)
+        if _dev_samps:
+            with st.spinner("Evaluating on 2019 LA dev…"):
+                _new_rows += evaluate_cnn_on_set(
+                    _model, _dev_samps, extractor, _eval_params,
+                    corpus_label="", arch_label=_arch_lbl, suffix="",
+                )
+    if score_split in ("Eval", "Dev + Eval"):
+        for _lbl, _samps in eval_corpora_for(eval_corpus):
+            if subset > 0:
+                _samps = stratified_subsample(_samps, int(subset), int(seed) + 2)
+            if _samps:
+                with st.spinner(f"Evaluating on {_lbl}…"):
+                    _new_rows += evaluate_cnn_on_set(
+                        _model, _samps, extractor, _eval_params,
+                        corpus_label=_lbl, arch_label=_arch_lbl,
+                    )
+    if _new_rows:
+        st.session_state.setdefault("cnn_runs", []).extend(_new_rows)
+        st.session_state["cnn_results"] = _new_rows
     st.rerun()
 
 # ── Live training view — a self-refreshing fragment that redraws the loss curve
@@ -521,7 +583,7 @@ with st.sidebar:
     _rows = [("Device", dev_label)]
     if "cnn_history" in st.session_state:
         _hist = st.session_state["cnn_history"]
-        _res  = st.session_state["cnn_results"]
+        _res  = st.session_state.get("cnn_results", [])   # may be absent in train-only mode
         _last = _res[-1] if _res else {}
         _rows += [
             ("Status",   "Trained"),

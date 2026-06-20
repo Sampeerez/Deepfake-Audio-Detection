@@ -273,6 +273,92 @@ def run_classic_models(
     return results
 
 
+def score_fitted_classic(
+    fitted_models: Dict[str, object],
+    x_set: np.ndarray,
+    y_set: np.ndarray,
+    feature_label: str,
+    corpus_label: str = "",
+    suffix: str = "[EVAL]",
+) -> List[Dict[str, str]]:
+    """Score pre-fitted sklearn estimators on a feature matrix without retraining.
+    Returns one result-dict per model (same COL_* format as run_classic_models).
+    Used by the Evaluate button in Classic mode.
+    """
+    results: List[Dict[str, str]] = []
+    for name, model in fitted_models.items():
+        scores = model.predict_proba(x_set)[:, 1]
+        preds  = (scores >= 0.5).astype(np.int64)
+        acc    = float(np.mean(preds == y_set))
+        eer, _ = calculate_eer(scores.tolist(), y_set.tolist())
+        dcf    = calculate_min_dcf(scores.tolist(), y_set.tolist())
+        results.append({
+            COL_FEATURES:   f"{feature_label}{suffix}",
+            COL_MODEL:      f"{MODEL_DISPLAY_NAMES.get(name, name)} [CPU]{suffix}",
+            COL_ACCURACY:   f"{acc:.4f}",
+            COL_EER:        f"{100 * eer:.2f}",
+            COL_MIN_DCF:    f"{dcf:.4f}",
+            COL_TRAIN_TIME: "—",
+            COL_INFER_TIME: "—",
+            "Corpus":       corpus_label,
+        })
+    return results
+
+
+def evaluate_cnn_on_set(
+    model: "AudioDeepfakeCNN",
+    samples: List[Tuple[str, int]],
+    extractor: "FeatureExtractor",
+    params: Dict,
+    corpus_label: str = "",
+    arch_label: str = "CNN",
+    suffix: str = "[EVAL]",
+) -> List[Dict[str, str]]:
+    """Score an already-trained CNN on one sample set without retraining.
+    Returns a list with one result dict (COL_* keys). Used by the Evaluate
+    button in CNN mode to score a session-trained or HF-pretrained model.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    _spec_tag = (f"{int(extractor.sample_rate)}_{int(extractor.n_fft)}_"
+                 f"{int(extractor.hop_length)}_"
+                 f"{int(extractor.freq_bins)}x{int(extractor.time_frames)}")
+    n_dl_w = int(params.get("num_workers", 0))
+    batch  = int(params.get("batch_size", 32))
+    pin    = device.type == "cuda"
+    extra: Dict = {}
+    if n_dl_w > 0:
+        extra = {"persistent_workers": True, "prefetch_factor": 4}
+    loader = DataLoader(
+        ASVspoofTorchDataset(
+            samples, extractor.get_spectrogram_matrix,
+            extractor.sample_rate, augment=False,
+            cache_tag=_spec_tag, cache_dir=CACHE_DIR,
+        ),
+        batch_size=batch, shuffle=False,
+        num_workers=n_dl_w, pin_memory=pin, **extra,
+    )
+    model = model.to(device)
+    scores, labels, ms = _evaluate_cnn(model, loader, device)
+    device_tag = "CUDA" if device.type == "cuda" else "CPU"
+    preds    = [1 if s >= 0.5 else 0 for s in scores]
+    accuracy = sum(p == e for p, e in zip(preds, labels)) / len(labels)
+    eer, _   = calculate_eer(scores, labels)
+    min_dcf  = calculate_min_dcf(scores, labels)
+    return [{
+        COL_FEATURES:   (
+            f"STFT-dB Spectrogram ({extractor.freq_bins}×"
+            f"{extractor.time_frames}){suffix}"
+        ),
+        COL_MODEL:      f"{arch_label} PyTorch [{device_tag}]{suffix}",
+        COL_ACCURACY:   f"{accuracy:.4f}",
+        COL_EER:        f"{100 * eer:.2f}",
+        COL_MIN_DCF:    f"{min_dcf:.4f}",
+        COL_TRAIN_TIME: "—",
+        COL_INFER_TIME: f"{ms:.3f}",
+        "Corpus":       corpus_label,
+    }]
+
+
 # ===========================================================================
 # Pipeline B: 2-D CNN (CPU or GPU-CUDA)
 # ===========================================================================
@@ -288,6 +374,7 @@ def _train_cnn(
     patience: int,
     epoch_callback: Optional[Callable[[Dict], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
+    batch_callback: Optional[Callable[[int, int, float], None]] = None,
 ) -> Tuple[float, int, List[Dict]]:
     """Training loop with per-epoch validation, LR scheduler, and early stopping.
 
@@ -346,6 +433,8 @@ def _train_cnn(
             scaler.update()
             train_loss += float(loss.item())
             n_batches  += 1
+            if batch_callback is not None and n_batches % 50 == 0:
+                batch_callback(epoch, n_batches, train_loss / n_batches)
         if _cancelled:
             break
 
@@ -433,6 +522,7 @@ def train_and_evaluate_cnn(
     epoch_callback: Optional[Callable[[Dict], None]] = None,
     should_stop:   Optional[Callable[[], bool]] = None,
     checkpoint_path: Optional[str] = None,
+    batch_callback: Optional[Callable[[int, int, float], None]] = None,
 ) -> Tuple[AudioDeepfakeCNN, List[Dict], List[Dict[str, str]]]:
     """Full CNN orchestration returning the model, training history and result rows.
 
@@ -514,6 +604,7 @@ def train_and_evaluate_cnn(
         model, loader_train, loader_dev, criterion, optimizer,
         device, int(params["epochs"]), patience,
         epoch_callback=epoch_callback, should_stop=should_stop,
+        batch_callback=batch_callback,
     )
 
     # Cancelled → skip the (potentially slow) dev/eval scoring and return now.
@@ -521,7 +612,7 @@ def train_and_evaluate_cnn(
         return model, history, []
 
     # Persist the best (early-stopping-restored) weights so the model can be
-    # reused later without retraining (see load_checkpoint.py).
+    # reused later without retraining (the registry .pth files the demo serves).
     if checkpoint_path:
         try:
             torch.save({

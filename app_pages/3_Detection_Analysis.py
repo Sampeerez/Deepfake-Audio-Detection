@@ -36,9 +36,10 @@ from src.metrics import calculate_eer, calculate_min_dcf  # noqa: E402
 from src.models import get_classic_model  # noqa: E402
 from src.pipeline import extract_feature_matrix  # noqa: E402
 from src.ui_helpers import (  # noqa: E402
-    BONAFIDE_COLOR, SPOOF_COLOR, available_pretrained_models, corpus_available,
+    BONAFIDE_COLOR, SPOOF_COLOR, HF_EVAL_DATASETS, HF_EVAL_PER_CLASS,
+    available_pretrained_models, corpus_available,
     demo_corpus_notice, demo_mode, fig_activation_grid, fig_cnn_input,
-    fig_waveform, get_extractor, get_samples, load_pretrained_cnn,
+    fig_waveform, get_extractor, get_samples, hf_eval_samples, load_pretrained_cnn,
     load_pretrained_model, op_busy_notice, pretrained_available, show_empty_state,
     sidebar_panel,
 )
@@ -69,9 +70,9 @@ if not corpus_ok and not pre_models:
     demo_corpus_notice(
         "Detection Analysis unavailable",
         "This page needs either the local ASVspoof corpus or at least one "
-        "pretrained model. Add a Hugging Face download link in ui_helpers "
-        "(RESNET_URL, CNN3X3_URL, XGB_*_URL) to enable the live multi-model "
-        "analysis, or run the app locally with the dataset.",
+        "pretrained model. Set HF_BASE_URL in ui_helpers to your Hugging Face "
+        "folder to enable the live multi-model analysis, or run the app locally "
+        "with the dataset.",
     )
     st.stop()
 
@@ -102,8 +103,8 @@ _SPEC_TAG = (f"{int(extractor.sample_rate)}_{int(extractor.n_fft)}_"
              f"{int(extractor.freq_bins)}x{int(extractor.time_frames)}")
 
 
-def _score_cnn_on_split(model, mdev, split, subset, seed=42):
-    samples = stratified_subsample(get_samples(split), subset, seed)
+def _score_cnn_on_samples(model, mdev, samples):
+    """Score a CNN on an explicit (path, label) list (local or HF-cached)."""
     loader = DataLoader(
         ASVspoofTorchDataset(samples, extractor.get_spectrogram_matrix,
                              extractor.sample_rate, augment=False,
@@ -118,6 +119,122 @@ def _score_cnn_on_split(model, mdev, split, subset, seed=42):
             scores.extend(torch.sigmoid(logits).cpu().tolist())
             labels.extend(lbls.long().tolist())
     return scores, labels
+
+
+def _score_cnn_on_split(model, mdev, split, subset, seed=42):
+    samples = stratified_subsample(get_samples(split), subset, seed)
+    return _score_cnn_on_samples(model, mdev, samples)
+
+
+# ── Web-demo scorers: pretrained registry models on HF-streamed eval clips ─── #
+def _score_classic_on_samples(entry, samples):
+    """Load a pretrained classic estimator and score it on (path, label) clips."""
+    model = load_pretrained_model(entry)
+    x_ev, y_ev, _ = extract_feature_matrix(samples, extractor, entry["feat"],
+                                           f"hf_{entry['key']}", n_workers=4,
+                                           use_cache=True)
+    return model.predict_proba(x_ev)[:, 1].tolist(), y_ev.tolist()
+
+
+def _render_split_results():
+    """Shared rendering of a scored split: metrics, threshold slider and the
+    distribution / ROC / DET plots. Reads da_scores / da_labels / da_name from
+    session state (used by both the local-corpus and web-demo split analysis)."""
+    if "da_scores" not in st.session_state:
+        show_empty_state(
+            "No detector analysed yet",
+            "Pick a detector and press Analyze. You will get its score "
+            "distribution, ROC and DET curves, and an interactive decision "
+            "threshold to explore the false-alarm vs miss trade-off behind the EER.",
+        )
+        return
+
+    scores = np.asarray(st.session_state["da_scores"], dtype=float)
+    labels = np.asarray(st.session_state["da_labels"], dtype=int)
+    bona   = scores[labels == LABEL_BONAFIDE]
+    spoof  = scores[labels == LABEL_SPOOF]
+
+    eer, eer_thr = calculate_eer(scores.tolist(), labels.tolist())
+    mindcf       = calculate_min_dcf(scores.tolist(), labels.tolist())
+
+    grid = np.linspace(0.0, 1.0, 501)
+    far  = np.array([(spoof < t).mean() if len(spoof) else 0.0 for t in grid])
+    frr  = np.array([(bona >= t).mean() if len(bona) else 0.0 for t in grid])
+    tpr  = 1.0 - far
+    fpr  = frr
+    order = np.argsort(fpr)
+    _trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
+    auc   = float(_trapz(tpr[order], fpr[order]))
+
+    st.markdown(f"**{st.session_state['da_name']}** &nbsp;·&nbsp; "
+                f"{len(scores):,} trials &nbsp;·&nbsp; "
+                f"{len(bona):,} bonafide / {len(spoof):,} spoof",
+                unsafe_allow_html=True)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("minDCF", f"{mindcf:.3f}", help="Primary ASVspoof cost metric.")
+    m2.metric("EER", f"{100 * eer:.2f} %")
+    m3.metric("AUC-ROC", f"{auc:.3f}")
+    m4.metric("EER threshold", f"{eer_thr:.3f}")
+
+    st.divider()
+    st.markdown('<div class="section-label">Decision threshold</div>',
+                unsafe_allow_html=True)
+    thr = st.slider("Threshold on p(spoof)", 0.0, 1.0, float(round(eer_thr, 3)), 0.005,
+                    help="score ≥ threshold → declared spoof.")
+    t_far = (spoof < thr).mean() if len(spoof) else 0.0
+    t_frr = (bona >= thr).mean() if len(bona) else 0.0
+    preds = (scores >= thr).astype(int)
+    t_acc = float((preds == labels).mean())
+    tc1, tc2, tc3 = st.columns(3)
+    tc1.metric("False acceptance (spoof let through)", f"{100 * t_far:.2f} %")
+    tc2.metric("False rejection (bonafide blocked)",   f"{100 * t_frr:.2f} %")
+    tc3.metric("Accuracy @ threshold",                 f"{100 * t_acc:.2f} %")
+
+    st.divider()
+    g1, g2 = st.columns(2, gap="large")
+    with g1:
+        st.markdown("**Score distribution**")
+        fig, ax = plt.subplots(figsize=(5.2, 3.4))
+        ax.hist(bona,  bins=40, alpha=0.7, label="Bonafide", color=BONAFIDE_COLOR)
+        ax.hist(spoof, bins=40, alpha=0.7, label="Spoof",    color=SPOOF_COLOR)
+        ax.axvline(thr, color="#FFD54F", lw=1.6, ls="--", label=f"threshold {thr:.2f}")
+        ax.axvline(eer_thr, color="#9E9E9E", lw=1.1, ls=":", label=f"EER thr {eer_thr:.2f}")
+        ax.set_xlabel("p(spoof)"); ax.set_ylabel("count")
+        ax.legend(fontsize=7.5, loc="upper center")
+        fig.tight_layout(); st.pyplot(fig, clear_figure=True)
+
+        st.markdown("**ROC curve**")
+        fig, ax = plt.subplots(figsize=(5.2, 3.4))
+        ax.plot(fpr[order], tpr[order], color="#4FC3F7", lw=1.8)
+        ax.plot([0, 1], [0, 1], color="#5C6B8A", lw=0.8, ls="--")
+        ax.set_xlabel("False positive rate"); ax.set_ylabel("True positive rate")
+        ax.set_title(f"AUC = {auc:.3f}", fontsize=9)
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+        fig.tight_layout(); st.pyplot(fig, clear_figure=True)
+
+    with g2:
+        st.markdown("**DET curve** (miss vs false-alarm)")
+        fig, ax = plt.subplots(figsize=(5.2, 3.4))
+        ax.plot(100 * far, 100 * frr, color="#AB47BC", lw=1.8)
+        lim = max(1.0, 100 * max(far.max(), frr.max()))
+        ax.plot([0, lim], [0, lim], color="#5C6B8A", lw=0.8, ls="--", label="EER line")
+        ax.scatter([100 * eer], [100 * eer], color="#FFD54F", zorder=5,
+                   label=f"EER {100 * eer:.1f}%")
+        ax.scatter([100 * t_far], [100 * t_frr], color="#66BB6A", zorder=5,
+                   label="threshold")
+        ax.set_xlabel("False acceptance (%)"); ax.set_ylabel("False rejection (%)")
+        ax.set_xlim(0, lim); ax.set_ylim(0, lim)
+        ax.legend(fontsize=7.5); fig.tight_layout(); st.pyplot(fig, clear_figure=True)
+
+        st.markdown(
+            '<div class="info-card"><div class="ic-title">Reading it</div>'
+            '<p class="ic-body">The <b>EER</b> is where the two error rates meet '
+            '(the diagonal). <b>minDCF</b> weighs a false accept 10× a miss at a '
+            '5% prior, so it only drops below 1.0 once false acceptances are very '
+            'rare. Slide the threshold to walk along the DET curve.</p></div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ===========================================================================
@@ -192,10 +309,10 @@ with tab_test:
   if not pre_models:
     demo_corpus_notice(
         "No pretrained models configured",
-        "Add at least one Hugging Face download link in ui_helpers (RESNET_URL, "
-        "CNN3X3_URL, XGB_*_URL), or drop the weight files into <code>models/</code>, "
-        "to enable the live multi-model analysis. Run <code>export_models.py</code> "
-        "locally to generate the files from your trained models.",
+        "Set HF_BASE_URL in ui_helpers to your Hugging Face folder, or drop the "
+        "weight files into <code>models/</code>, to enable the live multi-model "
+        "analysis. Run <b>Benchmark → Full comparison</b> locally to train and "
+        "export the model files.",
     )
   else:
     st.markdown(
@@ -319,14 +436,7 @@ with tab_test:
 # Analyse one detector on a corpus split (local; needs the dataset)
 # ===========================================================================
 with tab_analyse:
-  if not corpus_ok:
-    demo_corpus_notice(
-        "Split analysis needs the local corpus",
-        "Scoring a detector on a dev/eval split requires the ASVspoof dataset, "
-        "which is not bundled in the web demo. Use <b>Test an audio</b> to score "
-        "your own clip with the pretrained models instead.",
-    )
-  else:
+  if corpus_ok:
     has_cnn = "cnn_model" in st.session_state
     with st.container(border=True):
         st.markdown('<div class="section-label">Detector</div>', unsafe_allow_html=True)
@@ -382,100 +492,88 @@ with tab_analyse:
         st.session_state["da_labels"] = lb
         st.session_state["da_name"]   = name
 
-    if "da_scores" not in st.session_state:
-        show_empty_state(
-            "No detector analysed yet",
-            "Pick a split and press Analyze. You will get its score distribution, "
-            "ROC and DET curves, and an interactive decision threshold to explore "
-            "the false-alarm vs miss trade-off behind the EER.",
-        )
-    else:
-        scores = np.asarray(st.session_state["da_scores"], dtype=float)
-        labels = np.asarray(st.session_state["da_labels"], dtype=int)
-        bona   = scores[labels == LABEL_BONAFIDE]
-        spoof  = scores[labels == LABEL_SPOOF]
+    _render_split_results()
 
-        eer, eer_thr = calculate_eer(scores.tolist(), labels.tolist())
-        mindcf       = calculate_min_dcf(scores.tolist(), labels.tolist())
+  elif pre_models:
+    # Web demo: score a PRETRAINED registry model on eval clips streamed from the
+    # public Hugging Face datasets (no corpus, no training — cross-dataset eval).
+    classic_entries = [e for e in pre_models if e["kind"] == "classic"]
+    cnn_entries     = [e for e in pre_models if e["kind"] == "cnn"]
 
-        grid = np.linspace(0.0, 1.0, 501)
-        far  = np.array([(spoof < t).mean() if len(spoof) else 0.0 for t in grid])
-        frr  = np.array([(bona >= t).mean() if len(bona) else 0.0 for t in grid])
-        tpr  = 1.0 - far
-        fpr  = frr
-        order = np.argsort(fpr)
-        _trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
-        auc   = float(_trapz(tpr[order], fpr[order]))
+    with st.container(border=True):
+        st.markdown('<div class="section-label">Detector</div>', unsafe_allow_html=True)
+        src_opts = (["Classic model"] if classic_entries else []) + \
+                   (["Pretrained CNN"] if cnn_entries else [])
+        source = st.segmented_control("Source", src_opts, default=src_opts[0],
+                                      key="da_source_hf", label_visibility="collapsed")
+        source = source or src_opts[0]
+        _busy = op_busy_notice()
 
-        st.markdown(f"**{st.session_state['da_name']}** &nbsp;·&nbsp; "
-                    f"{len(scores):,} trials &nbsp;·&nbsp; "
-                    f"{len(bona):,} bonafide / {len(spoof):,} spoof",
-                    unsafe_allow_html=True)
+        cnn_name = None
+        if source == "Classic model":
+            feats = sorted({e["feat"] for e in classic_entries},
+                           key=lambda f: FEATURE_ORDER.index(f)
+                           if f in FEATURE_ORDER else 99)
+            c1, c2 = st.columns(2, vertical_alignment="bottom")
+            with c1:
+                with st.container(key="nosearch_da_feat_hf"):
+                    feat_key = st.selectbox("Feature extractor", feats,
+                                            format_func=lambda k: FEATURE_LABELS[k],
+                                            key="da_feat_hf")
+            with c2:
+                clf_choices = [d for d, n in CLASSIFIERS.items()
+                               if any(e["clf"] == n and e["feat"] == feat_key
+                                      for e in classic_entries)]
+                with st.container(key="nosearch_da_clf_hf"):
+                    clf_disp = st.selectbox("Classifier", clf_choices, key="da_clf_hf")
+        else:
+            cnn_name = st.selectbox("CNN", [e["name"] for e in cnn_entries],
+                                    key="da_cnn_hf")
+            st.caption("Pretrained CNN checkpoint, served on CPU.")
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("minDCF", f"{mindcf:.3f}", help="Primary ASVspoof cost metric.")
-        m2.metric("EER", f"{100 * eer:.2f} %")
-        m3.metric("AUC-ROC", f"{auc:.3f}")
-        m4.metric("EER threshold", f"{eer_thr:.3f}")
+    a1, a2, a3 = st.columns([1.3, 1, 1.4], vertical_alignment="bottom")
+    with a1:
+        corpus = st.selectbox("Eval corpus", list(HF_EVAL_DATASETS), key="da_corpus_hf",
+                              help="Eval split streamed from the public HF dataset.")
+    with a2:
+        nper = st.number_input("Clips / class", 5, 100, HF_EVAL_PER_CLASS, step=5,
+                               key="da_nper_hf",
+                               help="Balanced bonafide + spoof clips fetched from HF.")
+    with a3:
+        analyze = st.button("Analyze", type="primary", disabled=_busy,
+                            icon=":material/insights:", width="stretch")
 
-        st.divider()
-        st.markdown('<div class="section-label">Decision threshold</div>',
-                    unsafe_allow_html=True)
-        thr = st.slider("Threshold on p(spoof)", 0.0, 1.0, float(round(eer_thr, 3)), 0.005,
-                        help="score ≥ threshold → declared spoof.")
-        t_far = (spoof < thr).mean() if len(spoof) else 0.0
-        t_frr = (bona >= thr).mean() if len(bona) else 0.0
-        preds = (scores >= thr).astype(int)
-        t_acc = float((preds == labels).mean())
-        tc1, tc2, tc3 = st.columns(3)
-        tc1.metric("False acceptance (spoof let through)", f"{100 * t_far:.2f} %")
-        tc2.metric("False rejection (bonafide blocked)",   f"{100 * t_frr:.2f} %")
-        tc3.metric("Accuracy @ threshold",                 f"{100 * t_acc:.2f} %")
+    if analyze:
+        with st.spinner(f"Streaming {corpus} eval from Hugging Face and scoring…"):
+            samples = hf_eval_samples(corpus, int(nper))
+            if not samples:
+                st.warning("Could not fetch eval clips from Hugging Face — "
+                           "try again or pick another corpus.")
+            else:
+                if source == "Classic model":
+                    entry = next(e for e in classic_entries
+                                 if e["feat"] == feat_key
+                                 and e["clf"] == CLASSIFIERS[clf_disp])
+                    sc, lb = _score_classic_on_samples(entry, samples)
+                    name = f"{FEATURE_LABELS[feat_key]} × {clf_disp} · {corpus} eval"
+                else:
+                    entry = next(e for e in cnn_entries if e["name"] == cnn_name)
+                    sc, lb = _score_cnn_on_samples(load_pretrained_model(entry),
+                                                   "cpu", samples)
+                    name = f"{cnn_name} · {corpus} eval"
+                st.session_state["da_scores"] = sc
+                st.session_state["da_labels"] = lb
+                st.session_state["da_name"]   = name
 
-        st.divider()
-        g1, g2 = st.columns(2, gap="large")
-        with g1:
-            st.markdown("**Score distribution**")
-            fig, ax = plt.subplots(figsize=(5.2, 3.4))
-            ax.hist(bona,  bins=40, alpha=0.7, label="Bonafide", color=BONAFIDE_COLOR)
-            ax.hist(spoof, bins=40, alpha=0.7, label="Spoof",    color=SPOOF_COLOR)
-            ax.axvline(thr, color="#FFD54F", lw=1.6, ls="--", label=f"threshold {thr:.2f}")
-            ax.axvline(eer_thr, color="#9E9E9E", lw=1.1, ls=":", label=f"EER thr {eer_thr:.2f}")
-            ax.set_xlabel("p(spoof)"); ax.set_ylabel("count")
-            ax.legend(fontsize=7.5, loc="upper center")
-            fig.tight_layout(); st.pyplot(fig, clear_figure=True)
+    _render_split_results()
 
-            st.markdown("**ROC curve**")
-            fig, ax = plt.subplots(figsize=(5.2, 3.4))
-            ax.plot(fpr[order], tpr[order], color="#4FC3F7", lw=1.8)
-            ax.plot([0, 1], [0, 1], color="#5C6B8A", lw=0.8, ls="--")
-            ax.set_xlabel("False positive rate"); ax.set_ylabel("True positive rate")
-            ax.set_title(f"AUC = {auc:.3f}", fontsize=9)
-            ax.set_xlim(0, 1); ax.set_ylim(0, 1)
-            fig.tight_layout(); st.pyplot(fig, clear_figure=True)
-
-        with g2:
-            st.markdown("**DET curve** (miss vs false-alarm)")
-            fig, ax = plt.subplots(figsize=(5.2, 3.4))
-            ax.plot(100 * far, 100 * frr, color="#AB47BC", lw=1.8)
-            lim = max(1.0, 100 * max(far.max(), frr.max()))
-            ax.plot([0, lim], [0, lim], color="#5C6B8A", lw=0.8, ls="--", label="EER line")
-            ax.scatter([100 * eer], [100 * eer], color="#FFD54F", zorder=5,
-                       label=f"EER {100 * eer:.1f}%")
-            ax.scatter([100 * t_far], [100 * t_frr], color="#66BB6A", zorder=5,
-                       label="threshold")
-            ax.set_xlabel("False acceptance (%)"); ax.set_ylabel("False rejection (%)")
-            ax.set_xlim(0, lim); ax.set_ylim(0, lim)
-            ax.legend(fontsize=7.5); fig.tight_layout(); st.pyplot(fig, clear_figure=True)
-
-            st.markdown(
-                '<div class="info-card"><div class="ic-title">Reading it</div>'
-                '<p class="ic-body">The <b>EER</b> is where the two error rates meet '
-                '(the diagonal). <b>minDCF</b> weighs a false accept 10× a miss at a '
-                '5% prior, so it only drops below 1.0 once false acceptances are very '
-                'rare. Slide the threshold to walk along the DET curve.</p></div>',
-                unsafe_allow_html=True,
-            )
+  else:
+    demo_corpus_notice(
+        "Split analysis needs the corpus or pretrained models",
+        "Scoring a detector on a split needs either the local ASVspoof dataset "
+        "or at least one pretrained model. Set HF_BASE_URL in ui_helpers to your "
+        "Hugging Face weights folder, or run the app locally with the dataset.",
+    )
 
 # ── Sidebar ──────────────────────────────────────────────────────────────── #
 with st.sidebar:

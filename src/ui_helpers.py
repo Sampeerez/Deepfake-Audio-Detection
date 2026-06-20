@@ -28,6 +28,13 @@ from src.features import FeatureExtractor  # noqa: E402
 CONFIG_PATH = os.path.join("config", "config.yaml")
 _EPS = 1e-10
 
+
+def _forced_demo() -> bool:
+    """Env switch to simulate the corpus-less cloud deployment on a local machine
+    (set DEEPFAKE_FORCE_DEMO=1): the dataset loaders report empty so every page
+    renders exactly as it will in the public web demo."""
+    return os.environ.get("DEEPFAKE_FORCE_DEMO") in ("1", "true", "True")
+
 # ── Colour palette ────────────────────────────────────────────────────────── #
 BONAFIDE_COLOR = "#42A5F5"   # blue  — real voice  (lighter for dark bg)
 SPOOF_COLOR    = "#EF5350"   # red   — deepfake
@@ -102,6 +109,26 @@ PAGE_CSS = """
     pointer-events: none !important;
 }
 [class*="st-key-ddac_host"] iframe { height: 0 !important; }
+
+/* Same treatment for Home's equaliser-ramp helper iframe (height=1 otherwise
+   shows as a thin white line above the stat strip). */
+[class*="st-key-eqramp_host"] {
+    position: absolute !important;
+    width: 0 !important; height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important; pointer-events: none !important;
+}
+[class*="st-key-eqramp_host"] iframe { height: 0 !important; }
+
+/* Signal Explorer panel-height equalizer iframe (seqh = Signal Explorer
+   Qt Height). Script runs on every render via setTimeout chains. */
+[class*="st-key-seqh_host"] {
+    position: absolute !important;
+    width: 0 !important; height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important; pointer-events: none !important;
+}
+[class*="st-key-seqh_host"] iframe { height: 0 !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN CONTENT
@@ -930,11 +957,11 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
     margin-bottom: 0.6rem !important;
 }
 
-/* COMPACT "Evaluation" group — "Evaluate on" and (only for 2019) "Score on"
+/* COMPACT "Evaluation" group — "Train on" (fixed) + "Evaluate on" + "Score on"
    laid out side by side in a fit-content blue frame (short, not full width). */
 [class*="st-key-evalgrp_"] {
     display: flex !important; flex-direction: row; flex-wrap: wrap;
-    column-gap: 1.2rem; row-gap: 0.2rem; align-items: flex-end;
+    column-gap: 1.2rem; row-gap: 0.2rem; align-items: flex-start;
     width: fit-content; max-width: 100%;
     border: 1px solid rgba(79,139,249,0.2);
     border-left: 3px solid rgba(79,139,249,0.45);
@@ -943,8 +970,8 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
     background: rgba(79,139,249,0.05);
 }
 [class*="st-key-evalgrp_"] > [data-testid="stElementContainer"] { width: auto !important; }
-/* Vertical divider between "Evaluate on" and "Score on". */
-[class*="st-key-evalgrp_"] > [data-testid="stElementContainer"]:last-child {
+/* Vertical divider between every pair of controls (Train on | Evaluate on | Score on). */
+[class*="st-key-evalgrp_"] > [data-testid="stElementContainer"]:not(:first-child) {
     border-left: 1px solid rgba(79,139,249,0.28);
     padding-left: 1.1rem; margin-left: 0.1rem;
 }
@@ -1283,6 +1310,8 @@ def get_extractor() -> FeatureExtractor:
 
 @st.cache_data(show_spinner=False)
 def get_samples(subset: str) -> List[Tuple[str, int]]:
+    if _forced_demo():
+        return []
     config    = load_config()
     root_dir  = config["dataset"]["path_la2019"]
     proto_dir = os.path.join(root_dir, config["dataset"]["protocols_dir"])
@@ -1298,6 +1327,8 @@ def get_samples(subset: str) -> List[Tuple[str, int]]:
 @st.cache_data(show_spinner=False)
 def get_samples_2021_la() -> List[Tuple[str, int]]:
     """Load and cache the full ASVspoof 2021 LA eval split."""
+    if _forced_demo():
+        return []
     config = load_config()
     cfg    = config.get("dataset_2021", {}).get("la", {})
     eval_dir = cfg.get("eval_dir", "")
@@ -1312,6 +1343,8 @@ def get_samples_2021_la() -> List[Tuple[str, int]]:
 @st.cache_data(show_spinner=False)
 def get_samples_2021_df() -> List[Tuple[str, int]]:
     """Load and cache the full ASVspoof 2021 DF eval split (all 3 partitions)."""
+    if _forced_demo():
+        return []
     config    = load_config()
     cfg       = config.get("dataset_2021", {}).get("df", {})
     eval_dirs = cfg.get("eval_dirs", [])
@@ -1360,9 +1393,9 @@ def corpus_available() -> bool:
 # ===========================================================================
 # On the free public cloud there is no GPU and the multi-GB ASVspoof corpus is
 # not on disk, so training / full-benchmark features cannot run. Instead, EVERY
-# pretrained model (the two CNNs and the classic XGBoost × DSP detectors) is
-# downloaded on demand from Hugging Face and run on CPU against a single clip
-# the visitor uploads — a live, side-by-side comparison of the whole zoo.
+# pretrained model — the two CNNs and the classic LR / SVM / XGBoost over every
+# DSP front-end (20 models in total) — is downloaded on demand from Hugging Face
+# and run on CPU, both against an uploaded clip and on full corpus splits.
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -1371,46 +1404,64 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR      = os.path.join(_REPO_ROOT, "models")
 CHECKPOINT_PATH = os.path.join(_REPO_ROOT, "asvspoof_model_checkpoint.pth")
 
-# ── Per-model download URLs ────────────────────────────────────────────────
-# Paste each Hugging Face "https://huggingface.co/<user>/<repo>/resolve/main/<file>"
-# direct link to enable that model in the web demo. Leave the placeholder to
-# disable a model (it still loads locally if its file is already in models/).
-RESNET_URL     = "TU_ENLACE_RESNET"        # ResNet + SE   (.pth)
-CNN3X3_URL     = "TU_ENLACE_CNN3X3"        # 3-Block CNN   (.pth)
-XGB_MFCC_URL   = "TU_ENLACE_XGB_MFCC"      # XGBoost · MFCC   (.joblib)
-XGB_LFCC_URL   = "TU_ENLACE_XGB_LFCC"      # XGBoost · LFCC   (.joblib)
-XGB_CQCC_URL   = "TU_ENLACE_XGB_CQCC"      # XGBoost · CQCC   (.joblib)
-XGB_FUSION_URL = "TU_ENLACE_XGB_FUSION"    # XGBoost · Fusion (.joblib)
+# ── Download location ──────────────────────────────────────────────────────
+# Single Hugging Face folder holding ALL weight files. Paste your repo's
+# "resolve/main" base (no trailing slash); each model's URL is derived from it,
+# so you only set ONE link for the whole zoo. Leave the placeholder to disable
+# downloads (models still load locally from models/ after a Full comparison).
+HF_BASE_URL = "https://huggingface.co/samu2066/deepfake-audio-weights/resolve/main"
+MODEL_URL   = HF_BASE_URL                      
 
-# Backward-compatible alias: the single checkpoint a fresh local training writes
-# is treated as the ResNet entry by default.
-MODEL_URL = RESNET_URL
 
-# Registry of every servable pretrained detector. Fields:
+def _hf_url(file: str) -> str:
+    """Derive a model's download URL from HF_BASE_URL (empty until it is set)."""
+    base = HF_BASE_URL.rstrip("/")
+    if "TU_ENLACE" in base or not base.startswith(("http://", "https://")):
+        return ""
+    return f"{base}/{file}"
+
+
+# Build the registry of every servable detector. Fields:
 #   kind  : "cnn" (torch .pth) or "classic" (joblib-dumped sklearn/xgb estimator)
+#   clf   : classifier name (classic only) for get_classic_model / row matching
 #   feat  : FeatureExtractor option key for classic models (CNNs read the STFT
 #           spectrogram directly, so feat is None for them)
 #   front : human-readable front-end, for the comparison table
-PRETRAINED_REGISTRY: List[Dict] = [
-    {"key": "resnet",     "name": "ResNet + SE",       "kind": "cnn",
-     "feat": None, "front": "STFT-dB spectrogram",
-     "file": "resnet_checkpoint.pth", "url": RESNET_URL},
-    {"key": "cnn3x3",     "name": "3-Block CNN (3×3)", "kind": "cnn",
-     "feat": None, "front": "STFT-dB spectrogram",
-     "file": "cnn3x3_checkpoint.pth", "url": CNN3X3_URL},
-    {"key": "xgb_mfcc",   "name": "XGBoost · MFCC",    "kind": "classic",
-     "feat": "2", "front": "MFCC",
-     "file": "xgb_mfcc.joblib", "url": XGB_MFCC_URL},
-    {"key": "xgb_lfcc",   "name": "XGBoost · LFCC",    "kind": "classic",
-     "feat": "3", "front": "LFCC",
-     "file": "xgb_lfcc.joblib", "url": XGB_LFCC_URL},
-    {"key": "xgb_cqcc",   "name": "XGBoost · CQCC",    "kind": "classic",
-     "feat": "6", "front": "CQCC",
-     "file": "xgb_cqcc.joblib", "url": XGB_CQCC_URL},
-    {"key": "xgb_fusion", "name": "XGBoost · Fusion",  "kind": "classic",
-     "feat": "5", "front": "Fusion (all DSP)",
-     "file": "xgb_fusion.joblib", "url": XGB_FUSION_URL},
+_CLF_DEFS = [
+    ("lr",  "logistic_regression", "Logistic Regression"),
+    ("svm", "svm_lineal",          "SVM (RBF)"),
+    ("xgb", "xgboost",             "XGBoost"),
 ]
+# (key suffix, FeatureExtractor option, label) — every DSP front-end.
+_FEAT_DEFS = [
+    ("rms",  "1", "RMS"),
+    ("mfcc", "2", "MFCC"),
+    ("lfcc", "3", "LFCC"),
+    ("dwt",  "4", "DWT"),
+    ("cqcc", "6", "CQCC"),
+]
+
+PRETRAINED_REGISTRY: List[Dict] = [
+    {"key": "resnet", "name": "ResNet + SE", "kind": "cnn", "clf": None,
+     "feat": None, "front": "STFT-dB spectrogram",
+     "file": "resnet_checkpoint.pth", "url": _hf_url("resnet_checkpoint.pth")},
+    {"key": "cnn3x3", "name": "3-Block CNN (3×3)", "kind": "cnn", "clf": None,
+     "feat": None, "front": "STFT-dB spectrogram",
+     "file": "cnn3x3_checkpoint.pth", "url": _hf_url("cnn3x3_checkpoint.pth")},
+]
+for _ck, _cname, _clabel in _CLF_DEFS:
+    for _fk, _fopt, _flabel in _FEAT_DEFS:
+        _file = f"{_ck}_{_fk}.joblib"
+        PRETRAINED_REGISTRY.append({
+            "key":   f"{_ck}_{_fk}",
+            "name":  f"{_clabel} · {_flabel}",
+            "kind":  "classic",
+            "clf":   _cname,
+            "feat":  _fopt,
+            "front": _flabel,
+            "file":  _file,
+            "url":   _hf_url(_file),
+        })
 
 
 def running_on_gpu() -> bool:
@@ -1423,7 +1474,10 @@ def running_on_gpu() -> bool:
 def demo_mode() -> bool:
     """Public-demo mode: the heavy ASVspoof corpus is NOT on disk (the case on
     Streamlit Community Cloud). Corpus-dependent sections degrade to notices;
-    the pretrained multi-model file analysis remains fully usable."""
+    the pretrained multi-model file analysis remains fully usable.
+
+    Honours DEEPFAKE_FORCE_DEMO=1 transparently (the loaders report empty, so
+    corpus_available() is False) — handy to preview the cloud UI locally."""
     return not corpus_available()
 
 
@@ -1457,9 +1511,17 @@ def model_downloaded(entry: Dict) -> bool:
     return os.path.isfile(_model_path(entry))
 
 
-# Pre-computed metrics for the pretrained models, written by export_models.py and
-# committed to the repo so the web demo can show the real EER/minDCF leaderboard
-# without the corpus. Maps model key -> {"eer_dev", "mindcf_dev", "eer_eval", ...}.
+def models_trained() -> bool:
+    """True once EVERY registry model has been trained and saved to disk — used
+    to switch the Benchmark from 'train everything' to 'evaluate the saved zoo'."""
+    return bool(PRETRAINED_REGISTRY) and all(
+        model_downloaded(e) for e in PRETRAINED_REGISTRY)
+
+
+# Pre-computed metrics for the pretrained models, written automatically by a
+# local Benchmark → Full comparison and committed, so the web demo can show the
+# real EER/minDCF leaderboard without the corpus. Maps model key ->
+# {"eer_dev", "mindcf_dev", "eer_eval", "mindcf_eval"}.
 DEMO_LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "demo_leaderboard.json")
 
 
@@ -1475,14 +1537,205 @@ def load_demo_leaderboard() -> Dict[str, Dict]:
         return {}
 
 
+# ── Bundled sample clips (so Signal Explorer always has audio to show) ─────── #
+# A handful of real clips per corpus/subset are committed under
+# samples/<key>/<subset>/ so the explorer works even without the multi-GB
+# datasets (e.g. on the cloud). They are generated with tools/make_samples.py
+# and (for whatever folder is still empty) auto-populated from the live corpus
+# the first time it is browsed locally. The label is encoded in the filename
+# prefix (spoof__* / bonafide__*).
+SAMPLES_DIR  = os.path.join(_REPO_ROOT, "samples")
+_SAMPLE_KEYS = {"2019 LA": "2019_la", "2021 LA": "2021_la", "2021 DF": "2021_df"}
+
+
+def _sample_dir(corpus: str, subset: Optional[str] = None) -> str:
+    base = os.path.join(SAMPLES_DIR, _SAMPLE_KEYS.get(corpus, corpus))
+    return os.path.join(base, subset) if subset else base
+
+
+def _label_for(fn: str) -> int:
+    return LABEL_SPOOF if fn.startswith("spoof") else LABEL_BONAFIDE
+
+
+def _scan_clips(d: str) -> List[Tuple[str, int]]:
+    if not os.path.isdir(d):
+        return []
+    return [(os.path.join(d, fn), _label_for(fn))
+            for fn in sorted(os.listdir(d))
+            if fn.lower().endswith((".flac", ".wav"))]
+
+
+def bundled_samples(corpus: str, subset: Optional[str] = None
+                    ) -> List[Tuple[str, int]]:
+    """(path, label) list of committed clips for a corpus/subset.
+
+    Reads samples/<corpus>/<subset>/ when a subset is given; falls back to the
+    flat samples/<corpus>/ folder (legacy layout) so older bundles keep working.
+    Empty when nothing has been bundled.
+    """
+    if subset:
+        clips = _scan_clips(_sample_dir(corpus, subset))
+        if clips:
+            return clips
+    return _scan_clips(_sample_dir(corpus))
+
+
+def bundle_samples(corpus: str, samples: List[Tuple[str, int]],
+                   subset: Optional[str] = None, n_per_class: int = 10) -> None:
+    """Copy a few bonafide + spoof clips from the live corpus into
+    samples/<corpus>/<subset>/ (once). Idempotent: does nothing if that folder
+    already holds clips."""
+    import shutil
+    d = _sample_dir(corpus, subset)
+    if _scan_clips(d):
+        return
+    bona  = [p for p, e in samples if e == LABEL_BONAFIDE][:n_per_class]
+    spoof = [p for p, e in samples if e == LABEL_SPOOF][:n_per_class]
+    if not bona and not spoof:
+        return
+    os.makedirs(d, exist_ok=True)
+    for tag, paths in (("bonafide", bona), ("spoof", spoof)):
+        for i, p in enumerate(paths):
+            try:
+                shutil.copy(p, os.path.join(d, f"{tag}__{i}_{os.path.basename(p)}"))
+            except OSError:
+                pass
+
+
+# ── Eval clips streamed from public Hugging Face datasets ──────────────────── #
+# On the corpus-less web demo the EVAL splits are far too large to commit, so we
+# pull a small, balanced sample on demand from public HF datasets (the dev/train
+# splits keep using the committed samples/ tree above). We use the lightweight
+# datasets-server /rows API — no `datasets` dependency and no multi-GB parquet
+# download — read each row's label + presigned audio URL, and cache a capped
+# number of clips locally so browsing and scoring reuse them.
+HF_EVAL_DATASETS: Dict[str, Dict[str, str]] = {
+    "2019 LA": {"id": "Bisher/ASVspoof_2019_LA",
+                "config": "default", "split": "test", "label_col": "key"},
+    "2021 LA": {"id": "SpeechAntiSpoofingBenchmarks/ASVspoof2021_LA",
+                "config": "default", "split": "test", "label_col": "label"},
+    "2021 DF": {"id": "SpeechAntiSpoofingBenchmarks/ASVspoof2021_DF",
+                "config": "default", "split": "test", "label_col": "label"},
+}
+HF_EVAL_PER_CLASS = 50          # clips PER CLASS to cache (web-demo friendly cap)
+HF_EVAL_MAX_PAGES = 10          # /rows pages (×100 rows) scanned to find bonafide
+_HF_CACHE_DIR     = os.path.join(SAMPLES_DIR, "_hf_cache")
+_DS_ROWS_URL      = "https://datasets-server.huggingface.co/rows"
+
+
+def _hf_get_json(url: str) -> Dict:
+    import json
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "tfg-deepfake-demo"})
+    with urllib.request.urlopen(req, timeout=30) as r:   # noqa: S310 — fixed host
+        return json.load(r)
+
+
+def _hf_download(src_dst):
+    import urllib.request
+    src, dst, label = src_dst
+    if not os.path.isfile(dst):
+        try:
+            req = urllib.request.Request(src, headers={"User-Agent": "tfg-deepfake-demo"})
+            with urllib.request.urlopen(req, timeout=60) as r:   # noqa: S310
+                data = r.read()
+            with open(dst, "wb") as fh:
+                fh.write(data)
+        except Exception:                                # noqa: BLE001 — skip bad clip
+            return None
+    return (dst, label)
+
+
+def _hf_eval_impl(corpus: str, n_per_class: int) -> List[Tuple[str, int]]:
+    import concurrent.futures as cf
+    import random
+    from urllib.parse import quote
+
+    spec = HF_EVAL_DATASETS.get(corpus)
+    if not spec:
+        return []
+
+    cache_dir = os.path.join(_HF_CACHE_DIR, _SAMPLE_KEYS.get(corpus, corpus), "eval")
+    cached = _scan_clips(cache_dir)
+    if len(cached) >= 2 * n_per_class:                   # already populated → reuse
+        return cached
+
+    base = (f"{_DS_ROWS_URL}?dataset={quote(spec['id'], safe='')}"
+            f"&config={spec['config']}&split={spec['split']}")
+
+    # Read rows across random windows: ASVspoof is ~90% spoof, so sequential
+    # pages can be all-spoof. Random offsets give both classes quickly.
+    collected: Dict[int, List[str]] = {LABEL_BONAFIDE: [], LABEL_SPOOF: []}
+    try:
+        first = _hf_get_json(base + "&offset=0&length=100")
+    except Exception:                                    # noqa: BLE001 — HF unreachable
+        return cached
+    total = int(first.get("num_rows_total", 100))
+    rng = random.Random(42)
+    offsets = [0] + [rng.randint(0, max(0, total - 100))
+                     for _ in range(HF_EVAL_MAX_PAGES - 1)]
+
+    def _ingest(payload):
+        for row in payload.get("rows", []):
+            r   = row.get("row", {})
+            lab = r.get(spec["label_col"])
+            if lab not in (LABEL_BONAFIDE, LABEL_SPOOF):
+                continue
+            if len(collected[lab]) >= n_per_class:
+                continue
+            audio = r.get("audio")
+            src   = (audio[0].get("src") if isinstance(audio, list) and audio
+                     else None)
+            if src:
+                collected[lab].append(src)
+
+    _ingest(first)
+    for off in offsets[1:]:
+        if all(len(collected[c]) >= n_per_class for c in collected):
+            break
+        try:
+            _ingest(_hf_get_json(base + f"&offset={off}&length=100"))
+        except Exception:                                # noqa: BLE001 — skip bad page
+            continue
+
+    os.makedirs(cache_dir, exist_ok=True)
+    ckey = _SAMPLE_KEYS.get(corpus, corpus)
+    tasks = []
+    for lab, srcs in collected.items():
+        tag = "bonafide" if lab == LABEL_BONAFIDE else "spoof"
+        for i, src in enumerate(srcs):
+            # Embed the corpus in the filename: the DSP/spectrogram caches key on
+            # the file stem, so a bare bonafide__0.flac would collide across
+            # corpora. Keep the label prefix so _label_for() still works.
+            fname = f"{tag}__{ckey}__{i}.flac"
+            tasks.append((src, os.path.join(cache_dir, fname), lab))
+
+    out: List[Tuple[str, int]] = []
+    with cf.ThreadPoolExecutor(max_workers=8) as pool:
+        for res in pool.map(_hf_download, tasks):
+            if res:
+                out.append(res)
+    return out or cached
+
+
+@st.cache_data(show_spinner=False)
+def hf_eval_samples(corpus: str,
+                    n_per_class: int = HF_EVAL_PER_CLASS) -> List[Tuple[str, int]]:
+    """A small, balanced eval sample streamed from the public HF dataset for
+    ``corpus`` and cached under samples/_hf_cache/. Returns [(local_path, label)]
+    (empty if the corpus has no HF mapping or HF is unreachable and nothing is
+    cached). Cached per session by Streamlit and on disk across reruns."""
+    return _hf_eval_impl(corpus, n_per_class)
+
+
 def _download_if_missing(url: str, path: str, label: str) -> None:
     if os.path.isfile(path):
         return
     if not _url_set(url):
         raise FileNotFoundError(
             f"{label}: no weights on disk and no download URL configured. "
-            "Paste a Hugging Face link in ui_helpers (e.g. RESNET_URL), or run "
-            "export_models.py locally to generate the files."
+            "Set HF_BASE_URL in ui_helpers to your Hugging Face folder, or run "
+            "Benchmark → Full comparison locally to generate the files."
         )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     import urllib.request
@@ -1563,12 +1816,15 @@ def test_audio_cta(
     """Attractive redirect from a corpus-only section to the multi-model file
     analysis that DOES work in the web demo."""
     st.markdown(
-        f'<p style="margin:0.9rem 0 0.4rem;opacity:0.8;">{text}</p>',
+        f'<p style="margin:0.9rem 0 1.15rem;opacity:0.8;">{text}</p>',
         unsafe_allow_html=True,
     )
-    st.page_link("app_pages/3_Detection_Analysis.py",
-                 label="Try the live multi-model analysis",
-                 icon=":material/graphic_eq:")
+    try:
+        st.page_link("app_pages/3_Detection_Analysis.py",
+                     label="Try the live multi-model analysis",
+                     icon=":material/hearing:")
+    except Exception:  # noqa: BLE001 — page_link needs st.navigation context
+        st.caption("Open **Detection Analysis → Test an audio** from the sidebar.")
 
 
 # ===========================================================================
@@ -1671,34 +1927,68 @@ def score_options_for(corpus: str):
     return ["Dev", "Eval", "Dev + Eval"] if corpus == "2019 LA" else ["Eval"]
 
 
-def eval_score_controls(prefix: str, disabled: bool = False):
+def eval_score_controls(
+    prefix: str,
+    disabled: bool = False,
+    train_label: str = "Train on",
+):
     """Unified 'Evaluation' group: the eval-corpus picker and the dependent
     score-on picker inside one framed block (used by every benchmark mode so
     they look consistent). Returns (corpus, score_split).
 
     Keys are f'{prefix}_corpus' and f'{prefix}_split'.
+    Pass train_label="Trained on" when a model is already loaded.
     """
     ck, sk = f"{prefix}_corpus", f"{prefix}_split"
+    _train_key = f"{prefix}_train_on"
     # Defaults (and self-heal any stale/invalid persisted value).
     if st.session_state.get(ck) not in EVAL_CORPUS_CHOICES:
         st.session_state[ck] = "2019 LA"
     if st.session_state.get(sk) not in ("Dev", "Eval", "Dev + Eval"):
         st.session_state[sk] = "Dev + Eval"
+    if st.session_state.get(_train_key) is None:
+        st.session_state[_train_key] = "2019 LA"
+
+    def _keep_train_on():
+        if st.session_state.get(_train_key) is None:
+            st.session_state[_train_key] = "2019 LA"
+
     # The two controls live in one flex-row, fit-content frame (CSS) so the
     # "Score on" sits right NEXT TO "Evaluate on" and the blue box stays short.
     with st.container(key=f"evalgrp_{prefix}"):
+        # Fixed "Train on" / "Trained on" — same segmented_control format as the
+        # other two. on_change prevents the user from deselecting the single option.
+        st.segmented_control(
+            train_label, ["2019 LA"],
+            key=_train_key, disabled=disabled, on_change=_keep_train_on,
+        )
         corpus = st.segmented_control(
             "Evaluate on", EVAL_CORPUS_CHOICES, key=ck, disabled=disabled)
         corpus = corpus or "2019 LA"
-        if corpus == "2019 LA":          # only 2019 LA has a dev split → show it
-            score = st.segmented_control(
-                "Score on", ["Dev", "Eval", "Dev + Eval"], key=sk, disabled=disabled)
-            score = score or "Dev + Eval"
-        else:                            # 2021 corpora are eval-only → a single
-            # selected "Eval" pill so it looks identical to the 2019 control.
-            st.segmented_control("Score on", ["Eval"], default="Eval",
-                                 key=f"{prefix}_split_only", disabled=disabled)
-            score = "Eval"
+
+        # "Score on" always renders the same 3 options so the box never shifts.
+        # When the selected corpus has no dev split, Dev/Dev+Eval are visually
+        # disabled via injected CSS (pointer-events:none) — the style element is
+        # collapsed to zero height by PAGE_CSS but its rules still apply globally.
+        # Session state is also reset to "Eval" so no stale selection leaks through.
+        if corpus != "2019 LA":
+            if st.session_state.get(sk) in ("Dev", "Dev + Eval"):
+                st.session_state[sk] = "Eval"
+            st.markdown(
+                "<style>"
+                "[class*='st-key-evalgrp_']>[data-testid='stElementContainer']:last-child "
+                "button:nth-child(1),"
+                "[class*='st-key-evalgrp_']>[data-testid='stElementContainer']:last-child "
+                "button:nth-child(3)"
+                "{pointer-events:none!important;opacity:0.28!important;}"
+                "</style>",
+                unsafe_allow_html=True,
+            )
+        score = st.segmented_control(
+            "Score on", ["Dev", "Eval", "Dev + Eval"], key=sk, disabled=disabled)
+        score = score or "Dev + Eval"
+        if corpus != "2019 LA":
+            score = "Eval"   # enforce even if CSS failed and user clicked Dev
     return corpus, score
 
 
@@ -1746,15 +2036,9 @@ _OP_ICON_FULL = ('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" '
                  'stroke-linejoin="round"><path d="M4 20V11M10 20V4M16 20v-6M3 20h18"/></svg>')
 
 
-@st.fragment(run_every=2.0)
-def op_banner_fragment() -> None:
-    """Global background-job banner, pinned to the bottom of the sidebar.
-
-    Implemented as an auto-refreshing fragment so it (a) appears on EVERY page —
-    even ones that call st.stop() — since it is rendered before the page script
-    runs, and (b) updates its progress on its own every 2 s without forcing the
-    whole app to rerun. When the job finishes it triggers ONE full app rerun so
-    app.py collects the result and the page updates."""
+def _op_banner_render() -> None:
+    """Render the banner (or trigger the completion rerun). Shared by the live and
+    idle fragment wrappers below."""
     for key in ("bench_future", "cnn_future"):
         fut = st.session_state.get(key)
         if fut is not None and fut.done():
@@ -1789,6 +2073,33 @@ def op_banner_fragment() -> None:
             if kind == "cnn":
                 st.session_state["cnn_focus_curves"] = True   # open Training curves
             st.switch_page("app_pages/2_Benchmark.py")
+
+
+@st.fragment(run_every=2.0)
+def _op_banner_live() -> None:
+    _op_banner_render()
+
+
+@st.fragment
+def _op_banner_idle() -> None:
+    _op_banner_render()
+
+
+def op_banner_fragment() -> None:
+    """Global background-job banner, pinned to the bottom of the sidebar.
+
+    Appears on EVERY page (rendered before the page script runs, so it survives
+    st.stop()). It auto-refreshes every 2 s ONLY while a job is running; when the
+    job finishes it triggers ONE full app rerun so app.py collects the result.
+
+    The 2 s timer (run_every) is attached only in the running state: an idle app
+    would otherwise keep a live timer that, after the rapid reruns of startup or
+    page navigation, fires against a container that no longer exists — logging
+    'The fragment ... does not exist anymore' warnings on every rerun."""
+    if op_in_progress():
+        _op_banner_live()
+    else:
+        _op_banner_idle()
 
 
 def launch_full_comparison(classic_subset: int = 4000, include_cnn: bool = True) -> None:

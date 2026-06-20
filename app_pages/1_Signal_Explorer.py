@@ -30,13 +30,25 @@ import streamlit as st  # noqa: E402
 
 from src.features import AudioLoadError  # noqa: E402
 from src.ui_helpers import (  # noqa: E402
-    compute_signal_stats, label_badge, show_empty_state, sidebar_panel,
+    bundle_samples, bundled_samples, compute_signal_stats, hf_eval_samples,
+    label_badge, mini_note, show_empty_state, sidebar_panel,
     fig_cnn_input, fig_cqcc, fig_lfcc, fig_mfcc, fig_stft_db, fig_waveform,
     get_extractor, get_samples, get_samples_2021_la, get_samples_2021_df,
     split_by_label, BONAFIDE_COLOR, SPOOF_COLOR,
 )
 
 extractor = get_extractor()
+
+# Push the upload "Clear" button flush against the right edge (compact, not full
+# width) — overrides the generic right-align helper that stretches widgets.
+st.markdown(
+    "<style>"
+    "[class*='st-key-alignr_clear']{display:flex;justify-content:flex-end;}"
+    "[class*='st-key-alignr_clear'] [data-testid='stElementContainer']{width:auto !important;}"
+    "[class*='st-key-alignr_clear'] button{width:auto !important;}"
+    "</style>",
+    unsafe_allow_html=True,
+)
 
 _PLACEHOLDER = -1   # sentinel index meaning "no file selected"
 
@@ -211,8 +223,12 @@ def _decode_upload(name: str, blob: bytes) -> np.ndarray:
 # Source picker
 # ===========================================================================
 
-def _corpus_picker(key_prefix: str):
-    """Render corpus file picker. Returns (signal, label_str, path) or Nones."""
+def _corpus_picker(key_prefix: str, n: int = 1):
+    """Render corpus file picker. Returns (signal, label_str, path) or Nones.
+
+    `n` is the number of source panels shown side by side: with 3 the panels are
+    narrow, so the file selectbox is given less width to keep Clear/Random intact.
+    """
     corpus_key = f"{key_prefix}_corpus"
     subset_key = f"{key_prefix}_subset"
 
@@ -248,8 +264,21 @@ def _corpus_picker(key_prefix: str):
         with st.spinner("Loading 2021 DF index…"):
             samples = get_samples_2021_df()
 
+    if samples:
+        bundle_samples(corpus, samples, subset)   # cache a few clips for the web demo
+    else:
+        # No live corpus index (web demo). EVAL streams a balanced sample from the
+        # public Hugging Face dataset; dev/train read the committed samples/ tree.
+        # Either way fall back to the bundled clips if HF is unavailable.
+        if subset == "eval":
+            with st.spinner(f"Streaming {corpus} eval clips from Hugging Face…"):
+                samples = hf_eval_samples(corpus)
+        if not samples:
+            samples = bundled_samples(corpus, subset)
+
     if not samples:
-        st.warning(f"{corpus} unavailable — check dataset paths in config.yaml.")
+        mini_note(f"No {corpus} samples bundled yet — switch to Upload, or run "
+                  "locally with the dataset to populate them.")
         return None, None, None
 
     bonafide, spoof = split_by_label(samples)
@@ -268,7 +297,11 @@ def _corpus_picker(key_prefix: str):
     if not isinstance(stored, int) or (stored != _PLACEHOLDER and stored >= len(pool_shown)):
         st.session_state[state_key] = _PLACEHOLDER
 
-    col_file, col_clear, col_rand = st.columns([3.0, 1.05, 1.05])
+    # Narrower file column when panels are squeezed (2–3 sources) so the
+    # Clear/Random buttons keep their labels instead of being clipped.
+    _ratios = [1.7, 1.05, 1.2] if n >= 3 else \
+              ([2.4, 1.05, 1.1] if n == 2 else [3.0, 1.05, 1.05])
+    col_file, col_clear, col_rand = st.columns(_ratios)
     with col_clear:
         st.markdown('<div style="height:1.75rem;"></div>', unsafe_allow_html=True)
         # Callback runs before the rerun → clears the selectbox cleanly.
@@ -321,17 +354,19 @@ def _upload_picker(key_prefix: str):
     if blob is None:
         return None, None, None
 
+    # Show caption when the widget is gone (after navigation); the uploader
+    # already shows the filename when the file is freshly selected.
     if uploaded is None:
-        # Payload kept from an earlier upload (widget was re-created empty).
-        c_info, c_clear = st.columns([3, 1], vertical_alignment="center")
-        c_info.caption(f"Using uploaded file: **{name}**")
-        with c_clear:
-            with st.container(key=f"alignr_clear_{key_prefix}"):
-                if st.button("Clear", key=f"{key_prefix}_upload_clear",
-                             icon=":material/close:",
-                             help="Forget this uploaded file"):
-                    del st.session_state[name_key], st.session_state[bytes_key]
-                    st.rerun()
+        st.caption(f"Using uploaded file: **{name}**")
+    # Always show Clear so the user can reset without having to click the X on
+    # the native file_uploader widget (and so it's visible even after navigation).
+    with st.container(key=f"alignr_clear_{key_prefix}"):
+        if st.button("Clear", key=f"{key_prefix}_upload_clear",
+                     icon=":material/close:",
+                     help="Forget this uploaded file"):
+            st.session_state.pop(name_key, None)
+            st.session_state.pop(bytes_key, None)
+            st.rerun()
 
     return _decode_upload(name, blob), "uploaded", name
 
@@ -366,7 +401,7 @@ def _audio_picker(key_prefix: str, title_html: str, idx: int = 0, n: int = 1):
             source = "Corpus"
         if source == "Upload":
             return _upload_picker(key_prefix)
-        return _corpus_picker(key_prefix)
+        return _corpus_picker(key_prefix, n)
 
 
 # ===========================================================================
@@ -479,21 +514,76 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Equal-height source panels: stretch the flex column chain so the short Upload
+# slot fills to the tallest Corpus slot. align-items:stretch on the horizontal
+# block propagates the row height into each column; the chain of flex containers
+# below carries it all the way down to srcbox_. The JS iframe below also runs
+# setHeight imperatively on every render to handle cases where CSS alone isn't
+# enough (e.g. first-render timing in Streamlit).
+st.markdown("""
+<style>
+[class*="st-key-srccols"] [data-testid="stHorizontalBlock"] {
+    align-items: stretch !important;
+}
+[class*="st-key-srccols"] [data-testid="stColumn"] {
+    display: flex !important; flex-direction: column !important;
+}
+[class*="st-key-srccols"] [data-testid="stColumn"] > [data-testid="stVerticalBlock"] {
+    flex: 1 1 auto !important; display: flex !important; flex-direction: column !important;
+}
+[class*="st-key-srccols"] [data-testid="stElementContainer"]:has(> [class*="st-key-srcbox_"]) {
+    flex: 1 1 auto !important; display: flex !important; flex-direction: column !important;
+}
+[class*="st-key-srcbox_"] { flex: 1 1 auto !important; }
+[class*="st-key-srcbox_"] > [data-testid="stVerticalBlockBorderWrapper"] {
+    flex: 1 1 auto !important; display: flex !important; flex-direction: column !important;
+}
+[class*="st-key-srcbox_"] > [data-testid="stVerticalBlockBorderWrapper"] > div {
+    flex: 1 1 auto !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ── Source panel(s) ──────────────────────────────────────────────────────── #
 sigs, lbls, srcs = [], [], []
-cfg_cols = st.columns(n_sources, gap="medium")
-for i in range(n_sources):
-    with cfg_cols[i]:
-        if n_sources == 1:
-            title = "Audio source"
-        else:
-            dot = (f'<span class="dot" style="background:'
-                   f'{SLOT_DOT_COLORS[i]};"></span>')
-            title = f"{dot}Source {i + 1}"
-        sig, lbl, src = _audio_picker(SLOTS[i], title, idx=i, n=n_sources)
-        sigs.append(sig)
-        lbls.append(lbl)
-        srcs.append(src)
+with st.container(key="srccols"):
+    cfg_cols = st.columns(n_sources, gap="medium")
+    for i in range(n_sources):
+        with cfg_cols[i]:
+            if n_sources == 1:
+                title = "Audio source"
+            else:
+                dot = (f'<span class="dot" style="background:'
+                       f'{SLOT_DOT_COLORS[i]};"></span>')
+                title = f"{dot}Source {i + 1}"
+            sig, lbl, src = _audio_picker(SLOTS[i], title, idx=i, n=n_sources)
+            sigs.append(sig)
+            lbls.append(lbl)
+            srcs.append(src)
+
+# ── JS height equalizer — runs on every render so the Upload panel matches the
+#    Corpus panel height immediately without requiring a page navigation.
+#    Uses setTimeout chains (not setInterval) to avoid accumulation across reruns.
+with st.container(key="seqh_host"):
+    st.iframe(
+        """<script>
+(function(){
+  var doc;try{doc=window.parent.document;}catch(e){return;}
+  function eq(){
+    var c=doc.querySelector('[class*="st-key-srccols"]');
+    if(!c)return;
+    var bs=Array.from(c.querySelectorAll('[class*="st-key-srcbox_"]'));
+    if(bs.length<2)return;
+    bs.forEach(function(b){b.style.minHeight='';});
+    var m=0;
+    bs.forEach(function(b){m=Math.max(m,b.getBoundingClientRect().height);});
+    if(m>0)bs.forEach(function(b){b.style.minHeight=m+'px';});
+  }
+  [50,150,300,600].forEach(function(d){window.parent.setTimeout(eq,d);});
+})();
+</script>""",
+        height=1,
+    )
 
 # ── Add source — removal & reordering now live on each source's toolbar ───── #
 st.button(

@@ -24,15 +24,18 @@ import streamlit as st
 
 from src.data_loader import stratified_subsample
 from src.features import FeatureExtractor
-from src.pipeline import MODEL_OPTIONS, extract_feature_matrix, run_classic_models
+from src.pipeline import (
+    MODEL_OPTIONS, extract_feature_matrix, run_classic_models, score_fitted_classic,
+)
 from src.reporting import (
     COL_ACCURACY, COL_EER, COL_FEATURES, COL_MIN_DCF, COL_MODEL,
     RESULT_COLUMNS,
 )
 from src.ui_helpers import (
-    corpus_available, demo_corpus_notice, eval_corpora_for, eval_score_controls,
-    get_extractor, get_samples, load_config, op_busy_notice, show_empty_state,
-    sidebar_panel, test_audio_cta,
+    available_pretrained_models, corpus_available, demo_corpus_notice,
+    eval_corpora_for, eval_score_controls,
+    get_extractor, get_samples, load_config, load_pretrained_classic,
+    op_busy_notice, op_in_progress, show_empty_state, sidebar_panel, test_audio_cta,
 )
 
 st.markdown("""
@@ -76,7 +79,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Run Experiment")
+st.title("Classic Models")
 st.caption(
     "DSP extractor + classic classifier on ASVspoof 2019 LA. "
     "Results accumulate across runs so you can compare configurations."
@@ -107,13 +110,10 @@ FEATURE_BLURBS = {
     "2": "Mel-scale cepstrum: the classic speech front-end, tuned to human hearing.",
     "3": "Linear-frequency cepstrum — keeps high-band detail where TTS artefacts live.",
     "4": "Multi-resolution wavelet energies (db4) — transient and band-energy cues.",
-    "5": "Early fusion of every descriptor — RMS + MFCC + LFCC + DWT + CQCC — in one vector.",
     "6": "Constant-Q cepstrum — log-spaced bins, the strongest classic anti-spoofing front-end.",
 }
 
-# Display order in the dropdown: CQCC (6) is shown right before Fusion (5),
-# since the fusion now includes it. Underlying option keys are unchanged.
-FEATURE_ORDER = ["1", "2", "3", "4", "6", "5"]
+FEATURE_ORDER = ["1", "2", "3", "4", "6"]
 MODEL_BLURBS = {
     "1": "Fast linear baseline; well-calibrated scores out of the box.",
     "2": "Maximum-margin linear separator; robust on small subsets.",
@@ -128,62 +128,100 @@ SPLIT_HELP = {
     SPLIT_BOTH: "Score on dev and eval — adds an extra eval row per model.",
 }
 
+# Right column tweaks: the Evaluate/Score box fills the full column width (its
+# two groups pushed to the edges), and the tall Run-experiment button makes the
+# right rows line up with Classifier / Advanced on the left.
+st.markdown("""
+<style>
+[class*="st-key-evalgrp_exp"] { width: 100% !important; justify-content: space-between; }
+[class*="st-key-runbtn_exp"] button { min-height: 3.4rem; }
+[class*="st-key-advbtn_exp"] button { min-height: 3.4rem; }
+</style>
+""", unsafe_allow_html=True)
+
 # ── Configuration panel (main area) ──────────────────────────────────────── #
 with st.container(border=True):
     st.markdown('<div class="section-label">Experiment configuration</div>',
                 unsafe_allow_html=True)
 
-    # Feature extractor, classifier and Advanced share one row; the less-used
-    # numeric knobs (files/subset, seed) live inside Advanced to save space.
-    c_feat, c_model, c_adv = st.columns([1.4, 1.4, 0.9])
-    with c_feat:
+    _is_busy = op_in_progress()
+
+    # Row 1: Feature+Classifier | Train on / Evaluate on / Score on controls
+    _r1l, _r1r = st.columns(2, gap="large")
+    with _r1l:
         # nosearch_* container → CSS blocks type-to-filter (pure dropdown).
-        with st.container(key="nosearch_feature"):
-            feature_option = st.selectbox(
-                "Feature extractor",
-                FEATURE_ORDER,
-                format_func=lambda k: FEATURE_LABELS[k],
-                key="exp_feature",
-            )
-    with c_model:
-        with st.container(key="nosearch_model"):
-            model_option = st.selectbox(
-                "Classifier",
-                list(MODEL_LABELS.keys()),
-                format_func=lambda k: MODEL_LABELS[k],
-                key="exp_model",
-            )
-    with c_adv:
-        st.markdown('<div style="height:1.75rem;"></div>', unsafe_allow_html=True)
-        with st.popover("Advanced", icon=":material/tune:", width="stretch"):
-            subset = st.number_input(
-                "Files per subset", min_value=0, value=300, step=100,
-                help="0 = full dataset. Stratified subsampling preserves the "
-                     "bonafide/spoof ratio.",
-            )
-            seed = st.number_input("Seed", min_value=0, value=42, step=1)
-            use_cache = st.checkbox(
-                "Use DSP feature cache", value=True,
-                help="Cache extracted vectors to disk, keyed by config hash.")
-            workers = st.slider("DSP extraction threads", 1, 8, 4)
+        _fc, _mc = st.columns(2, gap="small")
+        with _fc:
+            with st.container(key="nosearch_feature"):
+                feature_option = st.selectbox(
+                    "Feature extractor",
+                    FEATURE_ORDER,
+                    format_func=lambda k: FEATURE_LABELS[k],
+                    key="exp_feature",
+                )
+        with _mc:
+            with st.container(key="nosearch_model"):
+                model_option = st.selectbox(
+                    "Classifier",
+                    list(MODEL_LABELS.keys()),
+                    format_func=lambda k: MODEL_LABELS[k],
+                    key="exp_model",
+                )
+    with _r1r:
+        _train_lbl = "Trained on" if st.session_state.get("fitted_classic_models") else "Train on"
+        corpus, score_split = eval_score_controls("exp", train_label=_train_lbl)
+        _busy = op_busy_notice()
 
-    corpus, score_split = eval_score_controls("exp")
-
-    st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
-
-    _busy = op_busy_notice()
-    c_run, c_clear = st.columns([3, 1])
-    with c_run:
-        run_btn = st.button("Run experiment", type="primary",
-                            icon=":material/play_arrow:", width="stretch",
-                            disabled=_busy)
-    with c_clear:
+    # Row 2: Advanced + Clear | Train models + Evaluate (same row → natural alignment)
+    _r2l, _r2r = st.columns(2, gap="large")
+    with _r2l:
+        with st.container(key="advbtn_exp"):
+            with st.popover("Advanced", icon=":material/tune:", width="stretch"):
+                _a1, _a2 = st.columns(2)
+                with _a1:
+                    subset = st.number_input(
+                        "Files per subset", min_value=0, value=300, step=100,
+                        help="0 = full dataset. Stratified subsampling preserves the "
+                             "bonafide/spoof ratio.",
+                    )
+                    use_cache = st.checkbox(
+                        "Use DSP feature cache", value=True,
+                        help="Cache extracted vectors to disk, keyed by config hash.")
+                with _a2:
+                    seed = st.number_input("Seed", min_value=0, value=42, step=1)
+                    workers = st.slider("DSP extraction threads", 1, 8, 4)
         clear_btn = st.button("Clear results", icon=":material/delete:",
-                              width="stretch", disabled=_busy)
+                              width="stretch", disabled=_is_busy)
+
+    with _r2r:
+        # Check if evaluation is possible: session-fitted models OR HF pretrained.
+        _needed = list(MODEL_OPTIONS[model_option])
+        _fitted_info = st.session_state.get("fitted_classic_models", {})
+        _fitted_match = (
+            _fitted_info.get("feature") == feature_option
+            and _fitted_info.get("model_option") == model_option
+        )
+        _hf_ok = all(
+            any(e["kind"] == "classic" and e["clf"] == n and e["feat"] == feature_option
+                for e in available_pretrained_models())
+            for n in _needed
+        )
+        _can_eval = _fitted_match or _hf_ok
+        with st.container(key="runbtn_exp"):
+            run_btn = st.button("Train models", type="primary",
+                                icon=":material/play_arrow:", width="stretch",
+                                disabled=_busy)
+        eval_btn = st.button(
+            "Evaluate", icon=":material/query_stats:", width="stretch",
+            disabled=_busy or not _can_eval,
+            help=None if _can_eval else
+                 "Run experiment first, or configure HF_BASE_URL for pretrained weights.",
+        )
 
 if clear_btn:
     st.session_state["experiment_rows"] = []
     st.session_state.pop("run_signatures", None)
+    st.session_state.pop("fitted_classic_models", None)
     st.rerun()
 
 # The 3-step pipeline overview lives on the Benchmark home page now; here we
@@ -212,36 +250,29 @@ def _tag_rows(results: list, base_split: str) -> list:
 
 
 # ── Execution ────────────────────────────────────────────────────────────── #
-# A run is fully determined by (extractor, classifier, split, subset, seed) — so
-# the same combination always yields the same result. Skip identical re-runs
-# (only the training time would differ) instead of duplicating rows.
-_run_sig = (feature_option, model_option, corpus, score_split, int(subset), int(seed))
+# Run experiment: train classifiers + score on 2019 LA dev (always).
+# A run is fully determined by (extractor, classifier, subset, seed).
+_run_sig = (feature_option, model_option, int(subset), int(seed))
 if run_btn and _run_sig in st.session_state.get("run_signatures", set()):
     st.info(
-        f"**{FEATURE_LABELS[feature_option]} × {MODEL_LABELS[model_option]}** on "
-        f"the **{_split_txt}** (subset {int(subset) or 'full'}, seed {int(seed)}) "
-        "has already been run — the result is unchanged, so nothing was "
-        "re-trained. Change the configuration to add a new row.",
+        f"**{FEATURE_LABELS[feature_option]} × {MODEL_LABELS[model_option]}** "
+        f"(subset {int(subset) or 'full'}, seed {int(seed)}) has already been "
+        "trained — the dev results are unchanged. Press Evaluate for eval corpus "
+        "scoring, or change the configuration to re-train.",
         icon=":material/info:",
     )
     run_btn = False
 
 if run_btn:
-    # Training + the dev row always use the 2019 LA train/dev splits; eval rows
-    # come from the chosen corpus. "Eval"-only drops the dev row afterwards.
     train_samples   = get_samples("train")
     primary_samples, primary_name = get_samples("dev"), "dev"
-    score_eval = score_split in (SPLIT_EVAL, SPLIT_BOTH)
-    eval_corpora = eval_corpora_for(corpus) if score_eval else []
-
     if subset > 0:
         train_samples   = stratified_subsample(train_samples,   int(subset), int(seed))
         primary_samples = stratified_subsample(primary_samples, int(subset), int(seed) + 1)
-        eval_corpora = [(lbl, stratified_subsample(s, int(subset), int(seed) + 2))
-                        for lbl, s in eval_corpora]
 
     log      = io.StringIO()
     progress = st.progress(0.0, text="Extracting train features...")
+    _fitted: dict = {}
 
     try:
         with contextlib.redirect_stdout(log):
@@ -249,26 +280,18 @@ if run_btn:
                 train_samples, extractor, feature_option, "train",
                 n_workers=int(workers), use_cache=use_cache,
             )
-            progress.progress(0.4, text="Extracting dev features...")
+            progress.progress(0.5, text="Extracting dev features...")
             x_primary, y_primary, ms_dsp = extract_feature_matrix(
                 primary_samples, extractor, feature_option, "dev",
                 n_workers=int(workers), use_cache=use_cache,
             )
-            eval_sets = []
-            for lbl, s in eval_corpora:
-                if s:
-                    progress.progress(0.6, text=f"Extracting eval [{lbl}] features...")
-                    x_ev, y_ev, _ = extract_feature_matrix(
-                        s, extractor, feature_option, f"eval[{lbl}]",
-                        n_workers=int(workers), use_cache=use_cache,
-                    )
-                    eval_sets.append((lbl, x_ev, y_ev))
-            progress.progress(0.8, text="Training and evaluating...")
+            progress.progress(0.8, text="Training and scoring on dev...")
             results = run_classic_models(
                 MODEL_OPTIONS[model_option],
                 x_train, y_train, x_primary, y_primary,
                 FEATURE_LABELS[feature_option], ms_dsp, int(seed),
-                eval_sets=eval_sets,
+                eval_sets=[],           # no eval corpus here; use Evaluate button
+                model_sink=lambda n, m: _fitted.update({n: m}),
             )
         progress.progress(1.0)
     except Exception as err:
@@ -276,16 +299,82 @@ if run_btn:
         st.exception(err)
         st.stop()
 
-    # No "Done." text or success banner — the new rows speak for themselves in
-    # the results table below.
     progress.empty()
-    # "Eval"-only: keep just the eval rows (drop the 2019 dev row).
-    if score_split == SPLIT_EVAL:
-        results = [r for r in results if "[EVAL]" in str(r.get(COL_MODEL, ""))]
     results = _tag_rows(results, primary_name)
-    st.session_state.setdefault("experiment_rows", [])
-    st.session_state["experiment_rows"].extend(results)
+    st.session_state.setdefault("experiment_rows", []).extend(results)
     st.session_state.setdefault("run_signatures", set()).add(_run_sig)
+    # Store fitted models so the Evaluate button can score them on eval corpora.
+    st.session_state["fitted_classic_models"] = {
+        "models":       _fitted,
+        "feature":      feature_option,
+        "model_option": model_option,
+    }
+
+if eval_btn:
+    # Resolve models: prefer session-fitted, fall back to HF pretrained.
+    _fitted_info = st.session_state.get("fitted_classic_models", {})
+    _fitted_match = (
+        _fitted_info.get("feature") == feature_option
+        and _fitted_info.get("model_option") == model_option
+    )
+    if _fitted_match:
+        _models_to_eval = _fitted_info["models"]
+    else:
+        _models_to_eval = {}
+        for _name in _needed:
+            _entry = next(
+                (e for e in available_pretrained_models()
+                 if e["kind"] == "classic" and e["clf"] == _name
+                 and e["feat"] == feature_option),
+                None,
+            )
+            if _entry:
+                _models_to_eval[_name] = load_pretrained_classic(
+                    _entry["file"], _entry["url"], _entry["name"]
+                )
+        if not _models_to_eval:
+            st.error("No models available for evaluation.")
+            st.stop()
+
+    _eval_corpora = eval_corpora_for(corpus)
+    if not _eval_corpora:
+        st.warning("Selected eval corpus has no samples available.")
+    else:
+        _prog = st.progress(0.0, text="Preparing eval...")
+        try:
+            _eval_results = []
+            for _i, (_lbl, _samps) in enumerate(_eval_corpora):
+                if subset > 0:
+                    _samps = stratified_subsample(_samps, int(subset), int(seed) + 2)
+                if not _samps:
+                    continue
+                _prog.progress(
+                    _i / len(_eval_corpora),
+                    text=f"Extracting features for {_lbl}…",
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    _x_ev, _y_ev, _ = extract_feature_matrix(
+                        _samps, extractor, feature_option, f"eval[{_lbl}]",
+                        n_workers=int(workers), use_cache=use_cache,
+                    )
+                _prog.progress(
+                    (_i + 0.7) / len(_eval_corpora),
+                    text=f"Scoring on {_lbl}…",
+                )
+                _eval_results += score_fitted_classic(
+                    _models_to_eval, _x_ev, _y_ev,
+                    FEATURE_LABELS[feature_option],
+                    corpus_label=_lbl,
+                )
+            _prog.progress(1.0)
+        except Exception as _err:
+            _prog.empty()
+            st.exception(_err)
+            st.stop()
+        _prog.empty()
+        _eval_results = _tag_rows(_eval_results, "eval")
+        st.session_state.setdefault("experiment_rows", []).extend(_eval_results)
+        st.rerun()
 
 # ── Results area ─────────────────────────────────────────────────────────── #
 rows = st.session_state.get("experiment_rows", [])

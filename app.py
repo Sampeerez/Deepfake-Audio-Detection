@@ -183,19 +183,21 @@ if _cnn_fut is not None and _cnn_fut.done():
             st.session_state["cnn_cancelled"] = True
         else:
             _pend = st.session_state.get("cnn_pending", {})
+            _train_only = st.session_state.pop("cnn_train_only", False)
             st.session_state["cnn_model"]        = _model
             st.session_state["cnn_history"]      = _hist
-            st.session_state["cnn_results"]      = _results
             st.session_state["cnn_dev"]          = _pend.get("dev", [])
             st.session_state["cnn_train_corpus"] = _pend.get("corpus", "—")
             st.session_state["cnn_arch_trained"] = _pend.get("arch", "—")
-            # The leaderboard/Results honours the 3-button score: "Eval" keeps
-            # only the eval row (when one was produced), the rest keep all.
-            _board = _results
-            if _pend.get("score") == "Eval":
-                _ev = [r for r in _results if "[EVAL]" in str(r.get("Model", ""))]
-                _board = _ev or _results
-            st.session_state.setdefault("cnn_runs", []).extend(_board)
+            if not _train_only:
+                # Produce result rows only when NOT in train-only mode; the
+                # Evaluate button in CNN mode adds them on-demand instead.
+                st.session_state["cnn_results"] = _results
+                _board = _results
+                if _pend.get("score") == "Eval":
+                    _ev = [r for r in _results if "[EVAL]" in str(r.get("Model", ""))]
+                    _board = _ev or _results
+                st.session_state.setdefault("cnn_runs", []).extend(_board)
     except Exception as _exc:  # noqa: BLE001 — surface compute errors
         st.session_state["cnn_error"] = str(_exc)
     st.session_state["cnn_future"] = None
@@ -207,15 +209,17 @@ if _cnn_fut is not None and _cnn_fut.done():
 # 2 s on its own and triggers a single full rerun when the job finishes — no
 # disruptive whole-app polling).
 from src.ui_helpers import (  # noqa: E402
-    op_banner_fragment, op_in_progress, render_full_cta,
+    op_banner_fragment, op_in_progress,
 )
 
-if op_in_progress():
-    with st.sidebar:
+# Rendered on every page inside a stable-key container. The banner itself only
+# attaches a run_every=2 s timer while a job is actually running (see
+# op_banner_fragment): an idle app keeps no timer, so the rapid reruns of startup
+# and page navigation no longer leave a dangling timer that logs
+# "The fragment ... does not exist anymore".
+with st.sidebar:
+    with st.container(key="sidebar_banner"):
         op_banner_fragment()
-else:
-    # Same bottom-of-sidebar spot: a one-click launch for the full comparison.
-    render_full_cta()
 
 pg = st.navigation([
     st.Page("app_pages/0_Home.py",               title="Home",               icon=":material/home:", default=True),

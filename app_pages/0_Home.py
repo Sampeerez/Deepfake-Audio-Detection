@@ -16,6 +16,7 @@ import streamlit as st  # noqa: E402
 
 from src.ui_helpers import (  # noqa: E402
     app_footer, corpus_available, demo_mode, get_samples, load_config,
+    sidebar_panel,
 )
 
 st.markdown("""
@@ -194,7 +195,9 @@ st.markdown(f'<div class="audio-eq" aria-hidden="true">{_eq_spans}</div>',
 # Smooth hover SPEED ramp for the equaliser (CSS can't transition animation
 # speed, so we ease each bar's Web-Animation playbackRate toward a target that
 # climbs while hovered and decays back to rest when the pointer leaves).
-st.iframe(
+# Hosted in a collapsed container so the height=1 iframe never shows as a line.
+with st.container(key="eqramp_host"):
+  st.iframe(
     """
 <script>
 (function(){
@@ -229,26 +232,10 @@ st.iframe(
     height=1,
 )
 
-# ── Public-demo banner — shown only on the corpus-less cloud deployment ──── #
-if demo_mode():
-    st.markdown(
-        '<div class="info-card" style="border-left:3px solid #4F8BF9;'
-        'margin:0.4rem 0 1.1rem;">'
-        '<div class="ic-title">Web demo (CPU)</div>'
-        '<p class="ic-body">You are viewing the public demonstration. Live training '
-        'needs the multi-GB ASVspoof corpus and a GPU, so instead the pretrained '
-        'models run here on CPU: grab them all from <b>Benchmark → Full '
-        'comparison</b> and hear them judge your own clip in <b>Detection '
-        'Analysis → Test an audio</b>. Clone the repo to run everything locally.'
-        '</p></div>',
-        unsafe_allow_html=True,
-    )
-
-# ── Stat strip — editorial numerals ─────────────────────────────────────── #
-_n_tr_txt = f"{n_tr:,}" if corpus_ok else "—"
+# ── Stat strip — editorial numerals (full official corpus sizes) ────────── #
 st.markdown(
     '<div class="stat-strip">'
-    f'<div class="stat-cell"><div class="st-num">{_n_tr_txt}</div>'
+    '<div class="stat-cell"><div class="st-num">25,380</div>'
     '<div class="st-lbl">2019 LA train files</div></div>'
     '<div class="stat-cell"><div class="st-num">181,566</div>'
     '<div class="st-lbl">2021 LA eval files</div></div>'
@@ -342,3 +329,14 @@ app_footer(
     "Universidad de La Laguna · ASVspoof 2019 LA / 2021 LA / 2021 DF · "
     "Anti-spoofing binario (bonafide vs. spoof)",
 )
+
+# ── Public-demo notice — in the SIDEBAR (only on the corpus-less deployment) ─ #
+if demo_mode():
+    with st.sidebar:
+        sidebar_panel(
+            "Web demo (CPU)",
+            text=("Live training needs the corpus and a GPU, so the pretrained "
+                  "models run here on CPU. Grab them all in <b>Benchmark → Full "
+                  "comparison</b> and test your own clip in <b>Detection "
+                  "Analysis → Test an audio</b>."),
+        )

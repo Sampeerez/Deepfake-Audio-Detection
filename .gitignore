@@ -25,6 +25,12 @@ models/
 *.joblib
 *.pkl
 
+# ── Bundled sample clips ─────────────────────────────────────────────────
+# The small committed samples/ tree (train/dev + a tiny eval fallback) IS
+# tracked so the web demo always has audio. The runtime cache of eval clips
+# streamed from the external Hugging Face dataset is NOT.
+samples/_hf_cache/
+
 # ── Secrets & local settings ────────────────────────────
 .env
 .env.*
