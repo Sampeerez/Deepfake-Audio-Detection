@@ -40,28 +40,52 @@ BONAFIDE_COLOR = "#42A5F5"   # blue  — real voice  (lighter for dark bg)
 SPOOF_COLOR    = "#EF5350"   # red   — deepfake
 NEUTRAL_COLOR  = "#78909C"   # slate — unknown / upload
 
-# ── Dark matplotlib theme (matches the Streamlit dark background) ──────────── #
-_DARK_BG   = "#161C2D"
-_DARK_AXES = "#1E2640"
-_DARK_GRID = "#263050"
-_DARK_TEXT = "#C5CDE8"
-_DARK_EDGE = "#2E3A58"
+# ── matplotlib figure palettes ────────────────────────────────────────────── #
+# Two themes: Dark Side (default, matches the dark chrome) and Light Side. The
+# data-semantic colours (BONAFIDE/SPOOF above) stay constant across both so the
+# charts read the same; only the canvas/text/grid flip.
+_DARK_FIG  = {"bg": "#161C2D", "axes": "#1E2640", "grid": "#263050",
+              "text": "#C5CDE8", "edge": "#2E3A58"}
+_LIGHT_FIG = {"bg": "#FFFFFF", "axes": "#F4F7FD", "grid": "#D5DEEF",
+              "text": "#27324C", "edge": "#B7C3DC"}
 
-plt.rcParams.update({
-    "figure.facecolor":  _DARK_BG,
-    "axes.facecolor":    _DARK_AXES,
-    "axes.edgecolor":    _DARK_EDGE,
-    "axes.labelcolor":   _DARK_TEXT,
-    "xtick.color":       _DARK_TEXT,
-    "ytick.color":       _DARK_TEXT,
-    "text.color":        _DARK_TEXT,
-    "grid.color":        _DARK_GRID,
-    "grid.alpha":        0.55,
-    "font.size":         9,
-    "legend.facecolor":  _DARK_AXES,
-    "legend.edgecolor":  _DARK_EDGE,
-    "figure.dpi":        110,
-})
+# Active palette: module globals so the fig_* helpers below pick up the current
+# theme at call time (they read these names when a figure is built). app.py calls
+# apply_mpl_theme() once per rerun before any page draws; default to dark so any
+# figure built at import time still renders correctly.
+_FIG_BG   = _DARK_FIG["bg"]
+_FIG_AXES = _DARK_FIG["axes"]
+_FIG_GRID = _DARK_FIG["grid"]
+_FIG_TEXT = _DARK_FIG["text"]
+_FIG_EDGE = _DARK_FIG["edge"]
+
+
+def apply_mpl_theme(theme: str = "dark") -> None:
+    """Restyle every matplotlib figure for the active side (Light/Dark). Called
+    from app.py on each rerun before the page runs, so all fig_* helpers match
+    the chosen theme with no per-figure changes."""
+    global _FIG_BG, _FIG_AXES, _FIG_GRID, _FIG_TEXT, _FIG_EDGE
+    pal = _LIGHT_FIG if theme == "light" else _DARK_FIG
+    _FIG_BG, _FIG_AXES = pal["bg"], pal["axes"]
+    _FIG_GRID, _FIG_TEXT, _FIG_EDGE = pal["grid"], pal["text"], pal["edge"]
+    plt.rcParams.update({
+        "figure.facecolor":  _FIG_BG,
+        "axes.facecolor":    _FIG_AXES,
+        "axes.edgecolor":    _FIG_EDGE,
+        "axes.labelcolor":   _FIG_TEXT,
+        "xtick.color":       _FIG_TEXT,
+        "ytick.color":       _FIG_TEXT,
+        "text.color":        _FIG_TEXT,
+        "grid.color":        _FIG_GRID,
+        "grid.alpha":        0.55,
+        "font.size":         9,
+        "legend.facecolor":  _FIG_AXES,
+        "legend.edgecolor":  _FIG_EDGE,
+        "figure.dpi":        110,
+    })
+
+
+apply_mpl_theme("dark")
 
 # ── Shared CSS injected at the top of every page ──────────────────────────── #
 PAGE_CSS = """
@@ -88,10 +112,19 @@ PAGE_CSS = """
 ::-webkit-scrollbar-thumb:hover { background:rgba(79,139,249,0.65); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   STREAMLIT HEADER — hidden so sidebar can reach the very top
+   STREAMLIT HEADER — visually hidden so the sidebar reaches the very top, but
+   NOT display:none: the collapsed-sidebar "expand" control lives inside the
+   header, and removing the header removed the only way to re-open a closed
+   sidebar. visibility:hidden + height:0 hides it and frees the space, while the
+   expand control below is flipped back to visible (visibility is overridable on
+   children, unlike display).
    ═══════════════════════════════════════════════════════════════════════════ */
 [data-testid="stHeader"] {
-    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
 }
 
 /* Invisible helper host for the dropdown auto-close script: the iframe must
@@ -129,6 +162,16 @@ PAGE_CSS = """
     overflow: hidden !important; pointer-events: none !important;
 }
 [class*="st-key-seqh_host"] iframe { height: 0 !important; }
+
+/* Live-settings flags iframe (background mode / reduced motion) — keep it in the
+   DOM so its script runs every rerun, but out of the layout flow. */
+[class*="st-key-swflags_host"] {
+    position: absolute !important;
+    width: 0 !important; height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important; pointer-events: none !important;
+}
+[class*="st-key-swflags_host"] iframe { height: 0 !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN CONTENT
@@ -172,9 +215,33 @@ section[data-testid="stSidebar"] > div:first-child {
 [data-testid="stSidebarContent"] {
     padding-top: 0 !important;
 }
-/* Always-open sidebar: remove the collapse affordance entirely */
+/* The sidebar opens by default (initial_sidebar_state="expanded"), but stays
+   fully collapsible AND re-openable: the in-sidebar collapse button and the
+   collapsed-state expand control are always visible and clickable. The expand
+   control lives inside the (visibility:hidden) header, so it must be flipped back
+   to visible + pointer-events:auto + a high z-index to sit above the canvas. */
 [data-testid="stSidebarCollapseButton"],
-[data-testid="collapsedControl"] { display:none !important; }
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"] {
+    display: inline-flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    z-index: 1000 !important;
+}
+/* The header is collapsed to height:0, so the "expand" control (shown when the
+   sidebar is closed) would otherwise sit jammed against the very top edge. Push
+   it well down so it lines up with the page content/title. */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"] {
+    top: 5.5rem !important;
+    margin-top: 0.5rem !important;
+    /* transform is honoured regardless of how the control is positioned, so it
+       reliably pushes the arrow down even if `top` has no effect in this build. */
+    transform: translateY(3rem) !important;
+}
 
 /* Remove the sidebar resize/drag handle — the 8px-wide `cursor: col-resize`
    strip on the sidebar's inner edge that lets you drag its width. It is a
@@ -1289,8 +1356,421 @@ html, body { background-color: #0E1117 !important; }
 }
 .op-banner .ob-pct { font-size: 0.7rem; color: #A98FD0; margin-top: 0.35rem; }
 .op-banner .ob-note { font-size: 0.68rem; color: #8A78AE; margin-top: 0.5rem; line-height: 1.4; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE — tablet & phone. The hero title scales fluidly; dense custom grids
+   collapse; and the sidebar collapse control (hidden on desktop) comes back so
+   the sidebar can be opened/closed on touch devices.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hero-banner h1 { font-size: clamp(1.85rem, 5.2vw, 3.1rem); }
+
+@media (max-width: 1024px) {
+    .stat-strip { grid-template-columns: repeat(2, 1fr); }
+    .pipe-row   { grid-template-columns: 1fr; gap: 0.5rem; }
+    .pipe-arrow { display: none; }
+    /* Tablets auto-collapse the sidebar — bring the open/close control back so it
+       is recoverable (it is hidden on the desktop always-open layout). */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] { display: inline-flex !important; }
+    .set-grid   { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 680px) {
+    [data-testid="stMainBlockContainer"] {
+        padding-left: 0.7rem !important; padding-right: 0.7rem !important;
+    }
+    .hero-banner   { padding: 1.25rem 1.25rem 1.35rem; }
+    .hero-overline { font-size: 0.6rem; letter-spacing: 0.15em; }
+    .hero-banner p { font-size: 0.9rem; line-height: 1.55; }
+    .hero-author   { gap: 0.4rem 0.6rem; font-size: 0.76rem; }
+    .stat-strip    { grid-template-columns: 1fr 1fr; }
+    .stat-cell     { padding: 0.8rem 0.9rem 0.75rem; }
+    .stat-cell .st-num { font-size: 1.3rem; }
+    .rep-grid      { grid-template-columns: 1fr; }
+    .panel-card    { min-height: auto; }
+    .mode-card     { height: auto !important; min-height: 11rem; }
+    .corpus-card, .method-card { height: auto; }
+    .hcw-step      { grid-template-columns: 44px 1fr; gap: 0.7rem; }
+    section[data-testid="stSidebar"] { width: 15rem !important; }
+    /* Re-enable the sidebar open/close affordance on small screens. */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] { display: inline-flex !important; }
+}
 </style>
 """
+
+
+# ===========================================================================
+# Theme — Light Side / Dark Side
+# ===========================================================================
+# The app ships a fully-styled Dark Side (the default — examiners see exactly the
+# original look). The Light Side is an accessibility light theme generated from
+# the SAME stylesheet at build time: the dark colour literals are swapped for
+# light ones via _LIGHT_MAP, so the dark path stays byte-identical and there is a
+# single source of truth for the layout. theme_mode() reads the user's choice
+# from session_state; app.py injects the right palette on every rerun.
+
+def theme_mode() -> str:
+    """Active UI side: 'light' (Light Side) or 'dark' (Dark Side, default).
+    Driven by the sidebar toggle (session key 'sw_theme')."""
+    return "light" if st.session_state.get("sw_theme") == "light" else "dark"
+
+
+# Dark colour literal -> Light colour literal. Only chrome flips; the data-
+# semantic colours (bonafide blue, spoof red, status green/gold) are preserved so
+# charts and badges stay honest. The hero banner keeps its deep-blue identity in
+# both sides and is restored by _LIGHT_PATCH. Order is irrelevant (no key is a
+# substring of another, and no replacement re-introduces a key).
+_LIGHT_MAP = {
+    # ── solid page / cell surfaces ──────────────────────────────────────────
+    # A deeper blue-grey canvas (the previous near-white made cards and accents
+    # vanish — too low-contrast). Cards stay white, so they now read as elevated.
+    "#0E1117": "#D5DEEE",          # page background (html, body)
+    "#0D1426": "#FFFFFF",          # stat-cell
+    "#111A33": "#E4EBF7",          # stat-cell hover
+    # ── sidebar gradient ────────────────────────────────────────────────────
+    "#06101F": "#E8EEF8", "#09193A": "#DCE7F6",
+    "#0B1E48": "#CFDDF1", "#07131E": "#E4EBF7",
+    # ── card surfaces (translucent navy -> translucent white) ───────────────
+    "rgba(12,25,70,0.65)": "rgba(255,255,255,0.9)",
+    "rgba(10,22,62,0.65)": "rgba(255,255,255,0.9)",
+    "rgba(10,22,62,0.62)": "rgba(255,255,255,0.88)",
+    "rgba(10,22,62,0.6)":  "rgba(255,255,255,0.88)",
+    "rgba(10,22,62,0.55)": "rgba(255,255,255,0.86)",
+    "rgba(10,22,62,0.5)":  "rgba(255,255,255,0.84)",
+    "rgba(10,22,62,0.45)": "rgba(255,255,255,0.8)",
+    "rgba(8,18,52,0.55)":  "rgba(255,255,255,0.88)",
+    "rgba(8,18,52,0.5)":   "rgba(255,255,255,0.85)",
+    "rgba(18,38,95,0.45)": "rgba(228,237,250,0.8)",
+    "rgba(14,28,78,0.4)":  "rgba(228,237,250,0.7)",
+    "rgba(14,28,75,0.38)": "rgba(228,237,250,0.68)",
+    "rgba(14,28,75,0.35)": "rgba(228,237,250,0.62)",
+    "rgba(14,28,75,0.3)":  "rgba(228,237,250,0.55)",
+    "rgba(14,28,75,0.28)": "rgba(228,237,250,0.52)",
+    "rgba(14,28,75,0.22)": "rgba(228,237,250,0.45)",
+    "rgba(14,28,75,0.2)":  "rgba(228,237,250,0.42)",
+    "rgba(12,24,65,0.35)": "rgba(228,237,250,0.62)",
+    "rgba(12,24,65,0.32)": "rgba(228,237,250,0.58)",
+    "rgba(12,24,65,0.3)":  "rgba(228,237,250,0.55)",
+    # ── drop shadows (navy -> soft slate) ───────────────────────────────────
+    "rgba(7,15,43,0.7)":  "rgba(70,90,140,0.18)",
+    "rgba(7,15,43,0.6)":  "rgba(70,90,140,0.16)",
+    "rgba(7,15,43,0.35)": "rgba(70,90,140,0.12)",
+    "rgba(9,28,78,0.55)": "rgba(70,90,140,0.16)",
+    "rgba(9,28,78,0.45)": "rgba(70,90,140,0.14)",
+    "rgba(9,28,78,0.4)":  "rgba(70,90,140,0.13)",
+    "rgba(9,28,78,0.35)": "rgba(70,90,140,0.12)",
+    "rgba(9,28,78,0.25)": "rgba(70,90,140,0.1)",
+    # ── light-blue text -> darker blue (readable on a light background) ──────
+    "#E8EDF8": "#1B2438",          # main text + section titles + card bodies
+    "#82B1FF": "#1E5FCF", "#90CAF9": "#1F6FC0", "#64B5F6": "#1565C0",
+    "#BFE0FF": "#2C6FCF", "#C2CFEC": "#3A4E78", "#C9D7F5": "#3A4E78",
+    "#AFC3E8": "#42567F", "#8FA3CE": "#46588A", "#6E87C9": "#46588A",
+    "#7487B0": "#586A92", "#5E7FD4": "#3458AE", "#9FB6E0": "#46588A",
+    "#8AABEF": "#2E5AA8", "#4FC3F7": "#1597C7",
+    # ── purple operation banner ─────────────────────────────────────────────
+    "rgba(74,20,110,0.62)": "rgba(124,63,176,0.14)",
+    "rgba(34,16,74,0.6)":   "rgba(124,63,176,0.08)",
+    "#E6D6FF": "#5B2A86", "#C7B6E6": "#6A4A92", "#C9A6FF": "#7C3FB8",
+    "#A98FD0": "#6A4A92", "#8A78AE": "#7A6A98", "#C77DFF": "#9B30D8",
+    "#C9A6E8": "#7C3FB0",
+    # ── gold / amber text (champion + ratio) ────────────────────────────────
+    "#FFD454": "#B8860B", "#FFE08A": "#A8780A", "#FFB74D": "#C77B00",
+}
+
+
+def _light_swap(css: str) -> str:
+    """Return css with every dark literal replaced by its Light Side equivalent."""
+    for dark, light in _LIGHT_MAP.items():
+        css = css.replace(dark, light)
+    return css
+
+
+# Lightsaber accent: the one decorative colour, exposed as a CSS variable so the
+# blade styling (below) and the verdict glow can read it. The user picks a blade
+# colour in Settings (session key 'sw_saber'); "Auto" follows the side — a red
+# Sith blade on the Dark Side, a blue Jedi blade on the Light Side.
+_SABER_NAMED = {
+    "Blue":   ("#2C82FF", "44,130,255"),
+    "Green":  ("#46E36B", "70,227,107"),
+    "Red":    ("#FF3B3B", "255,59,59"),
+    "Purple": ("#B36BFF", "179,107,255"),
+    "Amber":  ("#FFB23B", "255,178,59"),
+}
+_SABER_AUTO = {"dark": "Red", "light": "Blue"}
+
+
+def saber_choice(theme: str) -> Tuple[str, str]:
+    """(blade hex, glow-rgb) for the active side, honouring the Settings choice."""
+    pick = st.session_state.get("sw_saber", "Auto")
+    if pick not in _SABER_NAMED:
+        pick = _SABER_AUTO.get(theme, "Red")
+    return _SABER_NAMED[pick]
+
+
+# Turns the existing flat accent rules (.gradient-bar and the section header rule)
+# into a GLOWING, animated lightsaber blade with an ignition flicker + travelling
+# shimmer and a small hilt cap. Appended LAST so it wins over the earlier cyan
+# definitions. Blade colour comes from --saber. Motion stops under reduce-motion.
+_SABER_CSS = """
+@keyframes saberPulse {
+    0%,100% { box-shadow: 0 0 8px var(--saber-glow), 0 0 20px var(--saber-glow),
+                          0 0 34px var(--saber-glow); filter: brightness(1); }
+    50%     { box-shadow: 0 0 14px var(--saber-glow), 0 0 30px var(--saber-glow),
+                          0 0 52px var(--saber-glow); filter: brightness(1.18); }
+}
+@keyframes saberShimmer { 0% { background-position: -40% 0; } 100% { background-position: 140% 0; } }
+.gradient-bar {
+    position: relative; height: 5px; border-radius: 4px; margin: 0.6rem 0 1.4rem;
+    background-color: var(--saber) !important;
+    background-image: linear-gradient(90deg,
+        transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%) !important;
+    background-size: 28% 100% !important; background-repeat: no-repeat !important;
+    box-shadow: 0 0 10px var(--saber-glow), 0 0 22px var(--saber-glow),
+                0 0 36px var(--saber-glow) !important;
+    animation: saberPulse 2.4s ease-in-out infinite,
+               saberShimmer 3.6s linear infinite !important;
+}
+.sec-head .sh-rule {
+    position: relative;
+    background-color: var(--saber) !important;
+    background-image: linear-gradient(90deg,
+        transparent 0%, rgba(255,255,255,0.8) 50%, transparent 100%) !important;
+    background-size: 30% 100% !important; background-repeat: no-repeat !important;
+    height: 4px !important; border-radius: 2px;
+    box-shadow: 0 0 8px var(--saber-glow), 0 0 18px var(--saber-glow) !important;
+    animation: saberPulse 3s ease-in-out infinite,
+               saberShimmer 5s linear infinite !important;
+    overflow: visible !important;
+}
+/* ── Lightsaber HILT — a properly modelled metal handle on the title blades ──
+   A short cylinder (top-lit shine), a few machined grip rings, a glowing emitter
+   ring where the blade ignites, and a rounded pommel. Shared by the section-title
+   rule and the free-standing accent bar so every title blade has a real hilt. */
+.gradient-bar::before, .sec-head .sh-rule::before {
+    content: ""; position: absolute; top: 50%; transform: translateY(-50%);
+    width: 30px; height: 14px; border-radius: 4px 2px 2px 4px;
+    background:
+        /* emitter: bright saber-coloured ring at the blade (right) end */
+        linear-gradient(90deg, transparent 0 79%, rgba(255,255,255,0.55) 79% 81%,
+                         var(--saber) 81% 100%),
+        /* machined grip ring shadows */
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.12) 0 1px,
+                         rgba(0,0,0,0.22) 3px 4px, transparent 4px 7px),
+        /* the metal body, top-lit */
+        linear-gradient(180deg, #f1f3f7 0%, #c4cad4 20%, #889 50%,
+                         #4d5362 80%, #2a2f3a 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.5),
+                inset 0 -1px 0 rgba(0,0,0,0.55),
+                0 1px 3px rgba(0,0,0,0.55);
+    z-index: 2;
+}
+/* The free-standing bar sits clear of any text, so its hilt extends fully left. */
+.gradient-bar { overflow: visible; }
+.gradient-bar::before { left: -28px; }
+/* The title rule has a heading to its left; nudge the hilt only slightly so the
+   emitter sits at the rule's start and the blade glows away from the title. */
+.sec-head .sh-rule::before { left: -8px; }
+/* Every other luminous accent becomes a lightsaber blade too (colour + glow). */
+[data-testid="stProgress"] > div > div {
+    background: var(--saber) !important;
+    background-image: none !important;
+    box-shadow: 0 0 8px var(--saber-glow), 0 0 16px var(--saber-glow) !important;
+    animation: saberPulse 2.6s ease-in-out infinite !important;
+}
+/* Card accent lines: a soft resting glow so they are never dull, igniting to a
+   full blade only on hover (keeps dense pages like Methodology from looking
+   overloaded with always-on bars). */
+.panel-card::before, [data-testid="stMetric"]::after, .pipe-step::after,
+.nav-tile::before, .method-card::before, .corpus-card::after {
+    background: var(--saber) !important;
+    background-image: none !important;
+    box-shadow: 0 0 5px var(--saber-glow) !important;
+    opacity: 0.33 !important;
+    transition: opacity 0.3s ease, box-shadow 0.3s ease !important;
+}
+.panel-card:hover::before, [data-testid="stMetric"]:hover::after,
+.pipe-step:hover::after, .nav-tile:hover::before,
+.method-card:hover::before, .corpus-card:hover::after {
+    opacity: 1 !important;
+    box-shadow: 0 0 9px var(--saber-glow), 0 0 18px var(--saber-glow) !important;
+}
+.info-card, .rep-card {
+    border-left-color: var(--saber) !important;
+    box-shadow: -2px 0 7px -3px var(--saber-glow) !important;
+    transition: box-shadow 0.25s ease, transform 0.22s ease,
+                border-color 0.22s ease !important;
+}
+.info-card:hover, .rep-card:hover {
+    box-shadow: -3px 0 13px -2px var(--saber-glow) !important;
+}
+.hcw-body, [class*="st-key-evalgrp_"] { border-left-color: var(--saber) !important; }
+"""
+
+
+def _root_block(theme: str) -> str:
+    """:root variables consumed by the lightsaber/verdict styling."""
+    blade, glow = saber_choice(theme)
+    return (f":root{{--saber:{blade};"
+            f"--saber-glow:rgba({glow},0.65);}}")
+
+
+def _accessibility_css() -> str:
+    """Extra CSS from the Settings page: reduced motion, high contrast, text size.
+    Appended LAST so it overrides the base + saber rules."""
+    out = []
+    # Reduced motion (also gated on the <html data-reduce-motion> attribute set by
+    # the live-settings iframe; the attribute selector beats !important animations).
+    out.append(
+        'html[data-reduce-motion="1"] *,'
+        'html[data-reduce-motion="1"] *::before,'
+        'html[data-reduce-motion="1"] *::after'
+        '{animation:none !important;transition:none !important;}'
+    )
+    # Bump only the *content* text, not the whole rem system (scaling the root
+    # font grew the sidebar/hero and deformed the layout). Targeting text-bearing
+    # elements keeps the structure intact.
+    scale = st.session_state.get("sw_text_scale", "Normal")
+    if scale in ("Large", "Larger"):
+        f = "1.12em" if scale == "Large" else "1.26em"
+        out.append(
+            "[data-testid=\"stMarkdownContainer\"] p,"
+            "[data-testid=\"stMarkdownContainer\"] li,"
+            "[data-testid=\"stText\"], .info-card .ic-body, .panel-card li,"
+            ".method-card li, .rep-card .rep-desc, .sec-sub, .stCaption,"
+            "[data-testid=\"stCaptionContainer\"] p,"
+            "[data-baseweb=\"select\"] div, .stMarkdown li"
+            "{font-size:" + f + " !important;line-height:1.6 !important;}"
+            "[data-testid=\"stWidgetLabel\"] p{font-size:" + f + " !important;}"
+        )
+    if st.session_state.get("sw_contrast"):
+        # Boost text and borders for legibility (works on both sides).
+        out.append(
+            '[data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] *,'
+            '[data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] *'
+            '{opacity:1 !important;}'
+            '[data-testid="stMetric"], [data-testid="stVerticalBlockBorderWrapper"],'
+            '.info-card, .panel-card, .rep-card, .corpus-card, .method-card,'
+            '.pipe-step, .stat-strip{border-width:2px !important;}'
+            'a, .hero-author a{text-decoration:underline !important;}'
+        )
+    return "".join(out)
+
+
+# Re-applied AFTER the light swap. Two jobs: (1) keep the hero banner's deep-blue
+# identity (its text must stay light even on the Light Side); (2) flip Streamlit's
+# own native chrome (text, dropdown popovers) which is driven by config.toml's
+# dark base and so isn't reached by our class-level CSS.
+_LIGHT_PATCH = """
+/* Native Streamlit text -> dark on the light canvas */
+[data-testid="stApp"] {
+    --text-color: #1B2438; --default-textColor: #1B2438;
+    --background-color: #D5DEEE; --secondary-background-color: #FFFFFF;
+}
+body, [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li, [data-testid="stText"],
+[data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] p,
+[data-testid="stMetricLabel"], [data-testid="stCaptionContainer"],
+[data-testid="stHeadingWithActionElements"], h1, h2, h3, h4, h5, h6,
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span,
+[data-testid="stSidebarNavLink"] span, [data-testid="stSidebarNavLink"] p {
+    color: #1B2438 !important;
+}
+
+/* ── baseweb popovers / dropdown menus (portaled to <body>, so config.toml's
+   dark base leaks through unless we override them explicitly) ─────────────── */
+[data-baseweb="popover"], [data-baseweb="popover"] > div,
+[data-baseweb="popover"] [data-baseweb="menu"],
+[data-baseweb="popover"] ul[role="listbox"], [data-baseweb="menu"], [role="listbox"] {
+    background: #FFFFFF !important;
+    border-color: rgba(40,90,180,0.22) !important;
+}
+[data-baseweb="popover"] [data-baseweb="menu"], [data-baseweb="popover"] ul[role="listbox"] {
+    box-shadow: 0 10px 30px rgba(40,70,130,0.20) !important;
+    border: 1px solid rgba(40,90,180,0.20) !important;
+}
+[role="option"], [data-baseweb="menu"] li, [role="listbox"] li,
+[data-baseweb="popover"] * { color: #1B2438 !important; }
+[role="option"]:hover, [data-baseweb="menu"] li:hover,
+li[role="option"][aria-selected="true"], [role="option"][aria-selected="true"] {
+    background: rgba(40,90,180,0.12) !important;
+}
+
+/* ── closed controls: select, text/number inputs, textareas, file uploader ── */
+[data-baseweb="select"] > div, [data-baseweb="input"], [data-baseweb="base-input"],
+[data-baseweb="base-input"] input, textarea, input[type="text"], input[type="number"],
+[data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
+[data-testid="stDateInput"] input, [data-testid="stFileUploaderDropzone"] {
+    background: #FFFFFF !important; color: #1B2438 !important;
+    border-color: rgba(40,90,180,0.25) !important;
+}
+[data-baseweb="select"] *, [data-baseweb="select"] input { color: #1B2438 !important; }
+[data-baseweb="select"] svg, [data-baseweb="input"] svg,
+[data-testid="stWidgetLabel"] svg { fill: #46588A !important; color: #46588A !important; }
+/* multiselect chips / tags */
+[data-baseweb="tag"] { background: rgba(40,90,180,0.14) !important; color: #1B2438 !important; }
+[data-baseweb="tag"] svg { fill: #1B2438 !important; }
+/* tooltips stay dark-on-light for legibility */
+[data-baseweb="tooltip"], [role="tooltip"] { background: #1B2438 !important; color: #FFFFFF !important; }
+[data-baseweb="tooltip"] * { color: #FFFFFF !important; }
+/* sliders */
+[data-testid="stSlider"] [role="slider"] { background: #1E5FCF !important; }
+
+/* ── more separation on the light canvas: stronger borders + soft elevation so
+   the white cards lift off the blue-grey background and accents are visible ── */
+.panel-card, .corpus-card, .method-card, .pipe-step, .dist-row, .side-status,
+[data-testid="stMetric"], [data-testid="stVerticalBlockBorderWrapper"],
+.stat-strip, .empty-state, [data-testid="stExpander"] {
+    border-color: rgba(40,90,180,0.30) !important;
+}
+.panel-card, .corpus-card, .method-card, .pipe-step, .info-card, .rep-card,
+[data-testid="stMetric"], [data-testid="stVerticalBlockBorderWrapper"] {
+    box-shadow: 0 3px 14px rgba(40,70,130,0.11) !important;
+}
+.panel-card:hover, .corpus-card:hover, .method-card:hover, .pipe-step:hover,
+.info-card:hover, .rep-card:hover, [data-testid="stMetric"]:hover {
+    box-shadow: 0 10px 28px rgba(40,70,130,0.20) !important;
+}
+/* scrollbar contrast on the light side */
+::-webkit-scrollbar-track { background: rgba(40,90,180,0.10) !important; }
+::-webkit-scrollbar-thumb  { background: rgba(40,90,180,0.40) !important; }
+
+/* selected pill / segmented option keeps white text on its blue gradient */
+[data-testid="stBaseButton-pillsActive"],
+[data-testid="stBaseButton-segmented_controlActive"],
+[data-testid="stBaseButton-pillsActive"] *,
+[data-testid="stBaseButton-segmented_controlActive"] * {
+    color: #FFFFFF !important;
+}
+/* Hero banner stays a deep-blue colored banner on BOTH sides — restore its light
+   text (placed last so it beats the generic dark-text rule above). */
+.hero-banner, .hero-banner h1, .hero-banner p, .hero-overline, .hero-meta,
+.hero-author .ha-name, .hero-author a { color: #EAF1FF !important; }
+.hero-banner h1 { -webkit-text-fill-color: #EAF1FF; }
+"""
+
+
+def build_page_css(theme: str) -> str:
+    """The global stylesheet for the active side. Dark returns PAGE_CSS unchanged
+    (plus the saber variables); light applies the colour swap and native-chrome
+    patch. Injected once per rerun from app.py."""
+    inject = _root_block(theme) + _SABER_CSS
+    css = PAGE_CSS
+    if theme == "light":
+        css = _light_swap(css)
+        inject += _LIGHT_PATCH
+    inject += _accessibility_css()          # appended LAST so it always wins
+    return css.replace("</style>", inject + "\n</style>", 1)
+
+
+def themed(html: str) -> str:
+    """Light-swap a CSS/HTML string when the Light Side is active (no-op on dark).
+    Lets page-local <style> blocks reuse the single _LIGHT_MAP."""
+    return _light_swap(html) if theme_mode() == "light" else html
+
+
+def inject_css(html: str) -> None:
+    """st.markdown for a page-local style block, theming it for the active side."""
+    st.markdown(themed(html), unsafe_allow_html=True)
 
 
 # ===========================================================================
@@ -1392,25 +1872,27 @@ def corpus_available() -> bool:
 # Public / CPU demo mode + pretrained model registry (Streamlit Cloud)
 # ===========================================================================
 # On the free public cloud there is no GPU and the multi-GB ASVspoof corpus is
-# not on disk, so training / full-benchmark features cannot run. Instead, EVERY
-# pretrained model — the two CNNs and the classic LR / SVM / XGBoost over every
-# DSP front-end (20 models in total) — is downloaded on demand from Hugging Face
-# and run on CPU, both against an uploaded clip and on full corpus splits.
+# not on disk, so training / full-benchmark features cannot run. Instead the whole
+# pretrained zoo — the two CNNs and the classic LR / SVM / XGBoost over every DSP
+# front-end — is COMMITTED to the repo under models/ (the weights are small, a few
+# MB total) and loaded directly from disk on CPU. Only the multi-GB DATASETS still
+# stream from Hugging Face (HF_EVAL_DATASETS); the model weights do NOT.
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Pretrained weights are cached here (git-ignored). The trainer's legacy single
-# checkpoint also lives at the repo root (src/pipeline.py / load_checkpoint.py).
+# Pretrained weights live HERE, committed to the repo (the trainer also writes a
+# legacy single checkpoint at the repo root, used by src/pipeline.py).
 MODELS_DIR      = os.path.join(_REPO_ROOT, "models")
 CHECKPOINT_PATH = os.path.join(_REPO_ROOT, "asvspoof_model_checkpoint.pth")
 
-# ── Download location ──────────────────────────────────────────────────────
-# Single Hugging Face folder holding ALL weight files. Paste your repo's
-# "resolve/main" base (no trailing slash); each model's URL is derived from it,
-# so you only set ONE link for the whole zoo. Leave the placeholder to disable
-# downloads (models still load locally from models/ after a Full comparison).
-HF_BASE_URL = "https://huggingface.co/samu2066/deepfake-audio-weights/resolve/main"
-MODEL_URL   = HF_BASE_URL                      
+# ── Weight source ───────────────────────────────────────────────────────────
+# Models are loaded straight from the committed models/ folder — no runtime
+# download. Leave HF_BASE_URL EMPTY to keep it that way. Only set it to a Hugging
+# Face "resolve/main" folder if you ever prefer to stream the weights instead of
+# committing them (then each model's URL is derived from this one base). The
+# DATASETS are unrelated and always come from HF (see HF_EVAL_DATASETS).
+HF_BASE_URL = ""
+MODEL_URL   = HF_BASE_URL
 
 
 def _hf_url(file: str) -> str:
@@ -1728,18 +2210,103 @@ def hf_eval_samples(corpus: str,
     return _hf_eval_impl(corpus, n_per_class)
 
 
+# ── Browseable HF index (list MANY clips, download only the chosen one) ─────── #
+# hf_eval_samples downloads its whole balanced set up front — fine for scoring,
+# but it means the Signal Explorer only ever shows ~50 clips per class and pays
+# the download cost immediately. For browsing we instead pull a large INDEX of
+# rows (label + presigned audio URL, NO audio) and fetch a single clip lazily
+# when the user actually selects it. Much faster, far more files to pick from.
+HF_BROWSE_PER_CLASS = 300        # how many clips per class to list for browsing
+
+
+def _hf_listing_impl(corpus: str, max_per_class: int):
+    import random
+    from urllib.parse import quote
+
+    spec = HF_EVAL_DATASETS.get(corpus)
+    if not spec:
+        return []
+    base = (f"{_DS_ROWS_URL}?dataset={quote(spec['id'], safe='')}"
+            f"&config={spec['config']}&split={spec['split']}")
+    try:
+        first = _hf_get_json(base + "&offset=0&length=100")
+    except Exception:                                    # noqa: BLE001 — HF unreachable
+        return []
+    total = int(first.get("num_rows_total", 100))
+    rng = random.Random(7)
+    pages = max(4, (2 * max_per_class) // 100 + 4)
+    offsets = [0] + [rng.randint(0, max(0, total - 100)) for _ in range(pages - 1)]
+
+    collected: Dict[int, List[Tuple[int, str, str]]] = {
+        LABEL_BONAFIDE: [], LABEL_SPOOF: []}
+    seen = set()
+
+    def _ingest(payload):
+        for row in payload.get("rows", []):
+            r   = row.get("row", {})
+            lab = r.get(spec["label_col"])
+            if lab not in (LABEL_BONAFIDE, LABEL_SPOOF):
+                continue
+            if len(collected[lab]) >= max_per_class:
+                continue
+            audio = r.get("audio")
+            src   = (audio[0].get("src") if isinstance(audio, list) and audio
+                     else None)
+            if not src or src in seen:
+                continue
+            seen.add(src)
+            stem  = os.path.basename(src.split("?")[0]) or f"row{row.get('row_idx')}"
+            collected[lab].append((lab, src, stem))
+
+    _ingest(first)
+    for off in offsets[1:]:
+        if all(len(collected[c]) >= max_per_class for c in collected):
+            break
+        try:
+            _ingest(_hf_get_json(base + f"&offset={off}&length=100"))
+        except Exception:                                # noqa: BLE001 — skip bad page
+            continue
+    return collected[LABEL_BONAFIDE] + collected[LABEL_SPOOF]
+
+
+@st.cache_data(show_spinner=False)
+def hf_eval_listing(corpus: str,
+                    max_per_class: int = HF_BROWSE_PER_CLASS
+                    ) -> List[Tuple[int, str, str]]:
+    """A large browseable index of eval clips for ``corpus``: [(label, src_url,
+    fname)] read from the HF datasets-server WITHOUT downloading any audio. The
+    Signal Explorer lists these; hf_fetch_clip() fetches only the selected clip.
+    Empty if the corpus has no HF mapping or HF is unreachable."""
+    return _hf_listing_impl(corpus, max_per_class)
+
+
+def hf_fetch_clip(corpus: str, src: str, fname: str, label: int) -> Optional[str]:
+    """Download ONE listed clip into the browse cache and return its local path
+    (or None on failure). Idempotent: reuses the file if already fetched."""
+    ckey      = _SAMPLE_KEYS.get(corpus, corpus)
+    cache_dir = os.path.join(_HF_CACHE_DIR, ckey, "browse")
+    os.makedirs(cache_dir, exist_ok=True)
+    tag  = "bonafide" if label == LABEL_BONAFIDE else "spoof"
+    safe = "".join(c for c in fname if c.isalnum() or c in "._-")[-48:] or "clip"
+    dst  = os.path.join(cache_dir, f"{tag}__{ckey}__{safe}")
+    if not dst.lower().endswith((".flac", ".wav")):
+        dst += ".flac"
+    res = _hf_download((src, dst, label))
+    return res[0] if res else None
+
+
 def _download_if_missing(url: str, path: str, label: str) -> None:
     if os.path.isfile(path):
         return
     if not _url_set(url):
         raise FileNotFoundError(
-            f"{label}: no weights on disk and no download URL configured. "
-            "Set HF_BASE_URL in ui_helpers to your Hugging Face folder, or run "
-            "Benchmark → Full comparison locally to generate the files."
+            f"{label}: weights not found in models/. Run Benchmark → Full "
+            "comparison → Train all locally to generate every model file, then "
+            "commit models/ to the repo (or set HF_BASE_URL to stream them)."
         )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     import urllib.request
-    with st.spinner(f"Downloading {label} (first run only)…"):
+    with st.spinner(f"Calibrating the kyber crystals — fetching {label} (first run only)…"):
         urllib.request.urlretrieve(url, path)
 
 
@@ -1753,7 +2320,7 @@ def load_pretrained_torch(file: str, url: str, name: str):
 
     path = file if os.path.isabs(file) else os.path.join(MODELS_DIR, file)
     _download_if_missing(url, path, name)
-    with st.spinner(f"Loading {name} on CPU…"):
+    with st.spinner(f"Consulting the Jedi Archives — loading {name} on CPU…"):
         ckpt = torch.load(path, map_location=torch.device("cpu"))
         model_cls = ResNetCNN if ckpt.get("arch") == "resnet" else AudioDeepfakeCNN
         model = model_cls(dropout=float(ckpt.get("dropout", 0.3)))
@@ -1769,7 +2336,7 @@ def load_pretrained_classic(file: str, url: str, name: str):
 
     path = os.path.join(MODELS_DIR, file)
     _download_if_missing(url, path, name)
-    with st.spinner(f"Loading {name}…"):
+    with st.spinner(f"Consulting the Jedi Archives — loading {name}…"):
         return joblib.load(path)
 
 
@@ -1800,6 +2367,9 @@ def demo_corpus_notice(title: str = "Disabled in the web demo",
         "This section runs on the full ASVspoof corpus, which is not bundled in "
         "the public CPU demo (it is several GB). Clone the repository and run "
         "the app locally with the dataset — and a GPU for training — to use it."
+        '<br><span style="opacity:0.65;font-style:italic;">'
+        "“If an item does not appear in our records… it does not exist.”"
+        "</span>"
     )
     st.markdown(
         f'<div class="info-card" style="border-left:3px solid #4F8BF9;">'
@@ -1911,13 +2481,20 @@ EVAL_CORPUS_CHOICES = ["2019 LA", "2021 LA", "2021 DF"]
 
 def eval_corpora_for(choice: str):
     """Return [(label, eval_samples)] for the chosen eval corpus (a 1-item list,
-    or empty if that corpus is unavailable)."""
+    or empty if that corpus is unavailable).
+
+    On the corpus-less web demo the local splits are empty, so we fall back to a
+    small balanced eval set streamed from the public Hugging Face dataset — this
+    is what lets the benchmark modes evaluate the pretrained models on the cloud
+    exactly as they would locally (only training is off)."""
     if choice == "2019 LA":
         samples = get_samples("eval")
     elif choice == "2021 LA":
         samples = get_samples_2021_la()
     else:
         samples = get_samples_2021_df()
+    if not samples and not corpus_available() and choice in HF_EVAL_DATASETS:
+        samples = hf_eval_samples(choice, HF_EVAL_PER_CLASS)
     return [(choice, samples)] if samples else []
 
 
@@ -2170,9 +2747,9 @@ def compute_signal_stats(y: np.ndarray, sr: int) -> Dict:
 def _fig_style(ax: plt.Axes) -> None:
     """Apply a clean, dark-theme-consistent style to any axis."""
     ax.spines[["top", "right"]].set_visible(False)
-    ax.spines[["left", "bottom"]].set_color(_DARK_EDGE)
-    ax.grid(True, alpha=0.4, linewidth=0.5, color=_DARK_GRID)
-    ax.tick_params(labelsize=8, colors=_DARK_TEXT)
+    ax.spines[["left", "bottom"]].set_color(_FIG_EDGE)
+    ax.grid(True, alpha=0.4, linewidth=0.5, color=_FIG_GRID)
+    ax.tick_params(labelsize=8, colors=_FIG_TEXT)
 
 
 def fig_waveform(
@@ -2318,9 +2895,9 @@ def fig_overall_split_bar(n_bonafide: int, n_spoof: int) -> plt.Figure:
     pb = 100 * n_bonafide / total
     ps = 100 * n_spoof / total
     fig, ax = plt.subplots(figsize=(4.8, 1.25))
-    ax.barh([0], [pb], color=BONAFIDE_COLOR, edgecolor=_DARK_BG,
+    ax.barh([0], [pb], color=BONAFIDE_COLOR, edgecolor=_FIG_BG,
             height=0.5, label="Bonafide")
-    ax.barh([0], [ps], left=[pb], color=SPOOF_COLOR, edgecolor=_DARK_BG,
+    ax.barh([0], [ps], left=[pb], color=SPOOF_COLOR, edgecolor=_FIG_BG,
             height=0.5, label="Spoof")
     ax.text(pb / 2, 0, f"{pb:.0f}%", ha="center", va="center",
             color="white", fontsize=9, fontweight="bold")
@@ -2332,7 +2909,7 @@ def fig_overall_split_bar(n_bonafide: int, n_spoof: int) -> plt.Figure:
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.05), ncol=2,
               frameon=False, fontsize=8, handlelength=1.1, columnspacing=1.6)
     ax.set_title("Overall class share · train + dev", fontsize=8.5,
-                 fontweight="bold", color=_DARK_TEXT, pad=10)
+                 fontweight="bold", color=_FIG_TEXT, pad=10)
     fig.tight_layout()
     return fig
 
@@ -2357,7 +2934,7 @@ def fig_corpus_overview(
     for i, (b, s, t) in enumerate(zip(bon, spo, totals)):
         ax.text(i, t + max(totals) * 0.02, f"{t:,}",
                 ha="center", va="bottom", fontsize=9, fontweight="bold",
-                color=_DARK_TEXT)
+                color=_FIG_TEXT)
         ax.text(i, b / 2, f"{b:,}", ha="center", va="center",
                 fontsize=8, color="white", fontweight="600")
         ax.text(i, b + s / 2, f"{s:,}", ha="center", va="center",

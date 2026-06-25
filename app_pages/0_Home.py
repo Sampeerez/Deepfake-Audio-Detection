@@ -16,10 +16,10 @@ import streamlit as st  # noqa: E402
 
 from src.ui_helpers import (  # noqa: E402
     app_footer, corpus_available, demo_mode, get_samples, load_config,
-    sidebar_panel,
+    sidebar_panel, themed,
 )
 
-st.markdown("""
+st.markdown(themed("""
 <style>
 /* Separate the "Open …" page links from the panel card above them. */
 [data-testid="stPageLink"] { margin-top: 0.7rem !important; }
@@ -135,7 +135,7 @@ st.markdown("""
 [class*="st-key-navt_"]:hover .nav-tile .nt-icon { transform: scale(1.08) rotate(-4deg); background: rgba(79,139,249,0.22); }
 [class*="st-key-navt_"]:hover .nav-tile.nt-ref .nt-icon { background: rgba(156,39,176,0.2); }
 </style>
-""", unsafe_allow_html=True)
+"""), unsafe_allow_html=True)
 
 # ── Minimal data needed for the stat strip ──────────────────────────────── #
 config    = load_config()
@@ -158,7 +158,7 @@ st.markdown("""
     <h1>Deepfake Audio Detection</h1>
     <p>
         An interactive benchmark for synthetic-speech detection. Classical DSP
-        front-ends (RMS, MFCC, LFCC, DWT, CQCC and their fusion) with traditional
+        front-ends (RMS, MFCC, LFCC, DWT, CQCC) with traditional
         classifiers face a 2-D CNN on STFT spectrograms — including a
         <strong>ResNet + Squeeze-and-Excitation</strong> architecture — across
         three ASVspoof corpora. Explore each feature representation, train models

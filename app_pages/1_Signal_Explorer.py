@@ -28,13 +28,14 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import streamlit as st  # noqa: E402
 
+from src.data_loader import LABEL_BONAFIDE  # noqa: E402
 from src.features import AudioLoadError  # noqa: E402
 from src.ui_helpers import (  # noqa: E402
-    bundle_samples, bundled_samples, compute_signal_stats, hf_eval_samples,
-    label_badge, mini_note, show_empty_state, sidebar_panel,
-    fig_cnn_input, fig_cqcc, fig_lfcc, fig_mfcc, fig_stft_db, fig_waveform,
-    get_extractor, get_samples, get_samples_2021_la, get_samples_2021_df,
-    split_by_label, BONAFIDE_COLOR, SPOOF_COLOR,
+    bundle_samples, bundled_samples, compute_signal_stats, hf_eval_listing,
+    hf_eval_samples, hf_fetch_clip, label_badge, mini_note, show_empty_state,
+    sidebar_panel, fig_cnn_input, fig_cqcc, fig_lfcc, fig_mfcc, fig_stft_db,
+    fig_waveform, get_extractor, get_samples, get_samples_2021_la,
+    get_samples_2021_df, split_by_label, BONAFIDE_COLOR, SPOOF_COLOR,
 )
 
 extractor = get_extractor()
@@ -258,38 +259,50 @@ def _corpus_picker(key_prefix: str, n: int = 1):
     if corpus == "2019 LA":
         samples = get_samples(subset)
     elif corpus == "2021 LA":
-        with st.spinner("Loading 2021 LA index…"):
+        with st.spinner("Cross-checking the star charts (2021 LA index)…"):
             samples = get_samples_2021_la()
     else:
-        with st.spinner("Loading 2021 DF index…"):
+        with st.spinner("Cross-checking the star charts (2021 DF index)…"):
             samples = get_samples_2021_df()
 
+    _listing = None
     if samples:
         bundle_samples(corpus, samples, subset)   # cache a few clips for the web demo
     else:
-        # No live corpus index (web demo). EVAL streams a balanced sample from the
-        # public Hugging Face dataset; dev/train read the committed samples/ tree.
-        # Either way fall back to the bundled clips if HF is unavailable.
+        # No live corpus index (web demo). EVAL browses a LARGE lazy index from the
+        # public Hugging Face dataset — list MANY clips (label + url, no audio) and
+        # download only the one you pick (fast). Fall back to the small eager HF
+        # sample, then the committed bundled clips, if HF is unavailable.
         if subset == "eval":
-            with st.spinner(f"Streaming {corpus} eval clips from Hugging Face…"):
-                samples = hf_eval_samples(corpus)
-        if not samples:
+            with st.spinner(f"Indexing {corpus} records from the Archives…"):
+                _listing = hf_eval_listing(corpus)
+            if not _listing:
+                with st.spinner(f"Pulling {corpus} records from the Archives…"):
+                    samples = hf_eval_samples(corpus)
+        if not samples and not _listing:
             samples = bundled_samples(corpus, subset)
 
-    if not samples:
+    if not samples and not _listing:
         mini_note(f"No {corpus} samples bundled yet — switch to Upload, or run "
                   "locally with the dataset to populate them.")
         return None, None, None
 
-    bonafide, spoof = split_by_label(samples)
-    pool = bonafide if cls.startswith("bonafide") else spoof
+    want_bona = cls.startswith("bonafide")
+    if _listing:
+        pool_shown = [e for e in _listing
+                      if (e[0] == LABEL_BONAFIDE) == want_bona][:500]
+        names      = [e[2] for e in pool_shown]
+        pool_total = len(pool_shown)
+    else:
+        bonafide, spoof = split_by_label(samples)
+        pool       = bonafide if want_bona else spoof
+        pool_shown = pool[:500]
+        names      = [os.path.basename(p) for p in pool_shown]
+        pool_total = len(pool)
 
-    if not pool:
+    if not pool_shown:
         st.warning(f"No {cls.split()[0]} files in the '{subset}' subset.")
         return None, None, None
-
-    pool_shown = pool[:500]
-    names      = [os.path.basename(p) for p in pool_shown]
 
     # Keep widget state valid for the current corpus/subset/class pool.
     state_key = f"{key_prefix}_file_idx"
@@ -316,16 +329,28 @@ def _corpus_picker(key_prefix: str, n: int = 1):
             st.session_state[state_key] = random.randint(0, len(pool_shown) - 1)
     with col_file:
         options = [_PLACEHOLDER] + list(range(len(pool_shown)))
+        _shown_note = (f"{pool_total:,} files available"
+                       + (" — showing the first 500" if pool_total > 500 else ""))
         sel_idx = st.selectbox(
             "Audio file",
             options,
             format_func=lambda i: "— select a file —" if i == _PLACEHOLDER else names[i],
             key=state_key,
-            help=f"{len(pool):,} files available — showing the first 500",
+            help=_shown_note,
         )
 
     if sel_idx == _PLACEHOLDER:
         return None, None, None
+
+    if _listing:
+        # Web browse: download just this clip now (the index carried only URLs).
+        lab, src, fname = pool_shown[sel_idx]
+        with st.spinner("Fetching the clip from the Archives…"):
+            path = hf_fetch_clip(corpus, src, fname, lab)
+        if not path:
+            st.warning("Could not fetch this clip — pick another or press Random.")
+            return None, None, None
+        return _load_corpus_signal(path), cls, path
 
     path = pool_shown[sel_idx]
     return _load_corpus_signal(path), cls, path
@@ -340,10 +365,24 @@ def _upload_picker(key_prefix: str):
     Returns (signal, 'uploaded', name) or Nones.
     """
     name_key, bytes_key = f"{key_prefix}_upload_name", f"{key_prefix}_upload_bytes"
+    upload_key = f"{key_prefix}_upload"
+
+    def _clear_upload():
+        # Clearing must remove the payload from THREE places, or it comes back:
+        #   1) the plain session keys (the decoded file),
+        #   2) the file_uploader widget itself (else it re-populates 1 next run),
+        #   3) the cross-page memory dict `_se_memory` (else _restore() at the top
+        #      of the next run re-seeds 1 from it — this was why Clear "did nothing").
+        st.session_state.pop(name_key, None)
+        st.session_state.pop(bytes_key, None)
+        st.session_state.pop(upload_key, None)
+        mem = st.session_state.get("_se_memory")
+        if isinstance(mem, dict):
+            mem.pop(name_key, None)
+            mem.pop(bytes_key, None)
 
     uploaded = st.file_uploader(
-        "Upload a .flac / .wav file", type=["flac", "wav"],
-        key=f"{key_prefix}_upload",
+        "Upload a .flac / .wav file", type=["flac", "wav"], key=upload_key,
     )
     if uploaded is not None:
         st.session_state[name_key]  = uploaded.name
@@ -354,19 +393,14 @@ def _upload_picker(key_prefix: str):
     if blob is None:
         return None, None, None
 
-    # Show caption when the widget is gone (after navigation); the uploader
-    # already shows the filename when the file is freshly selected.
-    if uploaded is None:
-        st.caption(f"Using uploaded file: **{name}**")
-    # Always show Clear so the user can reset without having to click the X on
-    # the native file_uploader widget (and so it's visible even after navigation).
+    # Confirm the active file straight away (right after the upload AND after
+    # navigating back, when the native uploader chip is gone).
+    st.caption(f"Using uploaded file: **{name}**")
+    # Clear resets both the stored payload and the uploader widget (see callback).
     with st.container(key=f"alignr_clear_{key_prefix}"):
-        if st.button("Clear", key=f"{key_prefix}_upload_clear",
-                     icon=":material/close:",
-                     help="Forget this uploaded file"):
-            st.session_state.pop(name_key, None)
-            st.session_state.pop(bytes_key, None)
-            st.rerun()
+        st.button("Clear", key=f"{key_prefix}_upload_clear",
+                  icon=":material/close:", help="Forget this uploaded file",
+                  on_click=_clear_upload)
 
     return _decode_upload(name, blob), "uploaded", name
 
@@ -432,7 +466,7 @@ def _view_png(view: str, source_id: str, label: str, y: np.ndarray) -> bytes:
 def _render_views(y: np.ndarray, label: str, views: list, source_id: str) -> None:
     """Render each selected visualisation for one audio signal."""
     for view in views:
-        with st.spinner(f"Rendering {view}…"):
+        with st.spinner(f"Projecting the hologram — {view}…"):
             st.image(_view_png(view, source_id, str(label), y), width="stretch")
 
 

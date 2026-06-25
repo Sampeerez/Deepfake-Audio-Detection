@@ -16,14 +16,17 @@ env/
 data/
 cache/
 
-# ── Pretrained model weights (exported locally, hosted on Hugging Face) ──
-# Large binaries: the web demo downloads them at runtime, never from git.
-# (demo_leaderboard.json is intentionally NOT ignored — it is tiny and committed
-#  so the web hub can show the comparison without the weights.)
-models/
-*.pth
-*.joblib
-*.pkl
+# ── Pretrained model weights ────────────────────────────────────────────
+# The model zoo is small (~4 MB of classic .joblib + a few MB per CNN .pth), so
+# it is COMMITTED to the repo and loaded from models/ directly — no Hugging Face
+# download at runtime. Only the multi-GB DATASETS still live on HF.
+# (demo_leaderboard.json is also committed so the hub can show the comparison.)
+# Stray .pth/.joblib/.pkl OUTSIDE models/ (e.g. ad-hoc checkpoints at the repo
+# root) stay ignored; the tracked weights live under models/.
+/*.pth
+/*.joblib
+/*.pkl
+asvspoof_model_checkpoint.pth
 
 # ── Bundled sample clips ─────────────────────────────────────────────────
 # The small committed samples/ tree (train/dev + a tiny eval fallback) IS

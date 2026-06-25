@@ -39,9 +39,9 @@ from src.ui_helpers import (  # noqa: E402
     BONAFIDE_COLOR, SPOOF_COLOR, HF_EVAL_DATASETS, HF_EVAL_PER_CLASS,
     available_pretrained_models, corpus_available,
     demo_corpus_notice, demo_mode, fig_activation_grid, fig_cnn_input,
-    fig_waveform, get_extractor, get_samples, hf_eval_samples, load_pretrained_cnn,
-    load_pretrained_model, op_busy_notice, pretrained_available, show_empty_state,
-    sidebar_panel,
+    fig_waveform, get_extractor, get_samples, hf_eval_samples, load_demo_leaderboard,
+    load_pretrained_cnn, load_pretrained_model, op_busy_notice, pretrained_available,
+    show_empty_state, sidebar_panel,
 )
 
 FEATURE_LABELS = FeatureExtractor.OPTION_NAMES
@@ -247,6 +247,33 @@ def _load_signal(uploaded):
     return signal
 
 
+def _load_all_models(entries):
+    """Load every pretrained model AT ONCE (parallel threads) instead of one by
+    one — the first-run Hugging Face downloads then overlap, which is the slow
+    part. Each worker thread inherits the Streamlit script context so the cached
+    loaders behave exactly as on the main thread. Returns (loaded, failed)."""
+    import threading
+
+    from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+
+    ctx = get_script_run_ctx()
+
+    def _init():
+        add_script_run_ctx(threading.current_thread(), ctx)
+
+    loaded, failed = {}, []
+    with cf.ThreadPoolExecutor(max_workers=min(8, max(1, len(entries))),
+                               initializer=_init) as pool:
+        futs = {pool.submit(load_pretrained_model, e): e for e in entries}
+        for fut in cf.as_completed(futs):
+            e = futs[fut]
+            try:
+                loaded[e["key"]] = fut.result()
+            except Exception as exc:                 # noqa: BLE001 — report, continue
+                failed.append((e["name"], str(exc)))
+    return loaded, failed
+
+
 def _analyse_all_models(signal, entries, loaded, threshold):
     """Score one clip with every pretrained model. DSP front-ends are extracted
     once each in parallel threads (librosa releases the GIL), then each model
@@ -290,12 +317,10 @@ def _analyse_all_models(signal, entries, loaded, threshold):
 
 
 # ===========================================================================
-# Tabs — the multi-model "Test an audio" leads in the corpus-less web demo.
+# Tabs — the multi-model "Test an audio" leads on BOTH the web demo and locally,
+# so the layout is identical everywhere (Test an audio first, split second).
 # ===========================================================================
-if demo_mode():
-    tab_test, tab_analyse = st.tabs(["Test an audio", "Analyse on a split"])
-else:
-    tab_analyse, tab_test = st.tabs(["Analyse on a split", "Test an audio"])
+tab_test, tab_analyse = st.tabs(["Test an audio", "Analyse on a split"])
 
 # These are only meaningful in the (corpus-backed) split analysis below; pre-set
 # so the sidebar never trips over them in the demo.
@@ -336,41 +361,106 @@ with tab_test:
         )
     else:
         signal = _load_signal(uploaded)
-        with st.spinner("Initialising the models (downloaded once)…"):
-            loaded, failed = {}, []
-            for e in pre_models:
-                try:
-                    loaded[e["key"]] = load_pretrained_model(e)
-                except Exception as exc:            # noqa: BLE001 — report, continue
-                    failed.append((e["name"], str(exc)))
+        with st.spinner("Consulting the Jedi Archives (loading every model in parallel)…"):
+            loaded, failed = _load_all_models(pre_models)
         for _name, _err in failed:
             st.warning(f"{_name} unavailable: {_err}")
         entries_ok = [e for e in pre_models if e["key"] in loaded]
         if not entries_ok:
             st.error("No model could be loaded — check the download URLs.")
             st.stop()
-        with st.spinner("Analysing your clip with every model…"):
+        with st.spinner("Running it past the astromech (scoring every model)…"):
             rows = _analyse_all_models(signal, entries_ok, loaded, threshold)
 
         probs   = [r["p(spoof)"] for r in rows]
         mean_p  = float(np.mean(probs))
         n_spoof = int(sum(p >= threshold for p in probs))
         n_total = len(rows)
-        if   n_spoof * 2 > n_total: consensus, c_color = "SPOOF — deepfake", SPOOF_COLOR
-        elif n_spoof * 2 < n_total: consensus, c_color = "BONAFIDE — real speech", BONAFIDE_COLOR
-        else:                       consensus, c_color = "SPLIT DECISION", "#FFD54F"
 
-        # ── Consensus headline ──────────────────────────────────────────── #
+        # ── Final verdict comes from the BEST trained model (lowest eval minDCF in
+        #    the committed leaderboard); fall back to the headline CNNs, then the
+        #    first model, when no metrics are available. ──────────────────────── #
+        _board = load_demo_leaderboard()
+
+        def _best_row(rows, board):
+            rated = [(board.get(r["key"], {}).get("mindcf_eval"), r) for r in rows]
+            rated = [(md, r) for md, r in rated if isinstance(md, (int, float))]
+            if rated:
+                return min(rated, key=lambda t: t[0])[1]
+            for key in ("resnet", "cnn3x3"):       # headline CNNs preferred
+                for r in rows:
+                    if r["key"] == key:
+                        return r
+            return rows[0]
+
+        best = _best_row(rows, _board)
+        b_md = _board.get(best["key"], {}).get("mindcf_eval")
+        v_color = SPOOF_COLOR if best["Verdict"] == "SPOOF" else BONAFIDE_COLOR
+        v_text  = ("SPOOF — deepfake" if best["Verdict"] == "SPOOF"
+                   else "BONAFIDE — real speech")
+        _rank_txt = (f" &nbsp;·&nbsp; eval minDCF {b_md:.3f}"
+                     if isinstance(b_md, (int, float)) else "")
+
+        # Primary card: the best detector's call (the authoritative final verdict),
+        # with an outcome-coloured saber glow (the glow colour IS the data colour).
         st.markdown(
-            f"<div style='text-align:center;padding:0.8rem 0 0.2rem;'>"
-            f"<span style='font-size:1.8rem;font-weight:700;color:{c_color};'>{consensus}</span><br>"
-            f"<span style='color:#9EA8C0;font-size:0.95rem;'>"
-            f"{n_spoof}/{n_total} models flag spoof &nbsp;·&nbsp; "
-            f"mean p(spoof) = {mean_p:.3f} &nbsp;·&nbsp; threshold = {threshold:.2f}"
+            f"<div style='text-align:center;margin:0.6rem auto 0.3rem;"
+            f"max-width:560px;padding:1rem 1.3rem;border-radius:0.9rem;"
+            f"border:1px solid {v_color}59;"
+            f"box-shadow:0 0 20px {v_color}55, inset 0 0 24px {v_color}1f;'>"
+            f"<span style='display:block;font-size:0.66rem;font-weight:800;"
+            f"letter-spacing:0.16em;text-transform:uppercase;color:#9EA8C0;"
+            f"margin-bottom:0.15rem;'>Final verdict</span>"
+            f"<span style='font-size:1.8rem;font-weight:700;color:{v_color};"
+            f"text-shadow:0 0 14px {v_color}aa;'>{v_text}</span><br>"
+            f"<span style='color:#9EA8C0;font-size:0.9rem;'>"
+            f"best detector: <b style='color:#C9D7F5;'>{best['Model']}</b> "
+            f"&nbsp;·&nbsp; p(spoof) = {best['p(spoof)']:.3f}{_rank_txt}"
             f"</span></div>",
             unsafe_allow_html=True,
         )
+        # Secondary line: the panel of models behind the verdict.
+        _cons = ("majority flags spoof" if n_spoof * 2 > n_total
+                 else ("majority says bonafide" if n_spoof * 2 < n_total
+                       else "the panel is split"))
+        st.markdown(
+            f"<div style='text-align:center;color:#8A95AE;font-size:0.85rem;"
+            f"margin:0 auto 0.4rem;'>Panel of {n_total} models — {_cons}: "
+            f"<b>{n_spoof}/{n_total}</b> flag spoof &nbsp;·&nbsp; "
+            f"mean p(spoof) = {mean_p:.3f} &nbsp;·&nbsp; threshold = {threshold:.2f}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
         st.audio(signal, sample_rate=extractor.sample_rate)
+        st.divider()
+
+        # ── Every model's individual verdict (who flagged what) ─────────── #
+        st.markdown("**Every model's verdict**")
+        _sorted = sorted(rows, key=lambda r: r["p(spoof)"], reverse=True)
+        _chips = []
+        for r in _sorted:
+            c = SPOOF_COLOR if r["Verdict"] == "SPOOF" else BONAFIDE_COLOR
+            _chips.append(
+                f'<div style="border:1px solid {c}55;border-left:3px solid {c};'
+                f'border-radius:0.6rem;padding:0.5rem 0.7rem;background:{c}14;">'
+                f'<div style="font-size:0.8rem;font-weight:700;color:#C9D7F5;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" '
+                f'title="{r["Model"]} · {r["Front-end"]}">{r["Model"]}</div>'
+                f'<div style="display:flex;justify-content:space-between;'
+                f'align-items:baseline;margin-top:0.25rem;">'
+                f'<span style="color:{c};font-weight:800;font-size:0.82rem;">'
+                f'{r["Verdict"]}</span>'
+                f'<span style="color:#8A95AE;font-size:0.74rem;">'
+                f'p={r["p(spoof)"]:.2f}</span></div></div>'
+            )
+        st.markdown(
+            '<div style="display:grid;grid-template-columns:'
+            'repeat(auto-fill,minmax(168px,1fr));gap:0.5rem;margin:0.3rem 0 0.5rem;">'
+            + "".join(_chips) + "</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption("Each pretrained model's own call on your clip — green = "
+                   "bonafide, red = spoof. The full sortable table and chart are below.")
         st.divider()
 
         # ── Per-model comparison table + bar chart ──────────────────────── #
@@ -442,7 +532,7 @@ with tab_analyse:
         st.markdown('<div class="section-label">Detector</div>', unsafe_allow_html=True)
         src_opts = ["Classic model"]
         if pretrained_available():
-            src_opts.append("Pretrained CNN")
+            src_opts.append("CNN")
         if has_cnn:
             src_opts.append("CNN (this session)")
         source = st.segmented_control("Source", src_opts, default="Classic model",
@@ -460,7 +550,7 @@ with tab_analyse:
             with c2:
                 with st.container(key="nosearch_da_clf"):
                     clf_disp = st.selectbox("Classifier", list(CLASSIFIERS), key="da_clf")
-        elif source == "Pretrained CNN":
+        elif source == "CNN":
             st.caption("Pretrained CNN checkpoint, served on CPU.")
         else:
             st.caption("Scores the CNN trained in Benchmark · CNN this session.")
@@ -475,15 +565,15 @@ with tab_analyse:
                             icon=":material/insights:", width="stretch")
 
     if analyze:
-        with st.spinner("Scoring the detector…"):
+        with st.spinner("Awaiting the Council's verdict (scoring the detector)…"):
             if source == "Classic model":
                 sc, lb = _score_classic(feat_key, CLASSIFIERS[clf_disp],
                                         split, int(subset))
                 name = f"{FEATURE_LABELS[feat_key]} × {clf_disp} · {split}"
-            elif source == "Pretrained CNN":
+            elif source == "CNN":
                 _m, _ = load_pretrained_cnn()
                 sc, lb = _score_cnn_on_split(_m, "cpu", split, int(subset))
-                name = f"Pretrained CNN · {split}"
+                name = f"CNN · {split}"
             else:
                 sc, lb = _score_cnn_on_split(st.session_state["cnn_model"], device,
                                              split, int(subset))
@@ -503,7 +593,7 @@ with tab_analyse:
     with st.container(border=True):
         st.markdown('<div class="section-label">Detector</div>', unsafe_allow_html=True)
         src_opts = (["Classic model"] if classic_entries else []) + \
-                   (["Pretrained CNN"] if cnn_entries else [])
+                   (["CNN"] if cnn_entries else [])
         source = st.segmented_control("Source", src_opts, default=src_opts[0],
                                       key="da_source_hf", label_visibility="collapsed")
         source = source or src_opts[0]
@@ -527,9 +617,10 @@ with tab_analyse:
                 with st.container(key="nosearch_da_clf_hf"):
                     clf_disp = st.selectbox("Classifier", clf_choices, key="da_clf_hf")
         else:
-            cnn_name = st.selectbox("CNN", [e["name"] for e in cnn_entries],
-                                    key="da_cnn_hf")
-            st.caption("Pretrained CNN checkpoint, served on CPU.")
+            with st.container(key="nosearch_da_cnn_hf"):
+                cnn_name = st.selectbox("CNN", [e["name"] for e in cnn_entries],
+                                        key="da_cnn_hf")
+            st.caption("CNN checkpoint, served on CPU.")
 
     a1, a2, a3 = st.columns([1.3, 1, 1.4], vertical_alignment="bottom")
     with a1:
@@ -544,7 +635,7 @@ with tab_analyse:
                             icon=":material/insights:", width="stretch")
 
     if analyze:
-        with st.spinner(f"Streaming {corpus} eval from Hugging Face and scoring…"):
+        with st.spinner(f"Pulling {corpus} records from the Archives and scoring…"):
             samples = hf_eval_samples(corpus, int(nper))
             if not samples:
                 st.warning("Could not fetch eval clips from Hugging Face — "

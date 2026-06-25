@@ -35,13 +35,14 @@ from src.ui_helpers import (  # noqa: E402
     eval_corpora_for, eval_score_controls, get_extractor, get_samples,
     load_config, load_demo_leaderboard, load_pretrained_model, model_downloaded,
     models_trained, op_in_progress, show_empty_state, sidebar_panel, test_audio_cta,
+    themed,
 )
 
 COL_SPLIT = "Split"   # added to classic rows by Run Experiment
 FEATURE_LABELS = FeatureExtractor.OPTION_NAMES
 FEATURE_ORDER  = ["1", "2", "3", "4", "6"]
 
-st.markdown("""
+st.markdown(themed("""
 <style>
 @keyframes champGlow {
     0%, 100% { box-shadow: 0 0 0 1px rgba(255,193,7,0.18); }
@@ -64,7 +65,7 @@ st.markdown("""
 .champ-banner .cb-metric { font-size: 0.82rem; color: #AFC3E8; }
 .champ-banner .cb-metric b { color: #FFE08A; font-weight: 700; }
 </style>
-""", unsafe_allow_html=True)
+"""), unsafe_allow_html=True)
 
 st.title("Full Comparison")
 st.caption(
@@ -73,6 +74,36 @@ st.caption(
     "spectrograms beat the classic front-ends? Classic (CPU) and CNN (GPU) run "
     "**in parallel in the background**, so you can browse other pages while it works."
 )
+
+
+def _prefetch_models(entries, bar):
+    """Download every pretrained model AT ONCE (parallel threads) so the Hugging
+    Face fetches overlap instead of running one by one. Each worker inherits the
+    Streamlit script context; the progress bar is advanced from the main thread as
+    each download finishes. Returns (loaded, failed)."""
+    import concurrent.futures as cf
+    import threading
+
+    from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+
+    ctx = get_script_run_ctx()
+
+    def _init():
+        add_script_run_ctx(threading.current_thread(), ctx)
+
+    loaded, failed, done = {}, [], 0
+    total = max(1, len(entries))
+    with cf.ThreadPoolExecutor(max_workers=min(8, total), initializer=_init) as pool:
+        futs = {pool.submit(load_pretrained_model, e): e for e in entries}
+        for fut in cf.as_completed(futs):
+            e = futs[fut]
+            try:
+                loaded[e["key"]] = fut.result()
+            except Exception as exc:                 # noqa: BLE001 — report, continue
+                failed.append((e["name"], str(exc)))
+            done += 1
+            bar.progress(done / total, f"{done}/{total} models ready")
+    return loaded, failed
 
 
 # ── One-click full benchmark (runs in the BACKGROUND) ────────────────────── #
@@ -100,25 +131,32 @@ if not corpus_available():
         )
         st.stop()
 
+    # Auto-download every pretrained model as soon as the page opens (once per
+    # session), in parallel so the Hugging Face fetches overlap. After this the
+    # whole zoo is warm and Detection Analysis runs instantly.
+    if not st.session_state.get("hf_models_prefetched"):
+        bar = st.progress(0.0, "Downloading all pretrained models…")
+        _loaded, _failed = _prefetch_models(entries, bar)
+        bar.empty()
+        st.session_state["hf_models_prefetched"] = True
+        for _nm, _err in _failed:
+            st.warning(f"{_nm}: {_err}")
+
     n_ready = sum(model_downloaded(e) for e in entries)
-    cdl, cinfo = st.columns([1, 2], vertical_alignment="center")
-    with cdl:
-        if st.button("Download all models", type="primary",
-                     icon=":material/cloud_download:", width="stretch"):
-            bar = st.progress(0.0, "Starting…")
-            for i, e in enumerate(entries, 1):
-                bar.progress((i - 1) / len(entries), f"Fetching {e['name']}…")
-                try:
-                    load_pretrained_model(e)            # downloads + caches on CPU
-                except Exception as exc:                # noqa: BLE001 — report, continue
-                    st.warning(f"{e['name']}: {exc}")
-                bar.progress(i / len(entries), f"{e['name']} ready")
-            bar.empty()
-            st.success("All models initialised — open Detection Analysis to test them.")
-            st.rerun()
-    with cinfo:
-        st.markdown(f"**{n_ready} / {len(entries)}** models cached on this server. "
-                    "Models download once and stay warm for the session.")
+    if n_ready == len(entries):
+        st.success(f"All {n_ready} pretrained models downloaded and ready — open "
+                   "Detection Analysis to test them on your own clip.",
+                   icon=":material/cloud_done:")
+    else:
+        cdl, cinfo = st.columns([1, 2], vertical_alignment="center")
+        with cdl:
+            if st.button("Retry downloads", type="primary",
+                         icon=":material/refresh:", width="stretch"):
+                st.session_state.pop("hf_models_prefetched", None)
+                st.rerun()
+        with cinfo:
+            st.markdown(f"**{n_ready} / {len(entries)}** models cached on this "
+                        "server. Models download once and stay warm for the session.")
 
     # Leaderboard from the committed metrics (empty until a local Full comparison).
     board = load_demo_leaderboard()

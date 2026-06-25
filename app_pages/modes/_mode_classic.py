@@ -36,9 +36,10 @@ from src.ui_helpers import (
     eval_corpora_for, eval_score_controls,
     get_extractor, get_samples, load_config, load_pretrained_classic,
     op_busy_notice, op_in_progress, show_empty_state, sidebar_panel, test_audio_cta,
+    themed,
 )
 
-st.markdown("""
+st.markdown(themed("""
 <style>
 @keyframes bannerGlow {
     0%, 100% { box-shadow: 0 0 0 1px rgba(102,187,106,0.18); }
@@ -77,7 +78,7 @@ st.markdown("""
 }
 .best-banner .bb-metric b { color: #A5D6A7; font-weight: 700; }
 </style>
-""", unsafe_allow_html=True)
+"""), unsafe_allow_html=True)
 
 st.title("Classic Models")
 st.caption(
@@ -85,14 +86,18 @@ st.caption(
     "Results accumulate across runs so you can compare configurations."
 )
 
-if not corpus_available():
+# On the corpus-less web demo we DON'T bail out anymore: the page renders exactly
+# like local, but training is disabled — you can still evaluate every pretrained
+# model on eval clips streamed from Hugging Face (see eval_corpora_for).
+_web = not corpus_available()
+if _web:
     demo_corpus_notice(
-        "Classic models — disabled in the web demo",
-        "Fitting the DSP × classifier models needs the full ASVspoof corpus, "
-        "which is not available on the public cloud.",
+        "Classic models — evaluation only in the web demo",
+        "Re-fitting the DSP × classifier models needs the full ASVspoof corpus "
+        "(several GB), so on the public cloud <b>training is disabled</b>. You can "
+        "still <b>Evaluate</b> every pretrained model on eval clips streamed from "
+        "Hugging Face — the same view you get locally.",
     )
-    test_audio_cta()
-    st.stop()
 
 config    = load_config()
 extractor = get_extractor()
@@ -210,7 +215,10 @@ with st.container(border=True):
         with st.container(key="runbtn_exp"):
             run_btn = st.button("Train models", type="primary",
                                 icon=":material/play_arrow:", width="stretch",
-                                disabled=_busy)
+                                disabled=_busy or _web,
+                                help="Training is disabled in the web demo — "
+                                     "evaluate the pretrained models instead."
+                                     if _web else None)
         eval_btn = st.button(
             "Evaluate", icon=":material/query_stats:", width="stretch",
             disabled=_busy or not _can_eval,

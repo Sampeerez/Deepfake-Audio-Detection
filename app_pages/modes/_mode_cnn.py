@@ -57,15 +57,18 @@ st.caption(
     "its learning dynamics and internal representations in real time."
 )
 
-if not corpus_available():
+# On the corpus-less web demo we DON'T bail out: the page renders like local but
+# training is off — you can still evaluate the pretrained CNNs on eval clips
+# streamed from Hugging Face (see eval_corpora_for).
+_web = not corpus_available()
+if _web:
     demo_corpus_notice(
-        "CNN training — disabled in the web demo",
-        "Training the convolutional network requires dedicated hardware (a GPU) "
-        "and the full ASVspoof corpus, neither of which is available on the free "
-        "public cloud.",
+        "CNN — evaluation only in the web demo",
+        "Training the network needs a GPU and the full ASVspoof corpus, so on the "
+        "public cloud <b>training is disabled</b>. You can still <b>Evaluate</b> "
+        "the pretrained CNNs (ResNet + SE and the 3-Block CNN) on eval clips "
+        "streamed from Hugging Face — the same view you get locally.",
     )
-    test_audio_cta()
-    st.stop()
 
 # ===========================================================================
 # Training configuration — main-area panel
@@ -140,7 +143,10 @@ with st.container(border=True):
         # Evaluate is enabled only when the selected architecture is actually on disk.
         arch_hf_key = "resnet" if arch == ARCH_RESNET else "cnn3x3"
         _hf_cnn = [e for e in available_pretrained_models() if e["kind"] == "cnn"]
-        _hf_for_arch = [e for e in _hf_cnn if e["key"] == arch_hf_key and model_downloaded(e)]
+        # Locally we require the checkpoint to be on disk; on the web demo the
+        # registry entries are downloadable, so allow eval (it fetches on click).
+        _hf_for_arch = [e for e in _hf_cnn if e["key"] == arch_hf_key
+                        and (model_downloaded(e) or _web)]
         _has_model_for_eval = "cnn_model" in st.session_state or bool(_hf_for_arch)
         with st.container(key="trainbtn_cnn"):
             train_btn = st.button(

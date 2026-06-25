@@ -17,10 +17,10 @@ import streamlit as st  # noqa: E402
 from src.ui_helpers import (  # noqa: E402
     corpus_available, corpus_configured_2021_la, corpus_configured_2021_df,
     fig_corpus_overview, fig_overall_split_bar, get_samples, load_config,
-    section_header, sidebar_panel,
+    section_header, sidebar_panel, themed,
 )
 
-st.markdown("""
+st.markdown(themed("""
 <style>
 /* ── Corpus status cards ─────────────────────────────────────────────────── */
 .corpus-card {
@@ -137,7 +137,7 @@ st.markdown("""
 }
 .dist-note b { color: #82B1FF; }
 </style>
-""", unsafe_allow_html=True)
+"""), unsafe_allow_html=True)
 
 # ── Data gathered up front ───────────────────────────────────────────────── #
 config    = load_config()
@@ -268,7 +268,6 @@ st.markdown(
     '<li><strong>LFCC</strong> — linear-frequency cepstrum</li>'
     '<li><strong>DWT</strong> — multi-resolution wavelet energy (db4)</li>'
     '<li><strong>CQCC</strong> — Constant-Q cepstral coefficients</li>'
-    '<li><strong>Fusion</strong> — RMS+MFCC+LFCC+DWT+CQCC concatenated</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">II</div><h5>Classical Classifiers</h5><ul>'
     '<li><strong>LR</strong> — Logistic Regression (baseline)</li>'

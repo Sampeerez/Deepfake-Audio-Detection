@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import streamlit as st  # noqa: E402
 
+from src.ui_helpers import themed  # noqa: E402
+
 _MODES = {"classic": "_mode_classic.py", "cnn": "_mode_cnn.py", "full": "_mode_full.py"}
 
 _ICON_CLASSIC = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
@@ -42,7 +44,7 @@ _OPTIONS = [
      "scientific comparison."),
 ]
 
-st.markdown("""
+st.markdown(themed("""
 <style>
 .mode-card {
     background: linear-gradient(150deg, rgba(10,22,62,0.5), rgba(14,28,75,0.28));
@@ -130,7 +132,7 @@ st.markdown("""
 .hcw-tag   { font-size: 0.69rem; color: #90CAF9; background: rgba(79,139,249,0.1);
     border: 1px solid rgba(79,139,249,0.2); border-radius: 20px; padding: 0.1rem 0.6rem; }
 </style>
-""", unsafe_allow_html=True)
+"""), unsafe_allow_html=True)
 
 choice = st.session_state.get("bench_choice")
 
@@ -176,7 +178,7 @@ if choice not in _MODES:
             "Turn raw audio into a compact representation",
             "Every signal is decoded once and passed through a DSP front-end or "
             "an STFT spectrogram. Features are cached, so re-runs are instant.",
-            ["RMS", "MFCC", "LFCC", "DWT", "CQCC", "Fusion", "STFT-dB"],
+            ["RMS", "MFCC", "LFCC", "DWT", "CQCC", "STFT-dB"],
         )
         + _hcw_step(
             "2", "Train · classifier",
