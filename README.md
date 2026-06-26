@@ -18,7 +18,7 @@
 [![Hugging Face](https://img.shields.io/badge/Models-Hugging_Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co/)
 
 [![CI](https://github.com/Sampeerez/Deepfake-Audio-Detection/actions/workflows/ci.yml/badge.svg)](https://github.com/Sampeerez/Deepfake-Audio-Detection/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-73_passing-2ea043)
+![Tests](https://img.shields.io/badge/tests-88_passing-2ea043)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Thesis](https://img.shields.io/badge/Thesis-PDF_(soon)-8A2BE2)](#)
 
@@ -195,7 +195,7 @@ streamlit run app.py        # opens http://localhost:8501
 
 ## Tests & CI
 
-**82 tests, ~15 s, 100% synthetic data** — no corpus, no GPU, runs anywhere.
+**88 tests, ~15 s, 100% synthetic data** — no corpus, no GPU, runs anywhere.
 
 ```bash
 pytest                             # full suite

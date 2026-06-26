@@ -38,11 +38,11 @@ from src.metrics import calculate_eer, calculate_min_dcf  # noqa: E402
 from src.models import get_classic_model  # noqa: E402
 from src.pipeline import extract_feature_matrix  # noqa: E402
 from src.ui_helpers import (  # noqa: E402
-    BONAFIDE_COLOR, SPOOF_COLOR, HF_EVAL_DATASETS, HF_EVAL_PER_CLASS,
-    available_pretrained_models, corpus_available,
-    demo_corpus_notice, demo_mode, fig_activation_evolution, fig_cnn_input,
-    fig_waveform, get_extractor, get_samples, hf_eval_samples, load_leaderboard_models,
-    load_pretrained_model, op_busy_notice, pretrained_available,
+    BONAFIDE_COLOR, SPOOF_COLOR, EVAL_CORPUS_CHOICES, HF_EVAL_DATASETS,
+    HF_EVAL_PER_CLASS, available_pretrained_models, corpus_available,
+    demo_corpus_notice, eval_corpora_for, fig_activation_evolution,
+    fig_cnn_input, fig_waveform, get_extractor, get_samples, hf_eval_samples,
+    load_leaderboard_models, load_pretrained_model, op_busy_notice,
     show_empty_state, sidebar_panel,
 )
 
@@ -140,6 +140,11 @@ if not corpus_ok and not pre_models:
 
 
 # ── Split-analysis scorers (local; need the corpus) ──────────────────────── #
+# Train subset size for locally-trained classics in the eval-corpus split tab
+# (eval clip count is chosen separately now, so training size is fixed here).
+_CLASSIC_TRAIN_SUBSET = 800
+
+
 @st.cache_resource(show_spinner=False)
 def _classic_model(feat_key, clf_name, subset, seed=42):
     """Fit (and cache) a classic DSP × classifier model on a train subset."""
@@ -152,10 +157,13 @@ def _classic_model(feat_key, clf_name, subset, seed=42):
     return model
 
 
-def _score_classic(feat_key, clf_name, split, subset, seed=42):
-    model   = _classic_model(feat_key, clf_name, subset, seed)
-    evalset = stratified_subsample(get_samples(split), subset, seed + 1)
-    x_ev, y_ev, _ = extract_feature_matrix(evalset, extractor, feat_key, split,
+def _score_classic_trained_on_samples(feat_key, clf_name, samples, tag):
+    """Score a locally-trained classic model on an explicit (path, label) list —
+    lets the local split tab pick a corpus (2019/2021) instead of a dev/eval
+    split. The model is still trained on the local 2019 train split via the
+    cached _classic_model()."""
+    model = _classic_model(feat_key, clf_name, _CLASSIC_TRAIN_SUBSET)
+    x_ev, y_ev, _ = extract_feature_matrix(samples, extractor, feat_key, tag,
                                            n_workers=4, use_cache=True)
     return model.predict_proba(x_ev)[:, 1].tolist(), y_ev.tolist()
 
@@ -183,11 +191,6 @@ def _score_cnn_on_samples(model, mdev, samples):
     return scores, labels
 
 
-def _score_cnn_on_split(model, mdev, split, subset, seed=42):
-    samples = stratified_subsample(get_samples(split), subset, seed)
-    return _score_cnn_on_samples(model, mdev, samples)
-
-
 def _score_raw_on_samples(model, mdev, samples, max_samples=64000):
     """Score a raw-waveform model (wav2vec 2.0) on a (path, label) list. p(spoof)
     is the model's own softmax; clips are cropped/padded to a fixed window so they
@@ -210,11 +213,6 @@ def _score_raw_on_samples(model, mdev, samples, max_samples=64000):
     if is_cuda:
         torch.cuda.empty_cache()
     return scores, labels
-
-
-def _score_raw_on_split(model, mdev, split, subset, seed=42):
-    samples = stratified_subsample(get_samples(split), subset, seed)
-    return _score_raw_on_samples(model, mdev, samples)
 
 
 # ── Web-demo scorers: pretrained registry models on HF-streamed eval clips ─── #
@@ -331,26 +329,54 @@ def _render_split_results():
 # ===========================================================================
 # Single-clip inference shared by the multi-model tab
 # ===========================================================================
-def _load_signal(uploaded):
+def _audio_suffix(name, raw: bytes) -> str:
+    """Best temp-file suffix for an upload: trust the filename extension first,
+    then sniff the container magic bytes. Determines which decoder librosa's
+    audioread fallback selects, so getting it right is what lets mp3/ogg/m4a
+    (and odd wav/flac) decode."""
+    if name and "." in name:
+        ext = "." + name.rsplit(".", 1)[1].lower()
+        if ext in (".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac"):
+            return ext
+    if raw[:4] == b"RIFF":
+        return ".wav"
+    if raw[:4] == b"fLaC":
+        return ".flac"
+    if raw[:4] == b"OggS":
+        return ".ogg"
+    if raw[:3] == b"ID3" or raw[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        return ".mp3"
+    if raw[4:8] == b"ftyp":
+        return ".m4a"
+    return ".flac"
+
+
+def _load_signal(uploaded, name=None):
     try:
         signal, _ = librosa.load(uploaded, sr=extractor.sample_rate, mono=True)
     except Exception:
-        # soundfile fails on some FLAC files when given a BytesIO (no audioread
-        # fallback for file-like objects). Write to a temp path so librosa's
-        # audioread path engages, which is far more permissive.
-        import os as _os, tempfile as _tf
+        # soundfile can't read compressed formats (mp3/m4a/ogg) or some FLAC from
+        # a BytesIO. Write to a temp file with the right extension so librosa's
+        # audioread/ffmpeg path engages, which is far more permissive.
+        import os as _os, tempfile as _tf, warnings as _w
         if hasattr(uploaded, "seek"):
             uploaded.seek(0)
-        raw = uploaded.read() if hasattr(uploaded, "read") else b""
-        suffix = ".wav" if raw[:4] == b"RIFF" else ".flac"
+        raw = (uploaded.read() if hasattr(uploaded, "read")
+               else bytes(uploaded) if isinstance(uploaded, (bytes, bytearray))
+               else b"")
+        suffix = _audio_suffix(name, raw)
         with _tf.NamedTemporaryFile(suffix=suffix, delete=False) as _f:
             _f.write(raw)
             _tmp = _f.name
         try:
-            import warnings as _w
             with _w.catch_warnings():
                 _w.simplefilter("ignore")
                 signal, _ = librosa.load(_tmp, sr=extractor.sample_rate, mono=True)
+        except Exception as _ex:                          # final, clearer failure
+            raise RuntimeError(
+                f"unsupported or corrupt audio ({suffix}). Compressed formats "
+                f"(mp3/m4a/ogg) need ffmpeg installed on the host. [{_ex}]"
+            ) from _ex
         finally:
             _os.unlink(_tmp)
     if len(signal) < extractor.n_fft:
@@ -663,8 +689,10 @@ with tab_test:
     # ── Upload / Analyze / Clear row ─────────────────────────────────────── #
     _c_up, _c_an, _c_cl = st.columns([5, 1.5, 1], vertical_alignment="center")
     with _c_up:
-        uploaded = st.file_uploader("Upload a .flac / .wav file", type=["flac", "wav"],
-                                    key="da_test_upload", label_visibility="collapsed")
+        uploaded = st.file_uploader(
+            "Upload an audio clip (flac / wav / mp3 / ogg / m4a)",
+            type=["flac", "wav", "mp3", "ogg", "m4a"],
+            key="da_test_upload", label_visibility="collapsed")
     with _c_an:
         _has_audio = (st.session_state.get("da_test_bytes") is not None
                       or uploaded is not None)
@@ -693,7 +721,8 @@ with tab_test:
     if _blob is None:
         show_empty_state(
             "No audio uploaded",
-            "Drop a .flac or .wav clip above, then click Analyze to score it "
+            "Drop an audio clip (flac / wav / mp3 / ogg / m4a) above, then click "
+            "Analyze to score it "
             "with every pretrained model.",
         )
     else:
@@ -702,7 +731,7 @@ with tab_test:
 
         # Load signal (needed for both analysis and display). Errors surface here.
         try:
-            signal = _load_signal(io.BytesIO(_blob))
+            signal = _load_signal(io.BytesIO(_blob), name=_fname)
         except Exception as _ex:
             st.error(f"Could not decode the audio file — {_ex}")
             st.stop()
@@ -788,12 +817,15 @@ with tab_analyse:
         else:
             st.caption("Scores the CNN trained in Benchmark · CNN this session.")
 
-    a1, a2, a3, a4 = st.columns([1, 1, 1.4, 0.7], vertical_alignment="bottom")
+    a1, a2, a3, a4 = st.columns([1.3, 1, 1.4, 0.7], vertical_alignment="bottom")
     with a1:
-        with st.container(key="nosearch_da_split"):
-            split = st.selectbox("Split", ["dev", "eval"], key="da_split")
+        with st.container(key="nosearch_da_corpus"):
+            corpus = st.selectbox("Eval corpus", EVAL_CORPUS_CHOICES, key="da_corpus",
+                                  help="Evaluate on this corpus' eval split "
+                                       "(2019 in-domain, 2021 = generalization).")
     with a2:
-        subset = st.number_input("Files", 100, 25400, 800, step=100, key="da_subset")
+        nper = st.number_input("Clips / class", 50, 5000, 400, step=50, key="da_nper",
+                               help="Balanced bonafide + spoof eval clips.")
     with a3:
         analyze = st.button("Analyze", type="primary", disabled=_busy,
                             icon=":material/insights:", width="stretch")
@@ -804,31 +836,40 @@ with tab_analyse:
 
     if analyze:
         with st.spinner("Awaiting the Council's verdict (scoring the detector)…"):
-            if source == "Classic models":
-                sc, lb = _score_classic(feat_key, CLASSIFIERS[clf_disp],
-                                        split, int(subset))
-                name = f"{FEATURE_LABELS[feat_key]} × {clf_disp} · {split}"
-            elif source == "CNN":
-                _entry = next(e for e in pre_models
-                              if e["kind"] == "cnn" and e["name"] == cnn_name)
-                _m = load_pretrained_model(_entry)
-                sc, lb = _score_cnn_on_split(_m, "cpu", split, int(subset))
-                name = f"{cnn_name} · {split}"
-            elif source == "SSL":
-                _entry = next(e for e in pre_models
-                              if e["kind"] == "raw" and e["name"] == cnn_name)
-                _m = load_pretrained_model(_entry)
-                sc, lb = _score_raw_on_split(_m, device, split, int(subset))
-                name = f"{cnn_name} · {split}"
+            _resolved = eval_corpora_for(corpus)
+            samples = (stratified_subsample(_resolved[0][1], 2 * int(nper), 42)
+                       if _resolved else [])
+            if not samples:
+                st.warning(f"No {corpus} eval clips available locally — pick "
+                           "another corpus or download that eval set.")
             else:
-                sc, lb = _score_cnn_on_split(st.session_state["cnn_model"], device,
-                                             split, int(subset))
-                name = f"CNN · {split}"
-        st.session_state["da_scores"] = sc
-        st.session_state["da_labels"] = lb
-        st.session_state["da_name"]   = name
-        st.session_state["da_detector"] = {
-            "source": source, "feat": feat_key, "clf": clf_disp, "cnn": cnn_name}
+                _tag = f"da_local_{corpus}"
+                if source == "Classic models":
+                    sc, lb = _score_classic_trained_on_samples(
+                        feat_key, CLASSIFIERS[clf_disp], samples, _tag)
+                    name = f"{FEATURE_LABELS[feat_key]} × {clf_disp} · {corpus} eval"
+                elif source == "CNN":
+                    _entry = next(e for e in pre_models
+                                  if e["kind"] == "cnn" and e["name"] == cnn_name)
+                    sc, lb = _score_cnn_on_samples(load_pretrained_model(_entry),
+                                                   "cpu", samples)
+                    name = f"{cnn_name} · {corpus} eval"
+                elif source == "SSL":
+                    _entry = next(e for e in pre_models
+                                  if e["kind"] == "raw" and e["name"] == cnn_name)
+                    sc, lb = _score_raw_on_samples(load_pretrained_model(_entry),
+                                                   device, samples)
+                    name = f"{cnn_name} · {corpus} eval"
+                else:
+                    sc, lb = _score_cnn_on_samples(st.session_state["cnn_model"],
+                                                   device, samples)
+                    name = f"CNN · {corpus} eval"
+                st.session_state["da_scores"] = sc
+                st.session_state["da_labels"] = lb
+                st.session_state["da_name"]   = name
+                st.session_state["da_detector"] = {
+                    "source": source, "feat": feat_key,
+                    "clf": clf_disp, "cnn": cnn_name}
 
     _render_split_results()
 
@@ -885,7 +926,7 @@ with tab_analyse:
         corpus = st.selectbox("Eval corpus", list(HF_EVAL_DATASETS), key="da_corpus_hf",
                               help="Eval split streamed from the public HF dataset.")
     with a2:
-        nper = st.number_input("Clips / class", 5, 100, HF_EVAL_PER_CLASS, step=5,
+        nper = st.number_input("Clips / class", 5, 500, HF_EVAL_PER_CLASS, step=5,
                                key="da_nper_hf",
                                help="Balanced bonafide + spoof clips fetched from HF.")
     with a3:

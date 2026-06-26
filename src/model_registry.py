@@ -351,18 +351,55 @@ HF_EVAL_DATASETS: Dict[str, Dict[str, str]] = {
     "2021 DF": {"id": "SpeechAntiSpoofingBenchmarks/ASVspoof2021_DF",
                 "config": "default", "split": "test", "label_col": "label"},
 }
-HF_EVAL_PER_CLASS = 50          # clips PER CLASS to cache (web-demo friendly cap)
-HF_EVAL_MAX_PAGES = 10          # /rows pages (×100 rows) scanned to find bonafide
+HF_EVAL_PER_CLASS = 50          # clips PER CLASS to cache (web-demo friendly default)
+HF_PAGE_CEILING   = 80          # max /rows pages (×100 rows) scanned per request
 _HF_CACHE_DIR     = os.path.join(SAMPLES_DIR, "_hf_cache")
 _DS_ROWS_URL      = "https://datasets-server.huggingface.co/rows"
+
+
+def _hf_headers() -> Dict:
+    """Build request headers, injecting HF_TOKEN when available (higher rate limits)."""
+    h = {"User-Agent": "tfg-deepfake-demo"}
+    token = os.environ.get("HF_TOKEN", "")
+    if token:
+        h["Authorization"] = f"Bearer {token}"
+    return h
 
 
 def _hf_get_json(url: str) -> Dict:
     import json
     import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": "tfg-deepfake-demo"})
+    req = urllib.request.Request(url, headers=_hf_headers())
     with urllib.request.urlopen(req, timeout=30) as r:   # noqa: S310 — fixed host
         return json.load(r)
+
+
+def _hf_pages_for(per_class: int) -> int:
+    """How many /rows pages to scan to gather ``per_class`` clips of EACH class.
+    ASVspoof is ~90 % spoof, so bonafide is the bottleneck: ~10 bonafide per
+    100-row page. Scale to the request, clamped to a sane ceiling."""
+    return max(4, min(HF_PAGE_CEILING, per_class // 10 + 4))
+
+
+def _hf_scan_pages(base: str, offsets, ingest, done, max_workers: int = 8) -> None:
+    """Fetch the /rows index pages at ``offsets`` in PARALLEL batches, calling
+    ``ingest(payload)`` on each result, and stop once ``done()`` returns True.
+    Per-page failures are skipped. Parallel batching is what keeps the higher
+    clip caps responsive (10+ sequential 30 s-timeout calls were the bottleneck)
+    while still honouring early-stop between batches."""
+    import concurrent.futures as cf
+    for i in range(0, len(offsets), max_workers):
+        if done():
+            return
+        batch = offsets[i:i + max_workers]
+        with cf.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futs = [pool.submit(_hf_get_json, base + f"&offset={off}&length=100")
+                    for off in batch]
+            for fut in cf.as_completed(futs):
+                try:
+                    ingest(fut.result())
+                except Exception:                        # noqa: BLE001 — skip bad page
+                    continue
 
 
 def _hf_download(src_dst):
@@ -370,7 +407,7 @@ def _hf_download(src_dst):
     src, dst, label = src_dst
     if not os.path.isfile(dst):
         try:
-            req = urllib.request.Request(src, headers={"User-Agent": "tfg-deepfake-demo"})
+            req = urllib.request.Request(src, headers=_hf_headers())
             with urllib.request.urlopen(req, timeout=60) as r:   # noqa: S310
                 data = r.read()
             with open(dst, "wb") as fh:
@@ -406,8 +443,8 @@ def _hf_eval_impl(corpus: str, n_per_class: int) -> List[Tuple[str, int]]:
         return cached
     total = int(first.get("num_rows_total", 100))
     rng = random.Random(42)
-    offsets = [0] + [rng.randint(0, max(0, total - 100))
-                     for _ in range(HF_EVAL_MAX_PAGES - 1)]
+    pages = _hf_pages_for(n_per_class)
+    offsets = [rng.randint(0, max(0, total - 100)) for _ in range(pages - 1)]
 
     def _ingest(payload):
         for row in payload.get("rows", []):
@@ -424,13 +461,8 @@ def _hf_eval_impl(corpus: str, n_per_class: int) -> List[Tuple[str, int]]:
                 collected[lab].append(src)
 
     _ingest(first)
-    for off in offsets[1:]:
-        if all(len(collected[c]) >= n_per_class for c in collected):
-            break
-        try:
-            _ingest(_hf_get_json(base + f"&offset={off}&length=100"))
-        except Exception:                                # noqa: BLE001 — skip bad page
-            continue
+    _hf_scan_pages(base, offsets, _ingest,
+                   lambda: all(len(collected[c]) >= n_per_class for c in collected))
 
     os.makedirs(cache_dir, exist_ok=True)
     ckey = _SAMPLE_KEYS.get(corpus, corpus)
@@ -468,7 +500,7 @@ def hf_eval_samples(corpus: str,
 # the download cost immediately. For browsing we instead pull a large INDEX of
 # rows (label + presigned audio URL, NO audio) and fetch a single clip lazily
 # when the user actually selects it. Much faster, far more files to pick from.
-HF_BROWSE_PER_CLASS = 300        # how many clips per class to list for browsing
+HF_BROWSE_PER_CLASS = 500        # how many clips per class to list for browsing
 
 
 def _hf_listing_impl(corpus: str, max_per_class: int):
@@ -486,8 +518,8 @@ def _hf_listing_impl(corpus: str, max_per_class: int):
         return []
     total = int(first.get("num_rows_total", 100))
     rng = random.Random(7)
-    pages = max(4, (2 * max_per_class) // 100 + 4)
-    offsets = [0] + [rng.randint(0, max(0, total - 100)) for _ in range(pages - 1)]
+    pages = _hf_pages_for(max_per_class)
+    offsets = [rng.randint(0, max(0, total - 100)) for _ in range(pages - 1)]
 
     collected: Dict[int, List[Tuple[int, str, str]]] = {
         LABEL_BONAFIDE: [], LABEL_SPOOF: []}
@@ -507,17 +539,18 @@ def _hf_listing_impl(corpus: str, max_per_class: int):
             if not src or src in seen:
                 continue
             seen.add(src)
-            stem  = os.path.basename(src.split("?")[0]) or f"row{row.get('row_idx')}"
+            # The presigned audio URLs all share the same basename (e.g.
+            # "audio.wav"), so key the display name on the absolute row index:
+            # this keeps every listed clip distinct (and its download path
+            # unique in hf_fetch_clip) instead of collapsing to one file.
+            ridx  = row.get("row_idx")
+            tail  = os.path.basename(src.split("?")[0]) or "clip"
+            stem  = f"{ridx}__{tail}" if ridx is not None else f"{len(seen)}__{tail}"
             collected[lab].append((lab, src, stem))
 
     _ingest(first)
-    for off in offsets[1:]:
-        if all(len(collected[c]) >= max_per_class for c in collected):
-            break
-        try:
-            _ingest(_hf_get_json(base + f"&offset={off}&length=100"))
-        except Exception:                                # noqa: BLE001 — skip bad page
-            continue
+    _hf_scan_pages(base, offsets, _ingest,
+                   lambda: all(len(collected[c]) >= max_per_class for c in collected))
     return collected[LABEL_BONAFIDE] + collected[LABEL_SPOOF]
 
 
@@ -535,14 +568,17 @@ def hf_eval_listing(corpus: str,
 def hf_fetch_clip(corpus: str, src: str, fname: str, label: int) -> Optional[str]:
     """Download ONE listed clip into the browse cache and return its local path
     (or None on failure). Idempotent: reuses the file if already fetched."""
+    import hashlib
     ckey      = _SAMPLE_KEYS.get(corpus, corpus)
     cache_dir = os.path.join(_HF_CACHE_DIR, ckey, "browse")
     os.makedirs(cache_dir, exist_ok=True)
     tag  = "bonafide" if label == LABEL_BONAFIDE else "spoof"
-    safe = "".join(c for c in fname if c.isalnum() or c in "._-")[-48:] or "clip"
-    dst  = os.path.join(cache_dir, f"{tag}__{ckey}__{safe}")
-    if not dst.lower().endswith((".flac", ".wav")):
-        dst += ".flac"
+    # Key the cached filename on a hash of the full presigned URL: the URL
+    # basenames are all identical, so hashing the unique URL is what guarantees
+    # distinct clips never overwrite/alias one another on disk.
+    digest = hashlib.sha1(src.encode("utf-8")).hexdigest()[:16]
+    ext    = ".wav" if src.split("?")[0].lower().endswith(".wav") else ".flac"
+    dst    = os.path.join(cache_dir, f"{tag}__{ckey}__{digest}{ext}")
     res = _hf_download((src, dst, label))
     return res[0] if res else None
 
@@ -583,12 +619,18 @@ def load_pretrained_torch(file: str, url: str, name: str):
 @st.cache_resource(show_spinner=False)
 def load_pretrained_classic(file: str, url: str, name: str):
     """Load a joblib-dumped classic estimator (downloading it first if needed)."""
+    import warnings
     import joblib
 
     path = os.path.join(MODELS_DIR, file)
     _download_if_missing(url, path, name)
     with st.spinner(f"Consulting the Jedi Archives — loading {name}…"):
-        return joblib.load(path)
+        # The committed XGBoost .joblib were pickled with an older xgboost; the
+        # newer runtime prints a cosmetic "save_model from that version" warning
+        # on unpickle. The model loads and scores identically — mute the noise.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*save_model.*")
+            return joblib.load(path)
 
 
 @st.cache_resource(show_spinner=False)

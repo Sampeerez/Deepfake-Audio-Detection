@@ -211,6 +211,27 @@ def _load_corpus_signal(path: str):
         return None
 
 
+def _audio_suffix(name, raw: bytes) -> str:
+    """Best temp-file suffix for an upload: trust the filename extension first,
+    then sniff the container magic bytes — this is what lets librosa's audioread
+    fallback pick the right decoder for mp3/ogg/m4a as well as wav/flac."""
+    if name and "." in name:
+        ext = "." + name.rsplit(".", 1)[1].lower()
+        if ext in (".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac"):
+            return ext
+    if raw[:4] == b"RIFF":
+        return ".wav"
+    if raw[:4] == b"fLaC":
+        return ".flac"
+    if raw[:4] == b"OggS":
+        return ".ogg"
+    if raw[:3] == b"ID3" or raw[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        return ".mp3"
+    if raw[4:8] == b"ftyp":
+        return ".m4a"
+    return ".flac"
+
+
 @st.cache_data(show_spinner=False, max_entries=16)
 def _decode_upload(name: str, blob: bytes) -> np.ndarray:
     import os as _os, tempfile as _tf, warnings as _w
@@ -218,9 +239,10 @@ def _decode_upload(name: str, blob: bytes) -> np.ndarray:
     try:
         signal, _ = librosa.load(io.BytesIO(blob), sr=ext.sample_rate, mono=True)
     except Exception:
-        # soundfile fails on some FLAC files given a BytesIO (no audioread path).
-        # Write to a temp file so librosa's audioread fallback engages.
-        suffix = ".wav" if blob[:4] == b"RIFF" else ".flac"
+        # soundfile can't read compressed formats (mp3/m4a/ogg) or some FLAC from
+        # a BytesIO. Write a temp file with the right extension so librosa's
+        # audioread/ffmpeg fallback engages.
+        suffix = _audio_suffix(name, blob)
         with _tf.NamedTemporaryFile(suffix=suffix, delete=False) as _f:
             _f.write(blob)
             _tmp = _f.name
@@ -228,6 +250,11 @@ def _decode_upload(name: str, blob: bytes) -> np.ndarray:
             with _w.catch_warnings():
                 _w.simplefilter("ignore")
                 signal, _ = librosa.load(_tmp, sr=ext.sample_rate, mono=True)
+        except Exception as _ex:
+            raise RuntimeError(
+                f"unsupported or corrupt audio ({suffix}). Compressed formats "
+                f"(mp3/m4a/ogg) need ffmpeg installed on the host. [{_ex}]"
+            ) from _ex
         finally:
             _os.unlink(_tmp)
     if len(signal) < ext.n_fft:
@@ -397,7 +424,8 @@ def _upload_picker(key_prefix: str):
             mem.pop(bytes_key, None)
 
     uploaded = st.file_uploader(
-        "Upload a .flac / .wav file", type=["flac", "wav"], key=upload_key,
+        "Upload an audio clip (flac / wav / mp3 / ogg / m4a)",
+        type=["flac", "wav", "mp3", "ogg", "m4a"], key=upload_key,
     )
     if uploaded is not None:
         st.session_state[name_key]  = uploaded.name
@@ -417,7 +445,11 @@ def _upload_picker(key_prefix: str):
                   icon=":material/close:", help="Forget this uploaded file",
                   on_click=_clear_upload)
 
-    return _decode_upload(name, blob), "uploaded", name
+    try:
+        return _decode_upload(name, blob), "uploaded", name
+    except Exception as _ex:                              # noqa: BLE001 — surface to UI
+        st.error(f"Could not decode **{name}** — {_ex}")
+        return None, None, None
 
 
 def _audio_picker(key_prefix: str, title_html: str, idx: int = 0, n: int = 1):
