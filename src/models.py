@@ -387,3 +387,53 @@ class ResNetCNN(nn.Module):
         pooled = self.adaptive_pool(x)
         logits = self.classifier(pooled).squeeze(1)
         return logits, activations
+
+
+class Wav2Vec2Classifier(nn.Module):
+    """Self-supervised wav2vec 2.0 detector working on the RAW 16 kHz waveform.
+
+    A third detector family (alongside the classic DSP models and the 2-D
+    spectrogram CNNs): a fine-tuned HuggingFace ``Wav2Vec2Model`` (base, 12
+    transformer layers, hidden 768, ``feat_extract_norm="group"``) whose
+    time-pooled hidden states feed a 2-class linear head (index 0 = bonafide,
+    index 1 = spoof — the class order baked into the released checkpoint).
+
+    The backbone is built from the DEFAULT ``Wav2Vec2Config`` (which equals
+    wav2vec2-base) so no internet access or pretrained download is needed: the
+    fine-tuned weights are loaded straight from our own ``.pth``. ``transformers``
+    is imported lazily so the rest of the app still imports when it is absent —
+    the pretrained-model loader catches the ImportError and just skips this model.
+    """
+
+    SAMPLE_RATE = 16000
+    # Temperature for confidence calibration. The fine-tune is pathologically
+    # overconfident (logits ≈ ±8 → p ≈ 0/1), which makes it dominate the late-fusion
+    # verdict even when it is wrong on out-of-distribution audio. Dividing the logits
+    # by T>1 softens the probabilities WITHOUT changing their order, so EER / minDCF
+    # on the leaderboard are unaffected (the metric is rank-based), but p(spoof) is
+    # no longer saturated. Applied in prob_spoof only.
+    TEMPERATURE = 2.0
+
+    def __init__(self, num_classes: int = 2) -> None:
+        super().__init__()
+        from transformers import Wav2Vec2Config, Wav2Vec2Model  # lazy
+        self.backbone = Wav2Vec2Model(Wav2Vec2Config())
+        self.classifier = nn.Linear(768, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Args: x — (batch, samples) raw 16 kHz waveform. Returns (batch, 2) logits.
+
+        The waveform is per-utterance standardised (zero mean / unit variance),
+        matching ``Wav2Vec2FeatureExtractor(do_normalize=True)``; the time axis of
+        the transformer output is mean-pooled into a single utterance embedding.
+        """
+        x = (x - x.mean(dim=-1, keepdim=True)) / (x.std(dim=-1, keepdim=True) + 1e-7)
+        feats = self.backbone(x).last_hidden_state          # (batch, frames, 768)
+        return self.classifier(feats.mean(dim=1))           # (batch, 2)
+
+    @torch.no_grad()
+    def prob_spoof(self, x: torch.Tensor) -> torch.Tensor:
+        """p(spoof) in [0, 1] for each clip — temperature-calibrated softmax over the
+        2 logits, spoof column. Temperature is monotonic, so rankings (and therefore
+        EER / minDCF) are identical to the raw model — only the confidence softens."""
+        return torch.softmax(self.forward(x) / self.TEMPERATURE, dim=-1)[:, 1]

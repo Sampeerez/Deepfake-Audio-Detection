@@ -15,12 +15,26 @@ Lanzar con:
     streamlit run app.py
 """
 
+import logging as _logging
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st  # noqa: E402
+
+# Streamlit's module watcher calls hasattr(m, "__path__") on every entry in
+# sys.modules each rerun. Some transformers subpackages are lazy proxies whose
+# __getattr__ triggers importing the real file, which needs torchvision (not
+# installed). Suppress the resulting WARNING from the watcher logger — the app
+# works correctly, these are pure noise.
+class _NoTransformerVisionWarning(_logging.Filter):
+    def filter(self, record):
+        return "transformers.models." not in record.getMessage()
+
+_wl = _logging.getLogger("streamlit.watcher.local_sources_watcher")
+if not any(isinstance(f, _NoTransformerVisionWarning) for f in _wl.filters):
+    _wl.addFilter(_NoTransformerVisionWarning())
 
 # Única llamada a set_page_config de toda la app: las páginas individuales NO
 # deben llamarla (el título de pestaña lo aporta cada st.Page).
@@ -86,6 +100,76 @@ with st.container(key="ddac_host"):
   if (!doc || doc.__ddAutoCloseV4) return;
   doc.__ddAutoCloseV4 = true;
   var win = window.parent;
+
+  // ── Kill the default header flash on navigation ──────────────────────────────
+  // Streamlit's header background is the (near-black) theme colour. The per-page
+  // PAGE_CSS hides it, but that CSS is applied as a delta a beat AFTER the header
+  // is drawn, so on each page change a black bar flashes over the animated
+  // background. A <style> injected ONCE into the PARENT document head persists
+  // across every client-side navigation, so the header is transparent (and the
+  // toolbar/decoration/status gone) from the very first paint — no flash.
+  if (!doc.getElementById('swChromeHide')) {
+    var sc = doc.createElement('style');
+    sc.id = 'swChromeHide';
+    sc.textContent =
+      // Make the header AND every descendant transparent (the black bar that
+      // flashed on navigation was a nested element's near-black background, not
+      // the header's own). Do NOT collapse the header or display:none the toolbar
+      // here — the collapsed-sidebar expand control lives in that region, so
+      // hiding it removed the only way to re-open the sidebar. Transparency alone
+      // kills the black flash; PAGE_CSS still collapses the header to height:0.
+      '[data-testid="stHeader"]{background:transparent!important;box-shadow:none!important;}' +
+      '[data-testid="stHeader"] *{background:transparent!important;}' +
+      '[data-testid="stDecoration"]{display:none!important;}' +
+      // Hide the Vega-Lite tooltip whenever there is no chart in the DOM.
+      // display:none!important beats any inline style Vega sets, so this
+      // is timing-proof: once the chart unmounts the tooltip is gone.
+      'body:not(.has-vega-chart) #vg-tooltip-element{display:none!important;}';
+    (doc.head || doc.documentElement).appendChild(sc);
+  }
+
+  // ── Kill the stray "black rectangle" of chart data (Model/Front-end/p(spoof)/…)
+  // at the top-left after navigating. It's the Vega-Lite tooltip element, appended
+  // to <body>: if you hover a bar (e.g. Detection Analysis' per-model chart) and
+  // then change page client-side, the chart unmounts WITHOUT firing mouseout, so
+  // Vega never hides its tooltip — it stays visible at its last spot. Hide it as
+  // soon as the cursor moves anywhere that is NOT over a chart (Vega recreates the
+  // element on the next genuine hover, so real tooltips keep working). Also clear
+  // it on any sidebar-nav click so it never survives the page change at all.
+  function hideVegaTip() {
+    var tip = doc.getElementById('vg-tooltip-element');
+    if (tip) { tip.classList.remove('visible'); tip.style.visibility = 'hidden';
+               tip.style.opacity = '0'; }
+  }
+  doc.addEventListener('mousemove', function (ev) {
+    var tip = doc.getElementById('vg-tooltip-element');
+    if (!tip || !tip.classList.contains('visible')) return;
+    var t = ev.target;
+    var overChart = t && t.closest && t.closest(
+      '[data-testid="stVegaLiteChart"], .vega-embed, .marks, canvas');
+    if (!overChart) hideVegaTip();
+  }, true);
+  doc.addEventListener('click', function () { hideVegaTip(); }, true);
+  // MutationObserver: when the chart is removed from the DOM on page navigation
+  // (Streamlit unmounts it client-side), hide the tooltip immediately — no mouse
+  // event needed. This catches keyboard navigation and programmatic page switches.
+  // Toggle has-vega-chart on <body> so the CSS rule above can hide the
+  // tooltip whenever no chart exists in the DOM. This is timing-proof: the
+  // CSS display:none!important fires as soon as the class is absent, regardless
+  // of any inline styles Vega may set. Run on every DOM mutation (debounced)
+  // and on a 1 s fallback timer to cover any edge case.
+  function _updVC() {
+    doc.body.classList.toggle('has-vega-chart',
+      !!doc.querySelector('[data-testid="stVegaLiteChart"]'));
+  }
+  if (win.MutationObserver) {
+    var _vct;
+    new win.MutationObserver(function() {
+      clearTimeout(_vct); _vct = win.setTimeout(_updVC, 50);
+    }).observe(doc.body, { childList: true, subtree: true });
+  }
+  _updVC();
+  win.setInterval(_updVC, 1000);
 
   // ── Ambient background canvas — modes: 'starwars' (default), 'network', 'off'.
   //    The render loop reads win.__swBg / win.__swTheme / win.__reduceMotion every

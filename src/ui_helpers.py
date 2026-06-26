@@ -126,6 +126,14 @@ PAGE_CSS = """
     background: transparent !important;
     box-shadow: none !important;
 }
+/* The thin top "decoration" gradient strip is purely cosmetic — hide it. (Do NOT
+   hide the toolbar: in this Streamlit build the collapsed-sidebar EXPAND control
+   lives in that region, and display:none-ing it left no way to re-open the
+   sidebar. The black strip that used to flash on navigation is handled instead by
+   the transparent-header rules injected from app.py.) */
+[data-testid="stDecoration"] {
+    display: none !important;
+}
 
 /* Invisible helper host for the dropdown auto-close script: the iframe must
    stay in the DOM (so its script runs) but must NOT occupy a slot in the main
@@ -413,6 +421,11 @@ button[data-baseweb="tab"][aria-selected="true"] {
     background: linear-gradient(90deg, #4F8BF9, #00BCD4) !important;
     border-radius: 4px !important;
     transition: width 0.3s ease !important;
+}
+/* The progress label (e.g. "5/5 · CQCC … done") sat flush against the bar's left
+   edge — give it a little breathing room so it never touches the border. */
+[data-testid="stProgress"] [data-testid="stMarkdownContainer"] p {
+    padding-left: 0.65rem !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1926,10 +1939,20 @@ _FEAT_DEFS = [
 PRETRAINED_REGISTRY: List[Dict] = [
     {"key": "resnet", "name": "ResNet + SE", "kind": "cnn", "clf": None,
      "feat": None, "front": "STFT-dB spectrogram",
-     "file": "resnet_checkpoint.pth", "url": _hf_url("resnet_checkpoint.pth")},
+     "file": "resnet.pth", "url": _hf_url("resnet.pth")},
     {"key": "cnn3x3", "name": "3-Block CNN (3×3)", "kind": "cnn", "clf": None,
      "feat": None, "front": "STFT-dB spectrogram",
-     "file": "cnn3x3_checkpoint.pth", "url": _hf_url("cnn3x3_checkpoint.pth")},
+     "file": "cnn3x3.pth", "url": _hf_url("cnn3x3.pth")},
+    # Self-supervised raw-waveform detector (fine-tuned wav2vec 2.0 base + linear
+    # head). "raw" kind: no DSP front-end, no spectrogram — it eats the 16 kHz
+    # waveform directly. Inference-only (it is evaluated, never trained, by the
+    # Full-comparison sweep). On the web demo it is too large to commit to GitHub
+    # (≈469 MB), so it is fetched from a PUBLIC Hugging Face model repo on demand
+    # (hf_repo / hf_file) — no local heavy file, no HF_BASE_URL needed.
+    {"key": "wav2vec2", "name": "wav2vec 2.0 (SSL)", "kind": "raw", "clf": None,
+     "feat": None, "front": "Self-supervised raw-waveform",
+     "file": "wav2vec2.pth", "url": _hf_url("wav2vec2.pth"),
+     "hf_repo": "Sara1708/deepfake-audio-wav2vec2", "hf_file": "stage2_best.pt"},
 ]
 for _ck, _cname, _clabel in _CLF_DEFS:
     for _fk, _fopt, _flabel in _FEAT_DEFS:
@@ -1973,9 +1996,22 @@ def _model_path(entry: Dict) -> str:
     return os.path.join(MODELS_DIR, entry["file"])
 
 
+def _hf_cached(repo: str, fname: str) -> bool:
+    """True if the file from a Hugging Face repo is already in the local HF cache
+    (a cheap, offline-only probe — never hits the network)."""
+    try:
+        from huggingface_hub import hf_hub_download
+        hf_hub_download(repo_id=repo, filename=fname, local_files_only=True)
+        return True
+    except Exception:                       # not cached / hub unavailable
+        return False
+
+
 def model_available(entry: Dict) -> bool:
-    """A model is servable if its weights are already on disk or a URL is set."""
-    return os.path.isfile(_model_path(entry)) or _url_set(entry["url"])
+    """Servable if the weights are on disk, a direct URL is set, or the model has a
+    public Hugging Face source (hf_repo) it can stream on demand."""
+    return (os.path.isfile(_model_path(entry)) or _url_set(entry.get("url"))
+            or bool(entry.get("hf_repo")))
 
 
 def available_pretrained_models() -> List[Dict]:
@@ -1989,8 +2025,13 @@ def pretrained_available() -> bool:
 
 
 def model_downloaded(entry: Dict) -> bool:
-    """True when a model's weights are already cached on disk (not just a URL)."""
-    return os.path.isfile(_model_path(entry))
+    """True when a model's weights are already cached locally — on disk, or (for an
+    HF-sourced model like wav2vec2) in the Hugging Face cache."""
+    if os.path.isfile(_model_path(entry)):
+        return True
+    if entry.get("hf_repo"):
+        return _hf_cached(entry["hf_repo"], entry["hf_file"])
+    return False
 
 
 def models_trained() -> bool:
@@ -2004,28 +2045,63 @@ def models_trained() -> bool:
 # local Benchmark → Full comparison and committed, so the web demo can show the
 # real EER/minDCF leaderboard without the corpus. Maps model key ->
 # {"eer_dev", "mindcf_dev", "eer_eval", "mindcf_eval"}.
-DEMO_LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "demo_leaderboard.json")
+LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "leaderboard.json")
+# Previous filename — still read as a fallback so an un-regenerated repo keeps
+# showing its committed metrics after the rename.
+_LEGACY_LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "demo_leaderboard.json")
+
+# Back-compat alias: some imports still reference the old constant name.
+DEMO_LEADERBOARD_PATH = LEADERBOARD_PATH
 
 
-def load_demo_leaderboard() -> Dict[str, Dict]:
-    """Read the committed metrics table (empty dict if it has not been generated)."""
-    if not os.path.isfile(DEMO_LEADERBOARD_PATH):
-        return {}
+def load_leaderboard() -> Dict:
+    """Read the committed leaderboard file as the full structured object
+    ``{"models": {key: {eer_dev, mindcf_dev, eer_eval, mindcf_eval}}, "rows": [...]}``.
+
+    Migrates the legacy FLAT format (a bare ``{key: metrics}`` dict, no per-corpus
+    rows) into ``{"models": <flat>, "rows": []}`` so old files keep working."""
     import json
+    path = (LEADERBOARD_PATH if os.path.isfile(LEADERBOARD_PATH)
+            else _LEGACY_LEADERBOARD_PATH)
+    if not os.path.isfile(path):
+        return {"models": {}, "rows": []}
     try:
-        with open(DEMO_LEADERBOARD_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
     except (ValueError, OSError):
-        return {}
+        return {"models": {}, "rows": []}
+    if isinstance(data, dict) and ("models" in data or "rows" in data):
+        data.setdefault("models", {})
+        data.setdefault("rows", [])
+        return data
+    # Legacy flat dict {key: metrics}.
+    return {"models": data if isinstance(data, dict) else {}, "rows": []}
+
+
+def load_leaderboard_models() -> Dict[str, Dict]:
+    """Per-model dev/eval metrics map (keyed by registry key). The headline-verdict
+    fusion and the web model-hub use this for ranking; empty until generated."""
+    return load_leaderboard().get("models", {})
+
+
+def load_leaderboard_rows() -> List[Dict]:
+    """Every leaderboard ROW (one per model × split/corpus) exactly as produced by a
+    local Full comparison — so the web demo can render the IDENTICAL filterable
+    table/chart, not just a condensed summary."""
+    return load_leaderboard().get("rows", [])
+
+
+# Back-compat alias for the old name (now returns the per-model metrics map).
+def load_demo_leaderboard() -> Dict[str, Dict]:
+    return load_leaderboard_models()
 
 
 # ── Bundled sample clips (so Signal Explorer always has audio to show) ─────── #
 # A handful of real clips per corpus/subset are committed under
 # samples/<key>/<subset>/ so the explorer works even without the multi-GB
-# datasets (e.g. on the cloud). They are generated with tools/make_samples.py
-# and (for whatever folder is still empty) auto-populated from the live corpus
-# the first time it is browsed locally. The label is encoded in the filename
-# prefix (spoof__* / bonafide__*).
+# datasets (e.g. on the cloud). For whatever folder is still empty they are
+# auto-populated from the live corpus the first time it is browsed locally.
+# The label is encoded in the filename prefix (spoof__* / bonafide__*).
 SAMPLES_DIR  = os.path.join(_REPO_ROOT, "samples")
 _SAMPLE_KEYS = {"2019 LA": "2019_la", "2021 LA": "2021_la", "2021 DF": "2021_df"}
 
@@ -2340,11 +2416,52 @@ def load_pretrained_classic(file: str, url: str, name: str):
         return joblib.load(path)
 
 
+@st.cache_resource(show_spinner=False)
+def load_pretrained_raw(file: str, url: str, name: str,
+                        hf_repo: str = "", hf_file: str = ""):
+    """Load a raw-waveform torch model (wav2vec 2.0 SSL detector) on CPU.
+
+    Weight resolution order: a local ``models/`` file (used on the GPU machine),
+    then an explicit direct ``url``, then a PUBLIC Hugging Face repo (``hf_repo`` /
+    ``hf_file``) streamed via ``hf_hub_download`` — that last path is what makes the
+    cloud demo self-contained without committing the 469 MB checkpoint to GitHub.
+
+    The checkpoint stores the weights under ``model_state_dict`` (a training
+    checkpoint, not the plain ``state_dict`` the CNNs use). ``transformers`` is only
+    needed here; if it is missing the ImportError propagates and the caller skips
+    this model (same as a missing weight file)."""
+    import torch
+
+    from src.models import Wav2Vec2Classifier
+
+    path = file if os.path.isabs(file) else os.path.join(MODELS_DIR, file)
+    if not os.path.isfile(path):
+        if _url_set(url):
+            _download_if_missing(url, path, name)
+        elif hf_repo:
+            from huggingface_hub import hf_hub_download
+            with st.spinner(f"Calibrating the kyber crystals — fetching {name} "
+                            "from Hugging Face (first run only)…"):
+                path = hf_hub_download(repo_id=hf_repo, filename=hf_file)
+        else:
+            _download_if_missing(url, path, name)     # raises the helpful error
+    with st.spinner(f"Consulting the Jedi Archives — loading {name} on CPU…"):
+        ckpt = torch.load(path, map_location=torch.device("cpu"))
+        state = ckpt.get("model_state_dict", ckpt)
+        model = Wav2Vec2Classifier()
+        model.load_state_dict(state)
+        model.to("cpu").eval()
+    return model
+
+
 def load_pretrained_model(entry: Dict):
-    """Load one registry entry (torch model or classic estimator) on CPU."""
+    """Load one registry entry (torch CNN, raw-waveform model or classic estimator) on CPU."""
     if entry["kind"] == "cnn":
         model, _ = load_pretrained_torch(entry["file"], entry["url"], entry["name"])
         return model
+    if entry["kind"] == "raw":
+        return load_pretrained_raw(entry["file"], entry.get("url", ""), entry["name"],
+                                   entry.get("hf_repo", ""), entry.get("hf_file", ""))
     return load_pretrained_classic(entry["file"], entry["url"], entry["name"])
 
 
@@ -2757,8 +2874,12 @@ def fig_waveform(
     sr: int,
     title: str = "Waveform",
     label: Optional[str] = None,
+    figsize: Tuple[float, float] = (9, 2.5),
 ) -> plt.Figure:
-    """Time-domain amplitude plot, colour-coded by class label."""
+    """Time-domain amplitude plot, colour-coded by class label.
+
+    ``figsize`` is exposed so callers that place the waveform next to another
+    figure (e.g. the CNN input) can match heights exactly."""
     if label and "spoof" in str(label).lower():
         color = SPOOF_COLOR
     elif label and "bonafide" in str(label).lower():
@@ -2766,7 +2887,7 @@ def fig_waveform(
     else:
         color = NEUTRAL_COLOR
 
-    fig, ax = plt.subplots(figsize=(9, 2.5))
+    fig, ax = plt.subplots(figsize=figsize)
     t = np.arange(len(y)) / sr
     ax.fill_between(t, y, alpha=0.22, color=color)
     ax.plot(t, y, linewidth=0.6, color=color)
@@ -2810,7 +2931,11 @@ def fig_stft_db(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
 
 def fig_cnn_input(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
     matrix = extractor.get_spectrogram_matrix(y)
-    fig, ax = plt.subplots(figsize=(9, 3.2))
+    # constrained_layout packs the axes + colorbar to fill the figure width (plain
+    # tight_layout left a right-hand gap with the colorbar); the figure is rendered
+    # with bbox_inches=None by the caller, so its 9×3.2 canvas matches the waveform's
+    # exactly → the two panels end up the same height with no empty strip.
+    fig, ax = plt.subplots(figsize=(9, 3.2), layout="constrained")
     img = ax.imshow(matrix, aspect="auto", origin="lower", cmap="viridis")
     fig.colorbar(img, ax=ax, pad=0.01)
     ax.set_title(
@@ -2821,7 +2946,6 @@ def fig_cnn_input(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
     ax.set_xlabel("Time frames", fontsize=9)
     ax.set_ylabel("Frequency bins", fontsize=9)
     ax.tick_params(labelsize=8)
-    fig.tight_layout()
     return fig
 
 
@@ -2882,6 +3006,47 @@ def fig_activation_grid(
         ax.axis("off")
     fig.suptitle(title, fontsize=11, fontweight="bold", y=1.01)
     fig.tight_layout()
+    return fig
+
+
+def fig_activation_evolution(
+    acts: List,
+    title: str,
+    max_blocks: int = 4,
+) -> plt.Figure:
+    """Compact one-row summary of how a CNN transforms the spectrogram block by
+    block: each convolutional block is reduced to a single heatmap (the mean over
+    its channels) and laid left→right, so the overall evolution is visible at a
+    glance without scrolling through every feature map.
+
+    Args:
+        acts: list of per-block activation tensors, each shaped (1, C, H, W) or
+              (C, H, W) for a single sample.
+        title: figure title (model name).
+    """
+    blocks = list(acts)[:max_blocks]
+    n = max(1, len(blocks))
+    # FIXED figure size regardless of block count: ResNet (4 blocks) and the
+    # 3-Block CNN (3 blocks) must render at the same aspect ratio so that, placed
+    # in equal-width columns, they end up exactly the same height.
+    fig, axes = plt.subplots(1, n, figsize=(7.2, 2.1))
+    axes = np.atleast_1d(axes).ravel()
+    for i in range(len(axes)):
+        ax = axes[i]
+        if i < len(blocks):
+            act = blocks[i]
+            arr = act.numpy() if hasattr(act, "numpy") else np.asarray(act)
+            if arr.ndim == 4:        # (1, C, H, W) → drop batch
+                arr = arr[0]
+            heat = arr.mean(axis=0)  # mean over channels → (H, W)
+            ax.imshow(heat, aspect="auto", origin="lower", cmap="inferno")
+            ax.set_title(f"Block {i + 1}", fontsize=8)
+        ax.axis("off")
+    # Title INSIDE the canvas (rendered with bbox_inches=None, anything at y>1 is
+    # clipped). Keep a small top margin so it isn't cut, but sit it just above the
+    # heatmaps (rect top close to the title) so it hugs the images, not floats away.
+    fig.suptitle(title, fontsize=9.5, fontweight="bold", y=0.90)
+    fig.tight_layout(rect=[0, 0, 1, 0.84])
     return fig
 
 

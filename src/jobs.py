@@ -26,7 +26,7 @@ import joblib
 from src.data_loader import stratified_subsample
 from src.pipeline import (
     MODEL_OPTIONS, extract_feature_matrix, run_classic_models,
-    score_fitted_classic, evaluate_cnn_on_set,
+    score_fitted_classic, evaluate_cnn_on_set, evaluate_raw_on_set,
     train_and_evaluate_cnn,
 )
 from src.reporting import COL_EER, COL_FEATURES, COL_MIN_DCF, COL_MODEL
@@ -177,9 +177,9 @@ def _registry():
     """Lazy import of the model registry (defers the Streamlit-heavy ui_helpers
     import out of module load and worker threads)."""
     from src.ui_helpers import (
-        DEMO_LEADERBOARD_PATH, MODELS_DIR, PRETRAINED_REGISTRY,
+        LEADERBOARD_PATH, MODELS_DIR, PRETRAINED_REGISTRY,
     )
-    return MODELS_DIR, DEMO_LEADERBOARD_PATH, PRETRAINED_REGISTRY
+    return MODELS_DIR, LEADERBOARD_PATH, PRETRAINED_REGISTRY
 
 
 def _as_float(row: Dict, key: str) -> Optional[float]:
@@ -206,21 +206,36 @@ def _record(key: str, metrics: Dict) -> None:
         _leaderboard[key] = metrics
 
 
-def _write_leaderboard() -> None:
-    """Persist accumulated metrics to demo_leaderboard.json, merging with any
-    existing entries so a partial (classic-only / CNN-only) run keeps the rest."""
-    if not _leaderboard:
+def _write_leaderboard(rows: Optional[List[Dict]] = None) -> None:
+    """Persist the leaderboard to leaderboard.json as
+    ``{"models": {key: metrics}, "rows": [...]}``.
+
+    `models` is merged with any existing entries (so a partial classic-only /
+    CNN-only run keeps the rest). `rows` is the FULL set of per-model × split/corpus
+    result rows — the web demo renders them into the SAME filterable table as local;
+    it is REPLACED when a fresh (non-empty) set is given, left untouched otherwise."""
+    if not _leaderboard and not rows:
         return
     _, path, _ = _registry()
-    board: Dict = {}
-    if os.path.isfile(path):
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                board = json.load(fh)
-        except (ValueError, OSError):
-            board = {}
+    board: Dict = {"models": {}, "rows": []}
+    # Read existing (migrating the legacy flat {key: metrics} format).
+    for p in (path, os.path.join(os.path.dirname(path), "demo_leaderboard.json")):
+        if os.path.isfile(p):
+            try:
+                with open(p, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                if isinstance(data, dict) and ("models" in data or "rows" in data):
+                    board = {"models": data.get("models", {}),
+                             "rows": data.get("rows", [])}
+                elif isinstance(data, dict):
+                    board = {"models": data, "rows": []}
+            except (ValueError, OSError):
+                pass
+            break
     with _lock:
-        board.update(_leaderboard)
+        board["models"].update(_leaderboard)
+    if rows:
+        board["rows"] = rows
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(board, fh, indent=2)
 
@@ -329,9 +344,72 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
     return rows
 
 
+def _raw_sweep(ext, primary, eval_corpora, pname, base_params, raw_specs):
+    """Inference-only stage for the raw-waveform models (wav2vec 2.0): NEVER
+    trained — just load each saved checkpoint and score the dev split + every eval
+    corpus, recording its dev/eval EER & minDCF into the leaderboard. Runs after
+    the CNN sweep so it has the GPU to itself. Rows are tagged like CNN rows so the
+    in-page leaderboard and leaderboard.json consume them unchanged."""
+    import torch
+
+    from src.models import Wav2Vec2Classifier
+
+    rows = []
+    p = dict(base_params)
+    p["num_workers"] = max(int(base_params.get("num_workers", 2)), 6)
+    for key, path, name in raw_specs:
+        if _cancel.is_set():
+            _stream("cnn", label="Cancelled")
+            break
+        _step(f"{name} (evaluating)")
+        _stream("cnn", label=f"{name} — loading…")
+        try:
+            ckpt  = torch.load(path, map_location="cpu")
+            state = ckpt.get("model_state_dict", ckpt)
+            model = Wav2Vec2Classifier()
+            model.load_state_dict(state)
+            model.eval()
+        except Exception as exc:                          # noqa: BLE001 — non-fatal
+            _stream("cnn", label=f"{name} load failed: {exc}", inc=1)
+            _step(f"{name} failed", inc=1)
+            continue
+
+        mres = []
+        _stream("cnn", label=f"{name} · scoring dev…")
+        mres += evaluate_raw_on_set(model, primary, ext.sample_rate, p,
+                                    corpus_label="", arch_label=name, suffix="")
+        for label, samples in (eval_corpora or []):
+            if _cancel.is_set() or not samples:
+                continue
+            _stream("cnn", label=f"{name} · scoring {label}…")
+            mres += evaluate_raw_on_set(model, samples, ext.sample_rate, p,
+                                        corpus_label=label, arch_label=name,
+                                        suffix="[EVAL]")
+
+        if not _cancel.is_set():
+            _record(key, _metrics_from_rows(mres, lambda r: True))
+        # Tag the family so the leaderboard classifies wav2vec2 as SSL, not CNN.
+        _tagged = _tag_split(mres, "dev")
+        for _r in _tagged:
+            _r["Type"] = "SSL"
+        rows.extend(_tagged)
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        try:
+            _best = min(float(r["minDCF"]) for r in mres
+                        if "[EVAL]" not in str(r.get("Model", "")))
+            _item = f"{name} · dev minDCF {_best:.3f}"
+        except (ValueError, KeyError):
+            _item = f"{name} · evaluated"
+        _stream("cnn", label=f"{name} done", inc=1, item=_item)
+        _step(f"{name} done", inc=1)
+    return rows
+
+
 def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
-         classic_subset, cnn_subset, include_cnn, seed=42, export=True
-         ) -> Tuple[List[Dict], List[Dict]]:
+         classic_subset, cnn_subset, include_cnn, seed=42, export=True,
+         eval_subset=0) -> Tuple[List[Dict], List[Dict]]:
     _cancel.clear()
     _reset_streams(len(FEATURE_ORDER), 2 if include_cnn else 0)
     with _lock:
@@ -341,8 +419,9 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
                        "done": 0, "label": "Preparing data…"})
 
     # Map the registry models to their on-disk paths so the sweeps can persist
-    # them (.pth / .joblib) and record their metrics for demo_leaderboard.json.
+    # them (.pth / .joblib) and record their metrics for leaderboard.json.
     classic_paths = classic_keys = cnn_paths = cnn_keys = {}
+    raw_specs: List[Tuple[str, str, str]] = []
     if export:
         models_dir, _, reg = _registry()
         os.makedirs(models_dir, exist_ok=True)
@@ -355,6 +434,15 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
                      for e in reg if e["kind"] == "cnn"}
         cnn_keys  = {("resnet" if e["key"] == "resnet" else "cnn"): e["key"]
                      for e in reg if e["kind"] == "cnn"}
+        # Raw-waveform models (wav2vec 2.0): evaluated-only, and only if the
+        # checkpoint is actually on disk. They share the CNN progress stream.
+        raw_specs = [(e["key"], os.path.join(models_dir, e["file"]), e["name"])
+                     for e in reg if e["kind"] == "raw"
+                     and os.path.isfile(os.path.join(models_dir, e["file"]))]
+        if include_cnn and raw_specs:
+            with _lock:
+                _streams["cnn"]["total"] += len(raw_specs)
+                _state["total"] += len(raw_specs)
 
     log = io.StringIO()
     with contextlib.redirect_stdout(log):
@@ -362,12 +450,18 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
             return stratified_subsample(samples, n, s) if (n and n > 0) else samples
 
         eval_corpora = eval_corpora or []
+        # Eval corpora can be enormous (2021 DF eval ≈ 600k trials), so when an
+        # explicit eval_subset is given it caps EVERY eval corpus (both streams)
+        # to a stratified, representative sample — the training sets keep their
+        # own (typically larger / full) subset. 0 ⇒ reuse each stream's subset.
+        c_ev_n = eval_subset if eval_subset else classic_subset
+        n_ev_n = eval_subset if eval_subset else cnn_subset
         c_tr = _sub(train, classic_subset, seed)
         c_pr = _sub(primary, classic_subset, seed + 1)
-        c_ev = [(lbl, _sub(s, classic_subset, seed + 2)) for lbl, s in eval_corpora]
+        c_ev = [(lbl, _sub(s, c_ev_n, seed + 2)) for lbl, s in eval_corpora]
         n_tr = _sub(train, cnn_subset, seed)
         n_pr = _sub(primary, cnn_subset, seed + 1)
-        n_ev = [(lbl, _sub(s, cnn_subset, seed + 2)) for lbl, s in eval_corpora]
+        n_ev = [(lbl, _sub(s, n_ev_n, seed + 2)) for lbl, s in eval_corpora]
 
         # Classic (CPU) and CNN (GPU) in parallel.
         with _cf.ThreadPoolExecutor(max_workers=2) as pool:
@@ -378,9 +472,23 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
             classic_rows = f_c.result()
             cnn_rows     = f_n.result() if f_n is not None else []
 
-    # Write the deployment leaderboard once the sweep finished cleanly.
+        # Raw-waveform models are evaluated AFTER the CNN training, so they get the
+        # GPU to themselves (no VRAM contention on the 6 GB card). Their rows join
+        # the CNN stream for the in-page leaderboard.
+        if include_cnn and raw_specs and not _cancel.is_set():
+            cnn_rows = cnn_rows + _raw_sweep(ext, n_pr, n_ev, pname, base_params,
+                                             raw_specs)
+
+    # Write the deployment leaderboard once the sweep finished cleanly. Persist the
+    # FULL set of rows (every model × split/corpus) with their model family tagged,
+    # so the web demo renders the IDENTICAL filterable table the local page shows.
     if export and not _cancel.is_set():
-        _write_leaderboard()
+        persist_rows = []
+        for r in classic_rows:
+            d = dict(r); d["Type"] = "Classic"; persist_rows.append(d)
+        for r in cnn_rows:
+            d = dict(r); d["Type"] = d.get("Type") or "CNN"; persist_rows.append(d)
+        _write_leaderboard(rows=persist_rows)
     return classic_rows, cnn_rows
 
 

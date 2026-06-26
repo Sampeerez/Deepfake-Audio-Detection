@@ -161,8 +161,8 @@ else:
 st.title("Methodology")
 st.caption(
     "How the benchmark works — the corpora and their class balance, the DSP "
-    "front-ends and classifiers, the CNN architectures, and the detection "
-    "metrics."
+    "front-ends and classifiers, the CNN architectures, the self-supervised "
+    "wav2vec 2.0 transformer, and the detection metrics."
 )
 
 # ── 01 · Data & corpora ──────────────────────────────────────────────────── #
@@ -261,7 +261,7 @@ section_header("02", "Pipeline & Methods",
                "Full pipeline: feature extraction → classification → detection metrics.")
 
 st.markdown(
-    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin:.4rem 0;">'
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1rem;margin:.4rem 0;">'
     '<div class="method-card"><div class="mc-num">I</div><h5>DSP Front-ends</h5><ul>'
     '<li><strong>RMS</strong> — frame-level temporal energy</li>'
     '<li><strong>MFCC</strong> — spectral envelope (Mel scale)</li>'
@@ -285,7 +285,15 @@ st.markdown(
     '<li>BCEWithLogitsLoss + pos_weight (class imbalance)</li>'
     '<li>ReduceLROnPlateau scheduler</li>'
     '</ul></div>'
-    '<div class="method-card"><div class="mc-num">IV</div><h5>Evaluation Metrics</h5><ul>'
+    '<div class="method-card"><div class="mc-num">IV</div><h5>Self-Supervised (Transformer)</h5><ul>'
+    '<li><strong>wav2vec 2.0</strong> — 12-layer transformer encoder (base)</li>'
+    '<li>Self-supervised pretraining + fine-tuned spoof head</li>'
+    '<li>Raw 16&nbsp;kHz waveform — no DSP, no spectrogram</li>'
+    '<li>Mean-pooled embedding &rarr; linear 2-class head</li>'
+    '<li>Inference-only in the benchmark</li>'
+    '<li>Weighted late-fusion member (Test an audio)</li>'
+    '</ul></div>'
+    '<div class="method-card"><div class="mc-num">V</div><h5>Evaluation Metrics</h5><ul>'
     '<li><strong>EER</strong> — point where FAR = FRR</li>'
     '<li><strong>minDCF</strong> — NIST min cost (C<sub>miss</sub>=1, C<sub>fa</sub>=10)</li>'
     '<li><strong>Accuracy</strong> — informative, not primary</li>'

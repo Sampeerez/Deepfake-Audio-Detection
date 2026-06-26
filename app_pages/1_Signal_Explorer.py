@@ -213,8 +213,23 @@ def _load_corpus_signal(path: str):
 
 @st.cache_data(show_spinner=False, max_entries=16)
 def _decode_upload(name: str, blob: bytes) -> np.ndarray:
+    import os as _os, tempfile as _tf, warnings as _w
     ext = get_extractor()
-    signal, _ = librosa.load(io.BytesIO(blob), sr=ext.sample_rate, mono=True)
+    try:
+        signal, _ = librosa.load(io.BytesIO(blob), sr=ext.sample_rate, mono=True)
+    except Exception:
+        # soundfile fails on some FLAC files given a BytesIO (no audioread path).
+        # Write to a temp file so librosa's audioread fallback engages.
+        suffix = ".wav" if blob[:4] == b"RIFF" else ".flac"
+        with _tf.NamedTemporaryFile(suffix=suffix, delete=False) as _f:
+            _f.write(blob)
+            _tmp = _f.name
+        try:
+            with _w.catch_warnings():
+                _w.simplefilter("ignore")
+                signal, _ = librosa.load(_tmp, sr=ext.sample_rate, mono=True)
+        finally:
+            _os.unlink(_tmp)
     if len(signal) < ext.n_fft:
         signal = np.pad(signal, (0, ext.n_fft - len(signal)))
     return signal

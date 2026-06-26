@@ -157,13 +157,15 @@ st.markdown("""
     <div class="hero-overline">TFG · Ingeniería Informática · Universidad de La Laguna</div>
     <h1>Deepfake Audio Detection</h1>
     <p>
-        An interactive benchmark for synthetic-speech detection. Classical DSP
-        front-ends (RMS, MFCC, LFCC, DWT, CQCC) with traditional
-        classifiers face a 2-D CNN on STFT spectrograms — including a
-        <strong>ResNet + Squeeze-and-Excitation</strong> architecture — across
-        three ASVspoof corpora. Explore each feature representation, train models
-        live, run the full head-to-head comparison and analyse the decision
-        threshold, all measured with the standard EER and minDCF metrics.
+        An interactive benchmark for synthetic-speech detection. Three model
+        families go head to head across three ASVspoof corpora: classical DSP
+        front-ends (RMS, MFCC, LFCC, DWT, CQCC) with traditional classifiers,
+        2-D CNNs on STFT spectrograms — including a
+        <strong>ResNet + Squeeze-and-Excitation</strong> — and a self-supervised
+        <strong>wav2vec 2.0</strong> transformer working on the raw waveform.
+        Explore each feature representation, train models live, run the full
+        head-to-head comparison and analyse the decision threshold, all measured
+        with the standard EER and minDCF metrics.
     </p>
     <div class="hero-author">
         <span class="ha-name">Samuel Pérez López</span>
@@ -316,6 +318,7 @@ st.markdown("""
 <span class="tech-pill">PyWavelets</span>
 <span class="tech-pill">scikit-learn</span>
 <span class="tech-pill">XGBoost</span>
+<span class="tech-pill">Transformers &middot; wav2vec 2.0</span>
 <span class="tech-pill">NumPy &middot; SciPy</span>
 <span class="tech-pill">pandas</span>
 <span class="tech-pill">Matplotlib &middot; Altair</span>

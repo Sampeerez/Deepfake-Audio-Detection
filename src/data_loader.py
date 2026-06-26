@@ -390,3 +390,42 @@ class ASVspoofTorchDataset(Dataset):
         # (grayscale spectral "image").
         tensor = torch.from_numpy(matrix).unsqueeze(0).float()
         return tensor, torch.tensor(float(label), dtype=torch.float32)
+
+
+class ASVspoofRawWaveDataset(Dataset):
+    """PyTorch Dataset yielding the RAW 16 kHz waveform (no spectral transform).
+
+    Used by the self-supervised wav2vec 2.0 detector, which consumes the audio
+    samples directly. Clips are cropped / zero-padded to a fixed ``max_samples``
+    window so they can be stacked into a batch (variable lengths cannot). The
+    decode path mirrors :class:`ASVspoofTorchDataset` (silence on undecodable
+    files) so a single bad clip never aborts an eval pass.
+    """
+
+    def __init__(
+        self,
+        samples: List[Tuple[str, int]],
+        sample_rate: int,
+        max_samples: int,
+    ) -> None:
+        self.samples     = samples
+        self.sample_rate = sample_rate
+        self.max_samples = int(max_samples)
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        path, label = self.samples[idx]
+        try:
+            signal, _ = librosa.load(path, sr=self.sample_rate, mono=True)
+        except Exception:
+            print(f"[WARNING] Could not decode '{path}' — substituting silence.")
+            signal = np.zeros(self.max_samples, dtype=np.float32)
+        signal = np.asarray(signal, dtype=np.float32)
+        if len(signal) >= self.max_samples:          # centre-independent head crop
+            signal = signal[: self.max_samples]
+        else:                                        # right zero-pad to the window
+            signal = np.pad(signal, (0, self.max_samples - len(signal)))
+        return (torch.from_numpy(signal).float(),
+                torch.tensor(float(label), dtype=torch.float32))

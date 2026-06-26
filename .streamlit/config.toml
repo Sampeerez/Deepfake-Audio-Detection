@@ -1,3 +1,6 @@
+[server]
+folderWatchBlacklist = [".venv", "venv", "env"]
+
 [theme]
 base                     = "dark"
 primaryColor             = "#4F8BF9"

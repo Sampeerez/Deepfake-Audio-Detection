@@ -57,6 +57,39 @@ st.caption(
     "its learning dynamics and internal representations in real time."
 )
 
+# ── Activation-map handoff from Detection Analysis ─────────────────────────── #
+# When the user clicks "See full maps in CNN Learning" on an uploaded clip, the
+# per-block activations (already computed there) are stashed in session_state;
+# render the FULL feature-map grids for that clip and short-circuit the page.
+_handoff = st.session_state.get("cnn_handoff")
+if _handoff:
+    st.markdown(
+        f"Full convolutional activation maps for your uploaded clip "
+        f"**{_handoff.get('fname') or 'audio'}** — every feature map of every "
+        f"block, for each CNN that judged it in Detection Analysis."
+    )
+    if st.button("← Back to CNN training", key="cnn_handoff_back"):
+        st.session_state.pop("cnn_handoff", None)
+        st.rerun()
+    for _item in _handoff.get("items", []):
+        _col = SPOOF_COLOR if _item["p"] >= 0.5 else BONAFIDE_COLOR
+        _pred = "spoof" if _item["p"] >= 0.5 else "bonafide"
+        st.markdown(
+            f"### {_item['name']} — <span style='color:{_col};font-weight:700;'>"
+            f"p(spoof) = {_item['p']:.3f} ({_pred} predicted)</span>",
+            unsafe_allow_html=True,
+        )
+        for _i, _act in enumerate(_item["acts"], start=1):
+            _nch = _act.shape[1]
+            st.pyplot(
+                fig_activation_grid(
+                    _act[0].numpy(),
+                    f"Conv Block {_i} — {_nch} feature maps {tuple(_act.shape[1:])}"),
+                clear_figure=True,
+            )
+        st.divider()
+    st.stop()
+
 # On the corpus-less web demo we DON'T bail out: the page renders like local but
 # training is off — you can still evaluate the pretrained CNNs on eval clips
 # streamed from Hugging Face (see eval_corpora_for).

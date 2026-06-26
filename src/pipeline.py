@@ -15,6 +15,7 @@ COL_* constants in src.reporting, which the GUI reads to build its table.
 import copy
 import hashlib
 import json
+import math
 import os
 import pathlib
 import time
@@ -26,7 +27,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from src.data_loader import LABEL_BONAFIDE, LABEL_SPOOF, ASVspoofTorchDataset
+from src.data_loader import (
+    LABEL_BONAFIDE, LABEL_SPOOF, ASVspoofRawWaveDataset, ASVspoofTorchDataset,
+)
 from src.features import FeatureExtractor
 from src.metrics import calculate_eer, calculate_min_dcf
 from src.models import AudioDeepfakeCNN, ResNetCNN, get_classic_model
@@ -359,6 +362,70 @@ def evaluate_cnn_on_set(
     }]
 
 
+def evaluate_raw_on_set(
+    model: "torch.nn.Module",
+    samples: List[Tuple[str, int]],
+    sample_rate: int,
+    params: Dict,
+    corpus_label: str = "",
+    arch_label: str = "wav2vec 2.0 (SSL)",
+    suffix: str = "[EVAL]",
+) -> List[Dict[str, str]]:
+    """Score a raw-waveform model (wav2vec 2.0) on one sample set, inference-only.
+
+    Mirrors :func:`evaluate_cnn_on_set` (same COL_* result-dict shape so the
+    leaderboard merge consumes it unchanged), but feeds the model the raw 16 kHz
+    waveform instead of a spectrogram. p(spoof) comes from the model's own
+    ``prob_spoof`` (softmax over its 2 logits), not a sigmoid. Batches are kept
+    small and the CUDA cache is freed between them so the 6 GB GPU never saturates.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    max_samples = int(params.get("raw_max_samples", 4 * sample_rate))   # 4 s window
+    batch       = int(params.get("raw_batch_size", 8))
+    n_dl_w      = int(params.get("num_workers", 0))
+    pin         = device.type == "cuda"
+    extra: Dict = {"persistent_workers": True, "prefetch_factor": 4} if n_dl_w > 0 else {}
+    loader = DataLoader(
+        ASVspoofRawWaveDataset(samples, sample_rate, max_samples),
+        batch_size=batch, shuffle=False,
+        num_workers=n_dl_w, pin_memory=pin, **extra,
+    )
+    model = model.to(device).eval()
+    scores: List[float] = []
+    labels: List[int]   = []
+    forward_time = 0.0
+    with torch.no_grad():
+        for waves, lbls in loader:
+            waves = waves.to(device, non_blocking=True)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            probs = model.prob_spoof(waves)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            forward_time += time.perf_counter() - t0
+            scores.extend(probs.float().cpu().tolist())
+            labels.extend(lbls.long().tolist())
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+    ms = 1000.0 * forward_time / max(len(labels), 1)
+    device_tag = "CUDA" if device.type == "cuda" else "CPU"
+    preds    = [1 if s >= 0.5 else 0 for s in scores]
+    accuracy = sum(p == e for p, e in zip(preds, labels)) / max(len(labels), 1)
+    eer, _   = calculate_eer(scores, labels)
+    min_dcf  = calculate_min_dcf(scores, labels)
+    return [{
+        COL_FEATURES:   f"Raw waveform (16 kHz){suffix}",
+        COL_MODEL:      f"{arch_label} [{device_tag}]{suffix}",
+        COL_ACCURACY:   f"{accuracy:.4f}",
+        COL_EER:        f"{100 * eer:.2f}",
+        COL_MIN_DCF:    f"{min_dcf:.4f}",
+        COL_TRAIN_TIME: "—",
+        COL_INFER_TIME: f"{ms:.3f}",
+        "Corpus":       corpus_label,
+    }]
+
+
 # ===========================================================================
 # Pipeline B: 2-D CNN (CPU or GPU-CUDA)
 # ===========================================================================
@@ -395,18 +462,29 @@ def _train_cnn(
     )
     # Mixed precision on GPU (~1.5–2× faster, no meaningful accuracy change). The
     # autograd/scaler API moved from torch.cuda.amp to torch.amp in torch 2.x.
+    #
+    # PREFER bfloat16 when the GPU supports it: bf16 shares fp32's 8-bit exponent,
+    # so the activations of a deep net (ResNet+SE) cannot overflow to inf/NaN the
+    # way fp16 does. That overflow was the silent killer — it made the validation
+    # loss non-finite every epoch, so the best checkpoint never updated and the
+    # loop returned the *random initialisation* (≈50% EER). bf16 needs no loss
+    # scaling, so the GradScaler is only enabled on the fp16 fallback path.
     use_amp = (device.type == "cuda")
+    _bf16 = bool(use_amp and getattr(torch.cuda, "is_bf16_supported", lambda: False)())
+    _amp_dtype = torch.bfloat16 if _bf16 else torch.float16
+    _use_scaler = use_amp and not _bf16
     try:
-        scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+        scaler = torch.amp.GradScaler("cuda", enabled=_use_scaler)
         def _autocast():
-            return torch.amp.autocast("cuda", enabled=use_amp)
+            return torch.amp.autocast("cuda", dtype=_amp_dtype, enabled=use_amp)
     except (AttributeError, TypeError):
-        scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+        scaler = torch.cuda.amp.GradScaler(enabled=_use_scaler)
         def _autocast():
             return torch.cuda.amp.autocast(enabled=use_amp)
 
     best_val_loss   = float("inf")
     best_state_dict = copy.deepcopy(model.state_dict())
+    ever_saved      = False     # did any epoch yield a finite, improving val loss?
     epochs_no_impr  = 0
     history: List[Dict] = []
     start           = time.perf_counter()
@@ -429,6 +507,12 @@ def _train_cnn(
             with _autocast():
                 loss = criterion(model(tensors), labels)
             scaler.scale(loss).backward()
+            # Unscale before clipping so the norm is measured on real gradients;
+            # gradient-norm clipping keeps the deeper ResNet+SE from taking a
+            # destabilising step early in training (a second guard against the
+            # divergence that produced the untrained ResNet).
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             scaler.step(optimizer)
             scaler.update()
             train_loss += float(loss.item())
@@ -464,23 +548,38 @@ def _train_cnn(
         if epoch_callback is not None:
             epoch_callback(record)
 
-        if val_loss < best_val_loss - 1e-4:
+        # Only a FINITE, improving val loss is allowed to checkpoint — a NaN/inf
+        # loss must never count as "best", or the model that gets restored is the
+        # random initialisation.
+        if math.isfinite(val_loss) and val_loss < best_val_loss - 1e-4:
             best_val_loss   = val_loss
             epochs_no_impr  = 0
             best_state_dict = copy.deepcopy(model.state_dict())
+            ever_saved      = True
         else:
+            if not math.isfinite(val_loss):
+                print(f"[CNN] Warning: non-finite val loss at epoch {epoch} "
+                      f"(loss={val_loss}); skipping checkpoint for this epoch.")
             epochs_no_impr += 1
             if epochs_no_impr >= patience:
                 print(f"[CNN] Early stopping at epoch {epoch} "
                       f"(no improvement for {patience} consecutive epochs).")
                 if device.type == "cuda":
                     torch.cuda.synchronize()
-                model.load_state_dict(best_state_dict)
+                if ever_saved:
+                    model.load_state_dict(best_state_dict)
                 return time.perf_counter() - start, epoch, history
 
     if device.type == "cuda":
         torch.cuda.synchronize()
-    model.load_state_dict(best_state_dict)
+    # Restore the best finite checkpoint. If NO epoch ever improved (e.g. training
+    # diverged), keep the LAST trained weights rather than overwriting them with
+    # the random init — the caller still gets a real, scoreable model.
+    if ever_saved:
+        model.load_state_dict(best_state_dict)
+    else:
+        print("[CNN] Warning: no epoch produced a finite improving val loss; "
+              "returning the last-epoch weights instead of the initialisation.")
     return time.perf_counter() - start, epochs, history
 
 
