@@ -31,7 +31,7 @@ from src.data_loader import (
     LABEL_BONAFIDE, LABEL_SPOOF, ASVspoofRawWaveDataset, ASVspoofTorchDataset,
 )
 from src.features import FeatureExtractor
-from src.metrics import calculate_eer, calculate_min_dcf
+from src.metrics import calculate_eer, calculate_eer_and_min_dcf, calculate_min_dcf
 from src.models import AudioDeepfakeCNN, ResNetCNN, get_classic_model
 from src.reporting import (
     COL_ACCURACY, COL_EER, COL_FEATURES, COL_INFER_TIME,
@@ -175,6 +175,34 @@ def extract_feature_matrix(
     return matrix, y, ms_audio
 
 
+def _metrics_result_row(scores, labels, *, features_label: str, model_label: str,
+                        train_time="—", infer_time="—", corpus=None
+                        ) -> Dict[str, str]:
+    """Compute accuracy / EER / minDCF from raw scores+labels and assemble the
+    shared COL_* result row — the single source of truth for the row schema used
+    by the inference scorers below.
+
+    ``train_time`` / ``infer_time`` accept a preformatted string (e.g. "—") or a
+    number to format. ``corpus`` adds the optional 'Corpus' key only when given."""
+    scores_l = scores.tolist() if hasattr(scores, "tolist") else list(scores)
+    labels_l = labels.tolist() if hasattr(labels, "tolist") else list(labels)
+    preds    = [1 if s >= 0.5 else 0 for s in scores_l]
+    accuracy = sum(p == e for p, e in zip(preds, labels_l)) / max(len(labels_l), 1)
+    eer, _, min_dcf = calculate_eer_and_min_dcf(scores_l, labels_l)
+    row = {
+        COL_FEATURES:   features_label,
+        COL_MODEL:      model_label,
+        COL_ACCURACY:   f"{accuracy:.4f}",
+        COL_EER:        f"{100 * eer:.2f}",
+        COL_MIN_DCF:    f"{min_dcf:.4f}",
+        COL_TRAIN_TIME: train_time if isinstance(train_time, str) else f"{train_time:.2f}",
+        COL_INFER_TIME: infer_time if isinstance(infer_time, str) else f"{infer_time:.3f}",
+    }
+    if corpus is not None:
+        row["Corpus"] = corpus
+    return row
+
+
 def run_classic_models(
     model_names: Sequence[str],
     x_train: np.ndarray,
@@ -291,20 +319,12 @@ def score_fitted_classic(
     results: List[Dict[str, str]] = []
     for name, model in fitted_models.items():
         scores = model.predict_proba(x_set)[:, 1]
-        preds  = (scores >= 0.5).astype(np.int64)
-        acc    = float(np.mean(preds == y_set))
-        eer, _ = calculate_eer(scores.tolist(), y_set.tolist())
-        dcf    = calculate_min_dcf(scores.tolist(), y_set.tolist())
-        results.append({
-            COL_FEATURES:   f"{feature_label}{suffix}",
-            COL_MODEL:      f"{MODEL_DISPLAY_NAMES.get(name, name)} [CPU]{suffix}",
-            COL_ACCURACY:   f"{acc:.4f}",
-            COL_EER:        f"{100 * eer:.2f}",
-            COL_MIN_DCF:    f"{dcf:.4f}",
-            COL_TRAIN_TIME: "—",
-            COL_INFER_TIME: "—",
-            "Corpus":       corpus_label,
-        })
+        results.append(_metrics_result_row(
+            scores, y_set,
+            features_label=f"{feature_label}{suffix}",
+            model_label=f"{MODEL_DISPLAY_NAMES.get(name, name)} [CPU]{suffix}",
+            corpus=corpus_label,
+        ))
     return results
 
 
@@ -342,24 +362,17 @@ def evaluate_cnn_on_set(
     )
     model = model.to(device)
     scores, labels, ms = _evaluate_cnn(model, loader, device)
+    if device.type == "cuda":
+        torch.cuda.empty_cache()    # free VRAM before the next corpus is scored
     device_tag = "CUDA" if device.type == "cuda" else "CPU"
-    preds    = [1 if s >= 0.5 else 0 for s in scores]
-    accuracy = sum(p == e for p, e in zip(preds, labels)) / len(labels)
-    eer, _   = calculate_eer(scores, labels)
-    min_dcf  = calculate_min_dcf(scores, labels)
-    return [{
-        COL_FEATURES:   (
-            f"STFT-dB Spectrogram ({extractor.freq_bins}×"
-            f"{extractor.time_frames}){suffix}"
-        ),
-        COL_MODEL:      f"{arch_label} PyTorch [{device_tag}]{suffix}",
-        COL_ACCURACY:   f"{accuracy:.4f}",
-        COL_EER:        f"{100 * eer:.2f}",
-        COL_MIN_DCF:    f"{min_dcf:.4f}",
-        COL_TRAIN_TIME: "—",
-        COL_INFER_TIME: f"{ms:.3f}",
-        "Corpus":       corpus_label,
-    }]
+    feat_label = (f"STFT-dB Spectrogram ({extractor.freq_bins}×"
+                  f"{extractor.time_frames}){suffix}")
+    return [_metrics_result_row(
+        scores, labels,
+        features_label=feat_label,
+        model_label=f"{arch_label} PyTorch [{device_tag}]{suffix}",
+        infer_time=ms, corpus=corpus_label,
+    )]
 
 
 def evaluate_raw_on_set(
@@ -395,7 +408,7 @@ def evaluate_raw_on_set(
     labels: List[int]   = []
     forward_time = 0.0
     with torch.no_grad():
-        for waves, lbls in loader:
+        for i, (waves, lbls) in enumerate(loader):
             waves = waves.to(device, non_blocking=True)
             if device.type == "cuda":
                 torch.cuda.synchronize()
@@ -406,24 +419,21 @@ def evaluate_raw_on_set(
             forward_time += time.perf_counter() - t0
             scores.extend(probs.float().cpu().tolist())
             labels.extend(lbls.long().tolist())
-            if device.type == "cuda":
+            # Batches are fixed-shape (padded), so the caching allocator reuses
+            # memory across them; flush only every 8th batch to keep the 6 GB-GPU
+            # OOM safety valve while dropping ~8x of the per-batch device sync.
+            if device.type == "cuda" and i % 8 == 0:
                 torch.cuda.empty_cache()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
     ms = 1000.0 * forward_time / max(len(labels), 1)
     device_tag = "CUDA" if device.type == "cuda" else "CPU"
-    preds    = [1 if s >= 0.5 else 0 for s in scores]
-    accuracy = sum(p == e for p, e in zip(preds, labels)) / max(len(labels), 1)
-    eer, _   = calculate_eer(scores, labels)
-    min_dcf  = calculate_min_dcf(scores, labels)
-    return [{
-        COL_FEATURES:   f"Raw waveform (16 kHz){suffix}",
-        COL_MODEL:      f"{arch_label} [{device_tag}]{suffix}",
-        COL_ACCURACY:   f"{accuracy:.4f}",
-        COL_EER:        f"{100 * eer:.2f}",
-        COL_MIN_DCF:    f"{min_dcf:.4f}",
-        COL_TRAIN_TIME: "—",
-        COL_INFER_TIME: f"{ms:.3f}",
-        "Corpus":       corpus_label,
-    }]
+    return [_metrics_result_row(
+        scores, labels,
+        features_label=f"Raw waveform (16 kHz){suffix}",
+        model_label=f"{arch_label} [{device_tag}]{suffix}",
+        infer_time=ms, corpus=corpus_label,
+    )]
 
 
 # ===========================================================================

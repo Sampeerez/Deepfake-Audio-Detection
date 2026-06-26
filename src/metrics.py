@@ -141,3 +141,68 @@ def calculate_min_dcf(scores: Sequence[float],
             idx += 1
 
     return best_dcf / c_default
+
+
+def calculate_eer_and_min_dcf(scores: Sequence[float],
+                              labels: Sequence[int],
+                              p_target: float = 0.05,
+                              c_miss: float = 1.0,
+                              c_fa: float = 10.0) -> Tuple[float, float, float]:
+    """Compute EER (with its threshold) and normalised minDCF in a SINGLE sort
+    and SINGLE sweep — both metrics evaluate the exact same discrete thresholds
+    (one per observed score), so sorting twice is wasteful when, as in the
+    benchmark result rows, both are needed for the same scores.
+
+    Returns (eer, eer_threshold, mindcf), numerically identical to calling
+    ``calculate_eer`` and ``calculate_min_dcf`` separately. Those two remain as
+    the standalone, independently-auditable references (see their docstrings for
+    the FRR/FAR definitions and the ASVspoof 2019 cost parameters)."""
+    if len(scores) != len(labels):
+        raise ValueError("scores and labels must have the same length.")
+
+    total_bonafide = sum(1 for e in labels if e == 0)
+    total_spoof    = sum(1 for e in labels if e == 1)
+    if total_bonafide == 0 or total_spoof == 0:
+        raise ValueError("EER/minDCF require samples from BOTH classes.")
+
+    pairs     = sorted(zip(scores, labels), key=lambda p: p[0])
+    c_default = min(c_miss * p_target, c_fa * (1.0 - p_target))
+
+    best_diff      = float("inf")
+    best_eer       = 1.0
+    best_threshold = float("-inf")
+    best_dcf       = float("inf")
+
+    bonafide_below = 0
+    spoof_below    = 0
+    idx = 0
+    n   = len(pairs)
+
+    while idx <= n:
+        threshold = pairs[idx][0] if idx < n else float("inf")
+
+        frr = (total_bonafide - bonafide_below) / total_bonafide
+        far = spoof_below / total_spoof
+
+        diff = abs(far - frr)
+        if diff < best_diff:
+            best_diff      = diff
+            best_eer       = (far + frr) / 2.0
+            best_threshold = threshold
+
+        dcf = c_miss * p_target * frr + c_fa * (1.0 - p_target) * far
+        if dcf < best_dcf:
+            best_dcf = dcf
+
+        if idx == n:
+            break
+
+        current_score = pairs[idx][0]
+        while idx < n and pairs[idx][0] == current_score:
+            if pairs[idx][1] == 0:
+                bonafide_below += 1
+            else:
+                spoof_below += 1
+            idx += 1
+
+    return best_eer, best_threshold, best_dcf / c_default

@@ -238,6 +238,10 @@ def _write_leaderboard(rows: Optional[List[Dict]] = None) -> None:
         board["rows"] = rows
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(board, fh, indent=2)
+    # load_leaderboard() is @st.cache_data: drop its cached copy so the Full
+    # comparison page reflects the freshly written file without an app restart.
+    from src.leaderboard import load_leaderboard
+    load_leaderboard.clear()
 
 
 def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,

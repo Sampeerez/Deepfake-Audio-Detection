@@ -69,30 +69,40 @@ st.markdown("""
 
 # Weighted late-fusion that produces the headline verdict on "Test an audio".
 # The strongest detector families, weighted by trust (the user's design:
-# wav2vec2 0.40, ResNet+SE 0.20, best XGBoost 0.10 — RawNet3's share was dropped
-# and the rest are renormalised at fusion time, so they need not sum to 1). The
-# "_xgb" member is resolved at runtime to whichever xgb_* model has the best eval
-# minDCF in the leaderboard. Any member missing (e.g. wav2vec2 failed to load) is
-# simply skipped and the remaining weights renormalised.
-FUSION_WEIGHTS = {"wav2vec2": 0.40, "resnet": 0.20, "_xgb": 0.10}
+# wav2vec2 0.40, ResNet+SE 0.20, best classic model 0.10 — RawNet3's share was
+# dropped and the rest are renormalised at fusion time, so they need not sum to
+# 1). The "_classic" member is resolved at runtime to whichever classic model
+# (LR / SVM / XGBoost × any DSP front-end) ranks best by eval EER in the
+# leaderboard. Any member missing (e.g. wav2vec2 failed to load) is simply
+# skipped and the remaining weights renormalised.
+FUSION_WEIGHTS = {"wav2vec2": 0.40, "resnet": 0.20, "_classic": 0.10}
+
+# Key prefixes that identify a classic DSP × ML detector in the registry.
+_CLASSIC_PREFIXES = ("lr_", "svm_", "xgb_")
 
 
 def _fusion_verdict(rows, board, threshold):
     """Weighted late-fusion → headline verdict.
 
-    Simple weighted average of the fusion members' p(spoof). The XGBoost slot is
-    resolved at runtime to whichever xgb_* key has the best eval minDCF in the
-    leaderboard. Any missing member is skipped and weights renormalised."""
+    Simple weighted average of the fusion members' p(spoof). The classic slot is
+    resolved at runtime to whichever classic model ranks best by eval EER (then
+    minDCF as a tie-break) in the leaderboard. Any missing member is skipped and
+    weights renormalised."""
     by_key = {r["key"]: r for r in rows}
-    xgb_keys = [k for k in by_key if k.startswith("xgb_")]
-    best_xgb = None
-    if xgb_keys:
-        rated = [(board.get(k, {}).get("mindcf_eval"), k) for k in xgb_keys]
-        rated = [(md, k) for md, k in rated if isinstance(md, (int, float))]
-        best_xgb = min(rated)[1] if rated else sorted(xgb_keys)[0]
+    classic_keys = [k for k in by_key if k.startswith(_CLASSIC_PREFIXES)]
+    best_classic = None
+    if classic_keys:
+        def _rank(k):
+            m   = board.get(k, {})
+            eer = m.get("eer_eval")
+            dcf = m.get("mindcf_eval")
+            return (eer if isinstance(eer, (int, float)) else float("inf"),
+                    dcf if isinstance(dcf, (int, float)) else float("inf"),
+                    k)
+        best_classic = min(classic_keys, key=_rank)
     members = []
     for key, w in FUSION_WEIGHTS.items():
-        rk = best_xgb if key == "_xgb" else key
+        rk = best_classic if key == "_classic" else key
         if rk and rk in by_key:
             r = by_key[rk]
             members.append({"key": rk, "name": r["Model"], "weight": w,
@@ -181,7 +191,8 @@ def _score_cnn_on_split(model, mdev, split, subset, seed=42):
 def _score_raw_on_samples(model, mdev, samples, max_samples=64000):
     """Score a raw-waveform model (wav2vec 2.0) on a (path, label) list. p(spoof)
     is the model's own softmax; clips are cropped/padded to a fixed window so they
-    batch, and the CUDA cache is freed between batches to spare the 6 GB GPU."""
+    batch. Clips are fixed-shape, so the CUDA cache is flushed every 8th batch
+    (plus once at the end) to spare the 6 GB GPU without a per-batch sync."""
     loader = DataLoader(
         ASVspoofRawWaveDataset(samples, extractor.sample_rate, max_samples),
         batch_size=8, shuffle=False, num_workers=0,
@@ -190,12 +201,14 @@ def _score_raw_on_samples(model, mdev, samples, max_samples=64000):
     model.to(mdev).eval()
     is_cuda = getattr(mdev, "type", mdev) == "cuda"
     with torch.no_grad():
-        for waves, lbls in loader:
+        for i, (waves, lbls) in enumerate(loader):
             probs = model.prob_spoof(waves.to(mdev))
             scores.extend(probs.float().cpu().tolist())
             labels.extend(lbls.long().tolist())
-            if is_cuda:
+            if is_cuda and i % 8 == 0:
                 torch.cuda.empty_cache()
+    if is_cuda:
+        torch.cuda.empty_cache()
     return scores, labels
 
 
@@ -642,7 +655,7 @@ with tab_test:
         "waveform, the two CNNs on the STFT-dB spectrogram and the classic "
         "detectors (LR / SVM / XGBoost) on their DSP front-ends. The **final "
         "verdict** is a weighted late-fusion of the strongest models "
-        "(wav2vec 2.0 + ResNet+SE + best XGBoost); the full panel is shown below."
+        "(wav2vec 2.0 + ResNet+SE + best classic model); the full panel is shown below."
     )
     # Fixed 0.5 decision threshold.
     threshold = 0.50
@@ -720,6 +733,14 @@ with tab_test:
 # ===========================================================================
 # Analyse one detector on a corpus split (local; needs the dataset)
 # ===========================================================================
+def _clear_split_state() -> None:
+    """Discard the current split-analysis result and rerun. Shared verbatim by
+    the Clear buttons of both the local-corpus and the web/HF split branches."""
+    for _k in ["da_scores", "da_labels", "da_name", "da_detector"]:
+        st.session_state.pop(_k, None)
+    st.rerun()
+
+
 with tab_analyse:
   if corpus_ok:
     has_cnn = "cnn_model" in st.session_state
@@ -737,7 +758,10 @@ with tab_analyse:
         source = source or "Classic models"
         _busy = op_busy_notice()
 
-        cnn_name = None
+        # Bind all three up front: the store block below reads feat_key/clf_disp/
+        # cnn_name regardless of branch, so selecting CNN/SSL must not leave the
+        # classic-only names unbound (that would NameError on Analyze).
+        feat_key = clf_disp = cnn_name = None
         if source == "Classic models":
             c1, c2 = st.columns(2, vertical_alignment="bottom")
             with c1:
@@ -776,9 +800,7 @@ with tab_analyse:
     with a4:
         if st.button("Clear", icon=":material/close:", width="stretch",
                      key="da_split_clear"):
-            for _k in ["da_scores", "da_labels", "da_name", "da_detector"]:
-                st.session_state.pop(_k, None)
-            st.rerun()
+            _clear_split_state()
 
     if analyze:
         with st.spinner("Awaiting the Council's verdict (scoring the detector)…"):
@@ -827,7 +849,10 @@ with tab_analyse:
         source = source or src_opts[0]
         _busy = op_busy_notice()
 
-        cnn_name = None
+        # Bind all three up front: the store block below reads feat_key/clf_disp/
+        # cnn_name regardless of branch, so selecting CNN/SSL must not leave the
+        # classic-only names unbound (that would NameError on Analyze).
+        feat_key = clf_disp = cnn_name = None
         if source == "Classic models":
             feats = sorted({e["feat"] for e in classic_entries},
                            key=lambda f: FEATURE_ORDER.index(f)
@@ -869,9 +894,7 @@ with tab_analyse:
     with a4:
         if st.button("Clear", icon=":material/close:", width="stretch",
                      key="da_hf_clear"):
-            for _k in ["da_scores", "da_labels", "da_name", "da_detector"]:
-                st.session_state.pop(_k, None)
-            st.rerun()
+            _clear_split_state()
 
     if analyze:
         with st.spinner(f"Pulling {corpus} records from the Archives and scoring…"):

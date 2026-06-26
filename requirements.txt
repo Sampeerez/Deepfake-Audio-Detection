@@ -1,8 +1,3 @@
-# Dependencias del Banco de Pruebas Anti-Spoofing (TFG)
-# Instalación en Linux:
-#   python3 -m venv .venv && source .venv/bin/activate
-#   pip install -r requirements.txt
-#
 # Despliegue en Streamlit Community Cloud (solo CPU): este archivo basta para
 # que el servidor instale todo. La rueda por defecto de `torch` incluye CUDA y
 # es pesada; si el despliegue falla por límite de recursos, fija la rueda CPU

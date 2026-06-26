@@ -10,7 +10,11 @@ degenerate inputs, error guards, parameter sensitivity, ordering invariance).
 import numpy as np
 import pytest
 
-from src.metrics import calculate_eer, calculate_min_dcf
+from src.metrics import (
+    calculate_eer,
+    calculate_eer_and_min_dcf,
+    calculate_min_dcf,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -125,3 +129,36 @@ def test_min_dcf_error_length_mismatch():
 def test_min_dcf_error_single_class():
     with pytest.raises(ValueError, match="BOTH classes"):
         calculate_min_dcf([0.5, 0.5], [0, 0])
+
+
+# ---------------------------------------------------------------------------
+# Combined single-sort helper (must match the two standalone functions)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("scores, labels", [
+    # Perfect separation.
+    ([0.1, 0.2, 0.8, 0.9], [0, 0, 1, 1]),
+    # Overlapping / noisy.
+    ([0.4, 0.55, 0.45, 0.6, 0.5, 0.5], [0, 1, 0, 1, 0, 1]),
+    # Tied scores straddling the boundary (block-advance path).
+    ([0.5, 0.5, 0.5, 0.5], [0, 1, 0, 1]),
+    # Larger random-ish set.
+    (np.linspace(0, 1, 60).tolist(), [0] * 30 + [1] * 30),
+])
+def test_combined_matches_standalone(scores, labels):
+    eer, thr, dcf = calculate_eer_and_min_dcf(scores, labels)
+    ref_eer, ref_thr = calculate_eer(scores, labels)
+    ref_dcf = calculate_min_dcf(scores, labels)
+    assert eer == pytest.approx(ref_eer)
+    assert thr == pytest.approx(ref_thr)
+    assert dcf == pytest.approx(ref_dcf)
+
+
+def test_combined_error_length_mismatch():
+    with pytest.raises(ValueError, match="same length"):
+        calculate_eer_and_min_dcf([0.5], [0, 1])
+
+
+def test_combined_error_single_class():
+    with pytest.raises(ValueError, match="BOTH classes"):
+        calculate_eer_and_min_dcf([0.1, 0.9], [1, 1])

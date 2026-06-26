@@ -1,0 +1,7 @@
+# Repository images used by the README.
+#
+#   test_an_audio.png   shown near the top of the README (Test an audio page)
+#   home.png            additional screenshot (Home page) — available to embed
+#
+# Add or replace PNGs here and reference them from README.md as
+# <img src="assets/<file>.png" .../>.

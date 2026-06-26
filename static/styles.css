@@ -1,0 +1,1320 @@
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — only continuous ambient motion; never entry animations
+   (those replay on every rerun and read as flicker).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes gradientShift {
+    0%,100% { background-position:0% 50%; }
+    50%      { background-position:100% 50%; }
+}
+@keyframes float {
+    0%,100% { transform:translateY(0); }
+    50%      { transform:translateY(-10px); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-track { background:rgba(9,28,78,0.25); border-radius:3px; }
+::-webkit-scrollbar-thumb { background:rgba(79,139,249,0.38); border-radius:3px; }
+::-webkit-scrollbar-thumb:hover { background:rgba(79,139,249,0.65); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STREAMLIT HEADER — visually hidden so the sidebar reaches the very top, but
+   NOT display:none: the collapsed-sidebar "expand" control lives inside the
+   header, and removing the header removed the only way to re-open a closed
+   sidebar. visibility:hidden + height:0 hides it and frees the space, while the
+   expand control below is flipped back to visible (visibility is overridable on
+   children, unlike display).
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stHeader"] {
+    visibility: hidden !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+/* The thin top "decoration" gradient strip is purely cosmetic — hide it. (Do NOT
+   hide the toolbar: in this Streamlit build the collapsed-sidebar EXPAND control
+   lives in that region, and display:none-ing it left no way to re-open the
+   sidebar. The black strip that used to flash on navigation is handled instead by
+   the transparent-header rules injected from app.py.) */
+[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+/* Invisible helper host for the dropdown auto-close script: the iframe must
+   stay in the DOM (so its script runs) but must NOT occupy a slot in the main
+   flex flow — otherwise it adds one vertical-block gap at the top of every page
+   and makes the content overflow the viewport by a hair (a faint scroll on
+   otherwise-short pages). position:absolute removes it from the flow entirely. */
+[class*="st-key-ddac_host"] {
+    position: absolute !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+}
+[class*="st-key-ddac_host"] iframe { height: 0 !important; }
+
+/* Same treatment for Home's equaliser-ramp helper iframe (height=1 otherwise
+   shows as a thin white line above the stat strip). */
+[class*="st-key-eqramp_host"] {
+    position: absolute !important;
+    width: 0 !important; height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important; pointer-events: none !important;
+}
+[class*="st-key-eqramp_host"] iframe { height: 0 !important; }
+
+/* Signal Explorer panel-height equalizer iframe (seqh = Signal Explorer
+   Qt Height). Script runs on every render via setTimeout chains. */
+[class*="st-key-seqh_host"] {
+    position: absolute !important;
+    width: 0 !important; height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important; pointer-events: none !important;
+}
+[class*="st-key-seqh_host"] iframe { height: 0 !important; }
+
+/* Live-settings flags iframe (background mode / reduced motion) — keep it in the
+   DOM so its script runs every rerun, but out of the layout flow. */
+[class*="st-key-swflags_host"] {
+    position: absolute !important;
+    width: 0 !important; height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important; pointer-events: none !important;
+}
+[class*="st-key-swflags_host"] iframe { height: 0 !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAIN CONTENT
+   — sin animación de entrada: se re-dispararía en cada rerun y provoca el
+     "flash" al navegar entre páginas o tocar cualquier widget.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.main .block-container,
+[data-testid="stMainBlockContainer"] {
+    padding-top: 0.6rem !important;      /* titles/hero sit higher on the page */
+    padding-bottom: 1.4rem !important;   /* no dead scroll past the footer */
+}
+
+/* A page-local style block injected via st.markdown still occupies an element
+   slot (plus a vertical-block gap), which pushes that page's title lower than
+   pages without one — so titles ended up at different heights. Collapse any
+   element container whose only child is a style element; its rules still apply
+   (a style element works regardless of an ancestor's display:none).
+   NOTE: never write the literal closing style tag inside this block — the HTML
+   parser would end the whole stylesheet there and dump the rest as text. */
+[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] style),
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {
+    display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR — fixed, always visible, navigation-first.
+   (The previous hover auto-hide collapsed while interacting with dropdown
+   popovers — selectbox menus render outside the sidebar, hover was lost and
+   the panel slid shut mid-selection. Root cause removed, not patched.)
+   ═══════════════════════════════════════════════════════════════════════════ */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg,
+        #06101F 0%, #09193A 35%, #0B1E48 65%, #07131E 100%) !important;
+    border-right: 1px solid rgba(79,139,249,0.12) !important;
+    width: 17.5rem !important;
+}
+section[data-testid="stSidebar"] > div:first-child {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+[data-testid="stSidebarContent"] {
+    padding-top: 0 !important;
+}
+/* The sidebar opens by default (initial_sidebar_state="expanded"), but stays
+   fully collapsible AND re-openable: the in-sidebar collapse button and the
+   collapsed-state expand control are always visible and clickable. The expand
+   control lives inside the (visibility:hidden) header, so it must be flipped back
+   to visible + pointer-events:auto + a high z-index to sit above the canvas. */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"] {
+    display: inline-flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    z-index: 1000 !important;
+}
+/* The header is collapsed to height:0, so the "expand" control (shown when the
+   sidebar is closed) would otherwise sit jammed against the very top edge. Push
+   it well down so it lines up with the page content/title. */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"] {
+    top: 5.5rem !important;
+    margin-top: 0.5rem !important;
+    /* transform is honoured regardless of how the control is positioned, so it
+       reliably pushes the arrow down even if `top` has no effect in this build. */
+    transform: translateY(3rem) !important;
+}
+
+/* Remove the sidebar resize/drag handle — the 8px-wide `cursor: col-resize`
+   strip on the sidebar's inner edge that lets you drag its width. It is a
+   styled div with the emotion target class below (build-specific to this
+   Streamlit version); hiding it also drops the draggable border affordance. */
+section[data-testid="stSidebar"] [class*="eelgd2m3"],
+[class*="st-key-"] [class*="eelgd2m3"],
+[class*="eelgd2m3"] { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR NAV LINKS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stSidebarNav"]::before {
+    content: "DEEPFAKE AUDIO DETECTION";
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #8AABEF;
+    background: linear-gradient(90deg,
+        rgba(79,139,249,0.12) 0%, rgba(8,145,178,0.08) 100%);
+    padding: 1.25rem 1.1rem 1.05rem;
+    margin-bottom: 0.55rem;       /* breathing room before the first nav link */
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(79,139,249,0.18);
+    white-space: nowrap;
+}
+/* Extra gap between the section title and the nav list */
+[data-testid="stSidebarNav"] ul { padding-top: 0.35rem !important; }
+[data-testid="stSidebarNavLink"] {
+    border-radius: 0.55rem !important;
+    margin: 0.2rem 0.6rem !important;
+    padding: 0.6rem 0.95rem !important;
+    font-size: 1.02rem !important;       /* larger, more readable nav labels */
+    transition: background 0.22s ease, transform 0.22s ease !important;
+    position: relative;
+    overflow: hidden;
+}
+/* The label text inside each nav link */
+[data-testid="stSidebarNavLink"] span,
+[data-testid="stSidebarNavLink"] p { font-size: 1.02rem !important; }
+[data-testid="stSidebarNavLink"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+        transparent 0%, rgba(79,139,249,0.07) 50%, transparent 100%);
+    transform: translateX(-100%);
+    transition: transform 0.5s ease;
+}
+[data-testid="stSidebarNavLink"]:hover {
+    background: rgba(79,139,249,0.12) !important;
+    transform: translateX(5px) !important;
+}
+[data-testid="stSidebarNavLink"]:hover::after {
+    transform: translateX(100%);
+}
+[data-testid="stSidebarNavLink"][aria-current="page"] {
+    background: linear-gradient(90deg,
+        rgba(79,139,249,0.22) 0%, rgba(79,139,249,0.06) 100%) !important;
+    border-left: 3px solid #4F8BF9 !important;
+    font-weight: 700 !important;
+    box-shadow: 0 0 14px rgba(79,139,249,0.3) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   METRIC CARDS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stMetric"] {
+    background: linear-gradient(135deg,
+        rgba(12,25,70,0.65) 0%, rgba(18,38,95,0.45) 100%) !important;
+    backdrop-filter: blur(14px) !important;
+    border: 1px solid rgba(79,139,249,0.18) !important;
+    border-radius: 0.8rem !important;
+    padding: 0.9rem 1.1rem !important;
+    transition: transform 0.24s ease, box-shadow 0.24s ease !important;
+    position: relative;
+    overflow: hidden;
+}
+[data-testid="stMetric"]::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg,
+        transparent, rgba(79,139,249,0.5), transparent);
+}
+[data-testid="stMetric"]:hover {
+    transform: translateY(-4px) !important;
+    box-shadow: 0 10px 32px rgba(79,139,249,0.22),
+                0 0 0 1px rgba(79,139,249,0.28) !important;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 0.7rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+    opacity: 0.5 !important;
+}
+[data-testid="stMetricValue"] {
+    font-size: 1.3rem !important;
+    font-weight: 700 !important;
+    background: linear-gradient(135deg, #82B1FF, #4FC3F7) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUTTONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stBaseButton-primary"] {
+    background: linear-gradient(135deg, #2952C4 0%, #0891B2 100%) !important;
+    border: none !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.04em !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease !important;
+}
+[data-testid="stBaseButton-primary"]:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 22px rgba(79,139,249,0.5) !important;
+    filter: brightness(1.1) !important;
+}
+[data-testid="stBaseButton-secondary"] {
+    border-color: rgba(79,139,249,0.35) !important;
+    transition: transform 0.2s ease, border-color 0.2s ease,
+                box-shadow 0.2s ease !important;
+}
+[data-testid="stBaseButton-secondary"]:hover {
+    transform: translateY(-2px) !important;
+    border-color: rgba(79,139,249,0.7) !important;
+    box-shadow: 0 4px 16px rgba(79,139,249,0.18) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TABS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stTabs"] { margin-top: 0.2rem; }
+button[data-baseweb="tab"] {
+    transition: color 0.18s ease, background 0.18s ease !important;
+    border-radius: 0.45rem 0.45rem 0 0 !important;
+    padding: 0.5rem 1.1rem !important;
+}
+button[data-baseweb="tab"]:hover {
+    color: #82B1FF !important;
+    background: rgba(79,139,249,0.07) !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    font-weight: 700 !important;
+    color: #82B1FF !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EXPANDERS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stExpander"] {
+    border: 1px solid rgba(79,139,249,0.16) !important;
+    border-radius: 0.7rem !important;
+    transition: box-shadow 0.22s ease, border-color 0.22s ease !important;
+    overflow: hidden !important;
+}
+[data-testid="stExpander"]:hover {
+    border-color: rgba(79,139,249,0.32) !important;
+    box-shadow: 0 4px 18px rgba(79,139,249,0.1) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROGRESS BARS
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stProgress"] > div > div {
+    background: linear-gradient(90deg, #4F8BF9, #00BCD4) !important;
+    border-radius: 4px !important;
+    transition: width 0.3s ease !important;
+}
+/* The progress label (e.g. "5/5 · CQCC … done") sat flush against the bar's left
+   edge — give it a little breathing room so it never touches the border. */
+[data-testid="stProgress"] [data-testid="stMarkdownContainer"] p {
+    padding-left: 0.65rem !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DIVIDER
+   ═══════════════════════════════════════════════════════════════════════════ */
+hr { border-color: rgba(79,139,249,0.1) !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GRADIENT ACCENT BAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+.gradient-bar {
+    height: 3px;
+    background: linear-gradient(90deg, #4F8BF9, #00BCD4, #9C27B0, #4F8BF9);
+    background-size: 300% 300%;
+    animation: gradientShift 5s ease infinite;
+    border-radius: 2px;
+    margin: 0.6rem 0 1.4rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HERO BANNER
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hero-banner {
+    background: linear-gradient(135deg,
+        #070F2B 0%, #0C2272 28%, #1548C0 55%, #0B7AB0 80%, #065A8A 100%);
+    background-size: 300% 300%;
+    animation: gradientShift 12s ease infinite;
+    padding: 1.9rem 3rem 1.8rem;          /* shorter hero — less wasted vertical space */
+    border-radius: 1.1rem;
+    color: #E8EDF8;
+    box-shadow: 0 16px 60px rgba(7,15,43,0.7),
+                0 0 0 1px rgba(79,139,249,0.18),
+                inset 0 1px 0 rgba(255,255,255,0.06);
+    position: relative;
+    overflow: hidden;
+}
+/* Floating orbs */
+.hero-banner::before {
+    content: "";
+    position: absolute;
+    top: -50%; right: -8%;
+    width: 520px; height: 520px;
+    background: radial-gradient(circle,
+        rgba(79,139,249,0.14) 0%, transparent 65%);
+    pointer-events: none;
+    animation: float 9s ease-in-out infinite;
+}
+.hero-banner::after {
+    content: "";
+    position: absolute;
+    bottom: -45%; left: 25%;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle,
+        rgba(8,145,178,0.1) 0%, transparent 60%);
+    pointer-events: none;
+    animation: float 14s ease-in-out infinite reverse;
+}
+.hero-banner h1 {
+    font-size: 3.1rem;
+    font-weight: 850;
+    margin: 0 0 0.5rem;
+    line-height: 1.08;
+    letter-spacing: -0.028em;
+    text-shadow: 0 3px 30px rgba(79,139,249,0.45);
+}
+.hero-banner p {
+    font-size: 1rem;
+    margin: 0;
+    opacity: 0.82;
+    line-height: 1.68;
+    max-width: none;          /* span the full hero width, no early wrap */
+    padding-right: 1rem;
+}
+.hero-author {
+    margin-top: 1.15rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.9rem;
+    font-size: 0.82rem;
+    letter-spacing: 0.03em;
+}
+.hero-author .ha-name { font-weight: 700; color: #B9CCF2; }
+.hero-author a {
+    color: #9BB8F4 !important;
+    text-decoration: none;
+    font-weight: 600;
+    border: 1px solid rgba(155,184,244,0.35);
+    border-radius: 1.4rem;
+    padding: 0.12rem 0.7rem;
+    transition: background 0.2s ease, border-color 0.2s ease,
+                transform 0.2s ease, color 0.2s ease;
+}
+.hero-author a:hover {
+    background: rgba(155,184,244,0.16);
+    border-color: rgba(155,184,244,0.7);
+    color: #E8EDF8 !important;
+    transform: translateY(-1px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HERO WAVE — two audio sine-waves travelling across the WHOLE header, behind
+   the text (continuous scroll, no entry flicker).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes heroWaveScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.hero-wave {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
+}
+.hero-wave .hw {
+    position: absolute;
+    top: 0; left: 0;
+    width: 200%; height: 100%;
+    will-change: transform;
+}
+.hero-wave .hw path { fill: none; vector-effect: non-scaling-stroke; stroke-width: 2; }
+.hero-wave .hw1 { animation: heroWaveScroll 9s linear infinite; }
+.hero-wave .hw1 path { stroke: rgba(130,177,255,0.42); }
+.hero-wave .hw2 { animation: heroWaveScroll 15s linear infinite; opacity: 0.85; }
+.hero-wave .hw2 path { stroke: rgba(79,195,247,0.26); }
+/* Keep all hero text/badges/author above the wave. */
+.hero-banner > div:not(.hero-wave),
+.hero-banner > h1,
+.hero-banner > p { position: relative; z-index: 1; }
+.hero-meta {
+    position: relative; z-index: 1;
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: #9BB8F4;
+    opacity: 0.92;
+}
+.hero-badge {
+    display: inline-block;
+    background: rgba(79,139,249,0.16);
+    border: 1px solid rgba(79,139,249,0.36);
+    border-radius: 2rem;
+    padding: 0.2rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    margin: 0 0.28rem 0.7rem 0;
+    color: #A8C4FF;
+    backdrop-filter: blur(4px);
+    transition: background 0.22s ease, transform 0.22s ease,
+                box-shadow 0.22s ease;
+}
+.hero-badge:hover {
+    background: rgba(79,139,249,0.28);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(79,139,249,0.25);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PANEL CARDS
+   — equal height via min-height (NOT a global column-flex hack: stretching
+     every column's first child distorted unrelated layouts and caused
+     overlapping controls).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.panel-card {
+    min-height: 16.5rem;
+    margin-bottom: 0.65rem;
+    background: linear-gradient(145deg,
+        rgba(10,22,62,0.62) 0%, rgba(14,28,75,0.38) 100%);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(79,139,249,0.18);
+    border-radius: 1rem;
+    padding: 1.6rem 1.7rem 1.8rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1),
+                box-shadow 0.3s ease,
+                border-color 0.3s ease;
+}
+/* Top gradient line */
+.panel-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg,
+        transparent 0%, #4F8BF9 40%, #00BCD4 60%, transparent 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+/* Shimmer sweep on hover */
+.panel-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg,
+        transparent 35%, rgba(79,139,249,0.06) 50%, transparent 65%);
+    transform: translateX(-100%) skewX(-10deg);
+    transition: none;
+}
+.panel-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 18px 44px rgba(7,15,43,0.6),
+                0 0 0 1px rgba(79,139,249,0.35),
+                0 0 32px rgba(79,139,249,0.08);
+    border-color: rgba(79,139,249,0.35);
+}
+.panel-card:hover::before { opacity: 1; }
+.panel-card:hover::after {
+    transform: translateX(200%) skewX(-10deg);
+    transition: transform 0.65s ease;
+}
+.panel-card h4 {
+    margin: 0 0 0.9rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #82B1FF 0%, #4FC3F7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.panel-card ul { padding-left: 1.1rem; margin: 0; flex: 1; }
+.panel-card li {
+    margin-bottom: 0.4rem;
+    font-size: 0.87rem;
+    opacity: 0.72;
+    line-height: 1.45;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.panel-card:hover li { opacity: 0.88; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EMPTY STATE — sober glyph in a dashed ring instead of an emoji
+   ═══════════════════════════════════════════════════════════════════════════ */
+.empty-state {
+    text-align: center;
+    padding: 2.4rem 2rem 2.6rem;
+    background: rgba(79,139,249,0.04);
+    border: 1px dashed rgba(79,139,249,0.22);
+    border-radius: 1rem;
+    margin: 0.8rem 0;
+}
+.empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px; height: 64px;
+    border: 1px dashed rgba(79,139,249,0.45);
+    border-radius: 50%;
+    font-size: 1.6rem;
+    font-weight: 300;
+    color: #5E7FD4;
+    margin-bottom: 1rem;
+    animation: float 5s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PILLS & SEGMENTED CONTROL  — modern chip-style selectors.
+   Streamlit renders segmented-control buttons FLUSH against each other;
+   chip styling (rounded + bordered segments) makes them overlap. Forcing a
+   real flex gap on the group turns every option into a separate chip.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* The real flex row of options is baseweb's button-group INSIDE stButtonGroup
+   (stButtonGroup itself also wraps the widget label, so spacing it does
+   nothing to the buttons). Space the options on the button-group and reset the
+   negative border-collapse margins baseweb puts between adjacent segments. */
+[data-testid="stButtonGroup"] [data-baseweb="button-group"] {
+    display: inline-flex !important;
+    flex-wrap: wrap !important;
+    gap: 0.7rem !important;
+}
+[data-testid="stButtonGroup"] [data-baseweb="button-group"] > * {
+    margin: 0 !important;
+}
+[data-testid="stBaseButton-pills"],
+[data-testid="stBaseButton-segmented_control"] {
+    background: rgba(79,139,249,0.06) !important;
+    border: 1px solid rgba(79,139,249,0.22) !important;
+    color: #AFC3E8 !important;
+    border-radius: 2rem !important;
+    transition: background 0.18s ease, border-color 0.18s ease,
+                transform 0.18s ease, box-shadow 0.18s ease !important;
+}
+[data-testid="stBaseButton-pills"]:hover,
+[data-testid="stBaseButton-segmented_control"]:hover {
+    border-color: rgba(79,139,249,0.55) !important;
+    background: rgba(79,139,249,0.14) !important;
+    transform: translateY(-1px) !important;
+}
+[data-testid="stBaseButton-pillsActive"],
+[data-testid="stBaseButton-segmented_controlActive"] {
+    background: linear-gradient(135deg, #2952C4 0%, #0891B2 100%) !important;
+    border: 1px solid rgba(130,177,255,0.55) !important;
+    color: #FFFFFF !important;
+    border-radius: 2rem !important;
+    font-weight: 600 !important;
+    box-shadow: 0 3px 14px rgba(41,82,196,0.45) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BORDERED CONTAINERS  (st.container(border=True)) — glass panels
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] {
+    gap: 0.65rem;
+}
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: linear-gradient(150deg,
+        rgba(10,22,62,0.45) 0%, rgba(14,28,75,0.22) 100%);
+    border: 1px solid rgba(79,139,249,0.16) !important;
+    border-radius: 0.9rem !important;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    border-color: rgba(79,139,249,0.3) !important;
+    box-shadow: 0 6px 24px rgba(7,15,43,0.35);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INFO CARDS  — generic editorial card (CNN Learning, Run Experiment, …)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.info-card {
+    background: linear-gradient(145deg,
+        rgba(8,18,52,0.55) 0%, rgba(12,24,65,0.32) 100%);
+    border: 1px solid rgba(79,139,249,0.14);
+    border-left: 3px solid rgba(79,139,249,0.45);
+    border-radius: 0.75rem;
+    padding: 0.85rem 1.05rem 0.9rem;
+    margin-bottom: 0.7rem;
+    transition: transform 0.22s ease, border-color 0.22s ease,
+                box-shadow 0.22s ease;
+}
+.info-card:hover {
+    transform: translateX(3px);
+    border-left-color: #4F8BF9;
+    box-shadow: 0 6px 20px rgba(9,28,78,0.4);
+}
+.info-card .ic-title {
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: #82B1FF;
+    margin-bottom: 0.3rem;
+    letter-spacing: 0.01em;
+}
+.info-card .ic-tag {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #B39DDB;
+    background: rgba(156,39,176,0.14);
+    border: 1px solid rgba(156,39,176,0.3);
+    border-radius: 1rem;
+    padding: 0.06rem 0.55rem;
+    margin-left: 0.4rem;
+    vertical-align: 1px;
+}
+.info-card .ic-body {
+    font-size: 0.8rem;
+    line-height: 1.6;
+    opacity: 0.74;
+    margin: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INFORMATIONAL CARDS — normal arrow cursor (not the text I-beam) over any
+   non-interactive info surface. cursor is inherited, so children get it too;
+   real links/buttons inside keep their own pointer cursor.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.info-card, .panel-card, .corpus-card, .method-card, .pipe-step, .pipe-arrow,
+.stat-strip, .stat-cell, .cfg-chip, .chip-row, .side-status, .dist-cards,
+.dist-row, .mini-note, .sec-head, .sec-sub, .best-banner, .empty-state,
+.hero-badge, .rep-card, .rep-grid,
+.hero-banner h1, .hero-banner p, .hero-overline, .hero-author .ha-name {
+    cursor: default;
+}
+.hero-author a { cursor: pointer; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REPRESENTATION CARDS — pretty grid for the Signal Explorer "what does each
+   representation show?" expander.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.rep-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.55rem;
+    margin: 0.2rem 0 0.55rem;   /* bottom gap so the last cards don't touch the expander edge */
+}
+.rep-card {
+    background: linear-gradient(145deg,
+        rgba(8,18,52,0.5) 0%, rgba(12,24,65,0.3) 100%);
+    border: 1px solid rgba(79,139,249,0.14);
+    border-left: 3px solid #4F8BF9;
+    border-radius: 0.6rem;
+    padding: 0.6rem 0.85rem 0.65rem;
+    transition: transform 0.2s ease, border-color 0.2s ease,
+                box-shadow 0.2s ease;
+}
+.rep-card:hover {
+    transform: translateX(3px);
+    border-left-color: #00BCD4;
+    box-shadow: 0 5px 16px rgba(9,28,78,0.35);
+}
+.rep-card .rep-name {
+    font-weight: 700;
+    color: #82B1FF;
+    font-size: 0.84rem;
+    margin-bottom: 0.2rem;
+    letter-spacing: 0.01em;
+}
+.rep-card .rep-desc {
+    font-size: 0.76rem;
+    opacity: 0.74;
+    line-height: 1.45;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PIPELINE STEPS  — Run Experiment header strip
+   ═══════════════════════════════════════════════════════════════════════════ */
+.pipe-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 0.6rem;
+    align-items: stretch;
+    margin: 0.6rem 0 0.9rem;
+}
+.pipe-step {
+    background: linear-gradient(145deg,
+        rgba(10,22,62,0.6) 0%, rgba(14,28,75,0.35) 100%);
+    border: 1px solid rgba(79,139,249,0.18);
+    border-radius: 0.85rem;
+    padding: 0.85rem 1.05rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.24s ease, border-color 0.24s ease,
+                box-shadow 0.24s ease;
+}
+.pipe-step::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, #4F8BF9, #00BCD4);
+    opacity: 0.55;
+}
+.pipe-step:hover {
+    transform: translateY(-3px);
+    border-color: rgba(79,139,249,0.4);
+    box-shadow: 0 10px 28px rgba(9,28,78,0.45);
+}
+.pipe-step .ps-step {
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6E87C9;
+    margin-bottom: 0.18rem;
+}
+.pipe-step .ps-value {
+    font-size: 0.98rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #82B1FF, #4FC3F7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.3;
+}
+.pipe-step .ps-sub {
+    font-size: 0.72rem;
+    opacity: 0.58;
+    margin-top: 0.15rem;
+    line-height: 1.45;
+}
+.pipe-arrow {
+    align-self: center;
+    color: rgba(79,139,249,0.55);
+    font-size: 1.25rem;
+    font-weight: 700;
+    padding: 0 0.1rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONFIG CHIPS  — small key:value summary badges
+   ═══════════════════════════════════════════════════════════════════════════ */
+.chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.15rem 0 0.6rem;
+}
+.cfg-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    background: rgba(79,139,249,0.07);
+    border: 1px solid rgba(79,139,249,0.2);
+    border-radius: 2rem;
+    padding: 0.18rem 0.75rem;
+    font-size: 0.73rem;
+    color: #AFC3E8;
+}
+.cfg-chip b { color: #82B1FF; font-weight: 700; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SECTION LABEL  — small uppercase heading used above control groups
+   ═══════════════════════════════════════════════════════════════════════════ */
+.section-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6E87C9;
+    margin: 0.1rem 0 0.35rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EDITORIAL SECTION HEADER — index number + title + fading rule
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+    margin: 0.6rem 0 0.35rem;
+}
+.sec-head .sh-num {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #4F8BF9;
+    letter-spacing: 0.1em;
+    font-variant-numeric: tabular-nums;
+}
+.sec-head .sh-title {
+    margin: 0;
+    font-size: 1.32rem;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+    color: #E8EDF8;
+    line-height: 1.2;
+}
+.sec-head .sh-rule {
+    /* Fill ALL the remaining width up to the content edge (long accent that
+       adapts to the page). The sweep uses a percentage background-position, so
+       the highlight sits at the same FRACTION of every rule at any instant —
+       they stay coordinated even though each fills a slightly different width. */
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 1px;
+    align-self: center;
+    background: linear-gradient(90deg, rgba(79,139,249,0.45), transparent);
+}
+.sec-sub {
+    font-size: 0.82rem;
+    opacity: 0.55;
+    margin: 0 0 0.9rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAGE LINK — ghost-button navigation cards (Home panel links)
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stPageLink"] a {
+    border: 1px solid rgba(79,139,249,0.3) !important;
+    border-radius: 0.6rem !important;
+    padding: 0.42rem 0.9rem !important;
+    transition: background 0.2s ease, border-color 0.2s ease,
+                transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+[data-testid="stPageLink"] a:hover {
+    background: rgba(79,139,249,0.14) !important;
+    border-color: rgba(79,139,249,0.6) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 16px rgba(79,139,249,0.2) !important;
+}
+[data-testid="stPageLink"] a p { font-weight: 600 !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ALIGN-RIGHT UTILITY — wrap a widget in st.container(key="alignr_…").
+   Covers button groups, buttons and download buttons so right-edge
+   alignment reads as intentional, not floating.
+   ═══════════════════════════════════════════════════════════════════════════ */
+[class*="st-key-alignr"] [data-testid="stButtonGroup"],
+[class*="st-key-alignr"] [data-testid="stButton"],
+[class*="st-key-alignr"] [data-testid="stDownloadButton"] {
+    display: flex !important;
+    justify-content: flex-end !important;
+    width: 100% !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DROPDOWN-ONLY SELECTBOXES — wrap in st.container(key="nosearch_…") to block
+   type-to-filter so the control behaves as a pure dropdown (still clickable).
+   ═══════════════════════════════════════════════════════════════════════════ */
+[class*="st-key-nosearch"] [data-baseweb="select"] input {
+    pointer-events: none !important;
+    caret-color: transparent !important;
+}
+[class*="st-key-nosearch"] [data-baseweb="select"] > div {
+    cursor: pointer !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LABEL GAP — extra space between a segmented control's own label and its
+   buttons. Wrap the control in st.container(key="lblgap_…"). Only affects
+   visible labels; collapsed-label controls render no stWidgetLabel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+[class*="st-key-lblgap"] [data-testid="stWidgetLabel"] {
+    margin-bottom: 0.6rem !important;
+}
+
+/* COMPACT "Evaluation" group — "Train on" (fixed) + "Evaluate on" + "Score on"
+   laid out side by side in a fit-content blue frame (short, not full width). */
+[class*="st-key-evalgrp_"] {
+    display: flex !important; flex-direction: row; flex-wrap: wrap;
+    column-gap: 1.2rem; row-gap: 0.2rem; align-items: flex-start;
+    width: fit-content; max-width: 100%;
+    border: 1px solid rgba(79,139,249,0.2);
+    border-left: 3px solid rgba(79,139,249,0.45);
+    border-radius: 0.55rem;
+    padding: 0.35rem 0.7rem 0.45rem;
+    background: rgba(79,139,249,0.05);
+}
+[class*="st-key-evalgrp_"] > [data-testid="stElementContainer"] { width: auto !important; }
+/* Vertical divider between every pair of controls (Train on | Evaluate on | Score on). */
+[class*="st-key-evalgrp_"] > [data-testid="stElementContainer"]:not(:first-child) {
+    border-left: 1px solid rgba(79,139,249,0.28);
+    padding-left: 1.1rem; margin-left: 0.1rem;
+}
+/* The fixed "Score on · Eval" shown for the eval-only 2021 corpora. */
+.eval-fixed { display: flex; flex-direction: column; gap: 0.32rem; padding-top: 0.05rem; }
+.eval-fixed .ef-lbl { font-size: 0.7rem; font-weight: 700; opacity: 0.75;
+    text-transform: uppercase; letter-spacing: 0.05em; }
+.eval-fixed .ef-val { font-size: 0.82rem; font-weight: 700; color: #C9D7F5;
+    background: rgba(79,139,249,0.12); border: 1px solid rgba(79,139,249,0.25);
+    border-radius: 0.45rem; padding: 0.18rem 0.7rem; width: fit-content; }
+[class*="st-key-evalgrp_"] [data-testid="stWidgetLabel"] {
+    margin-bottom: 0.2rem !important;
+}
+[class*="st-key-evalgrp_"] [data-testid="stWidgetLabel"] p {
+    font-size: 0.7rem !important; font-weight: 700; opacity: 0.75;
+    text-transform: uppercase; letter-spacing: 0.05em;
+}
+[class*="st-key-evalgrp_"] [data-baseweb="button-group"] button {
+    padding-top: 0.18rem !important; padding-bottom: 0.18rem !important;
+    font-size: 0.78rem !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HERO REFINEMENTS — overline kicker, flush-top placement
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hero-overline {
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: #9BB8F4;
+    margin-bottom: 0.55rem;
+}
+.hero-banner { margin-top: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STAT STRIP — large editorial numerals under the hero
+   ═══════════════════════════════════════════════════════════════════════════ */
+.stat-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: rgba(79,139,249,0.16);
+    border: 1px solid rgba(79,139,249,0.16);
+    border-radius: 0.9rem;
+    overflow: hidden;
+    margin: 1rem 0 0.4rem;
+}
+.stat-cell {
+    background: #0D1426;
+    padding: 1rem 1.3rem 0.95rem;
+    transition: background 0.22s ease;
+}
+.stat-cell:hover { background: #111A33; }
+.stat-cell .st-num {
+    font-size: 1.55rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #82B1FF, #4FC3F7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+.stat-cell .st-lbl {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    opacity: 0.5;
+    margin-top: 0.18rem;
+    font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STATUS DOTS — sober availability indicators (sidebar + cards)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    margin-right: 0.45rem;
+    vertical-align: 1px;
+}
+.dot-ok  { background: #66BB6A; box-shadow: 0 0 6px rgba(102,187,106,0.6); }
+.dot-err { background: #EF5350; box-shadow: 0 0 6px rgba(239,83,80,0.5); }
+.dot-na  { background: #5C6B8A; }
+.side-status {
+    border: 1px solid rgba(79,139,249,0.14);
+    border-radius: 0.7rem;
+    background: rgba(79,139,249,0.05);
+    padding: 0.7rem 0.9rem 0.65rem;
+    margin-bottom: 0.85rem;        /* air between stacked sidebar panels */
+    font-size: 0.86rem;            /* larger, more readable sidebar panels */
+    line-height: 1.9;
+    color: #AFC3E8;
+}
+.side-status .ss-title {
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6E87C9;
+    margin-bottom: 0.25rem;
+}
+.side-status .ss-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+    line-height: 1.75;
+}
+.side-status .ss-row .ss-k { opacity: 0.6; white-space: nowrap; }
+.side-status .ss-row .ss-v {
+    color: #C9D7F5;
+    font-weight: 600;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 11rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MINI NOTE — fixed-height inline notice. Always rendered (info or warn
+   variant) so toggling options never resizes the surrounding panel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.mini-note {
+    display: flex;
+    align-items: center;          /* text vertically centred against the bar */
+    gap: 0.55rem;
+    min-height: 2.2em;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    color: #8FA3CE;
+    margin: 0.1rem 0 0.55rem;     /* hugs the control above, breathes below */
+}
+.mini-note::before {
+    content: "";
+    flex: 0 0 3px;
+    align-self: stretch;
+    border-radius: 2px;
+    background: rgba(79,139,249,0.45);
+}
+.mini-note.warn { color: #D9BC8A; }
+.mini-note.warn::before { background: rgba(255,179,0,0.55); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   APP FOOTER — closed page ending: top rule, colophon, no trailing scroll
+   ═══════════════════════════════════════════════════════════════════════════ */
+.app-footer {
+    margin-top: 2.2rem;
+    border-top: 1px solid rgba(79,139,249,0.16);
+    padding: 1.1rem 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.4rem 1.5rem;
+    font-size: 0.74rem;
+    color: #7487B0;
+}
+.app-footer .af-left  { font-weight: 700; letter-spacing: 0.04em; color: #8FA3CE; }
+.app-footer .af-right { opacity: 0.8; }
+
+/* Pin the footer to the very bottom of the viewport on pages that have one
+   (only when content is shorter than the screen). Scoped via :has(.app-footer)
+   so it never affects the tool pages. NOTE: the page's elements live inside a
+   stVerticalBlock *inside* the block-container, so the flex column + auto
+   margin must be applied there (the footer is the last element of THAT block). */
+[data-testid="stMainBlockContainer"]:has(.app-footer) {
+    min-height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+}
+[data-testid="stMainBlockContainer"]:has(.app-footer) > [data-testid="stVerticalBlock"] {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+}
+[data-testid="stMainBlockContainer"]:has(.app-footer) > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
+    margin-top: auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOTION & DYNAMISM — cohesive, slow, CONTINUOUS ambient motion only (never
+   entry animations: those replay on every rerun and read as flicker). Overrides
+   a few earlier static rules to make the signal/audio theme feel alive.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Animated particle-network ("spider-web") background, drawn on a <canvas>
+   that the helper iframe injects behind everything. The dark base colour moves
+   to the page root so the canvas (z-index:-1) shows through the now-transparent
+   app containers; the sidebar keeps its own opaque background. */
+html, body { background-color: #0E1117 !important; }
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"] { background: transparent !important; }
+#bgWeb {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* A bright highlight that TRAVELS along thin accent rules — clearly moving,
+   unlike a subtle hue shift on a 1-3px bar. */
+@keyframes sweepX { 0% { background-position: -45% 0; } 100% { background-position: 145% 0; } }
+.gradient-bar {
+    height: 3px; border-radius: 2px; margin: 0.6rem 0 1.4rem;
+    background-color: rgba(79,139,249,0.18) !important;
+    background-image: linear-gradient(90deg,
+        rgba(0,229,255,0) 0%, #00E5FF 45%, #4FC3F7 55%, rgba(0,229,255,0) 100%) !important;
+    background-size: 36% 100% !important;
+    background-repeat: no-repeat !important;
+    animation: sweepX 2.8s linear infinite !important;
+}
+.sec-head .sh-rule {
+    background-color: rgba(79,139,249,0.14) !important;
+    background-image: linear-gradient(90deg,
+        rgba(79,195,247,0) 0%, #4FC3F7 50%, rgba(79,195,247,0) 100%) !important;
+    background-size: 45% 100% !important;
+    background-repeat: no-repeat !important;
+    animation: sweepX 5s linear infinite !important;
+}
+
+/* Headline numerals breathe with a slow flowing gradient. */
+[data-testid="stMetricValue"],
+.stat-cell .st-num,
+.pipe-step .ps-value {
+    background-size: 220% 220% !important;
+    animation: gradientShift 7s ease infinite;
+}
+
+/* Metric cards: a permanent (not hover-only) faint flowing top accent. */
+[data-testid="stMetric"]::after {
+    background: linear-gradient(90deg,
+        transparent, rgba(79,139,249,0.55), rgba(0,188,212,0.55), transparent) !important;
+    background-size: 220% 100% !important;
+    animation: gradientShift 6s ease infinite;
+}
+
+/* Panel cards: reveal a softly flowing top line even at rest (subtle). */
+.panel-card::before {
+    opacity: 0.45;
+    background: linear-gradient(90deg,
+        transparent 0%, #4F8BF9 40%, #00BCD4 60%, transparent 100%);
+    background-size: 220% 100%;
+    animation: gradientShift 6s ease infinite;
+}
+.panel-card:hover::before { opacity: 1; }
+
+/* ── Global background-job banner — PINNED to the bottom of the sidebar ────── */
+@keyframes obGlow { 0%,100% { box-shadow: 0 0 0 1px rgba(179,136,255,0.30),
+                                          0 0 16px rgba(156,39,176,0.20); }
+                    50%      { box-shadow: 0 0 0 1px rgba(179,136,255,0.6),
+                                          0 0 30px rgba(156,39,176,0.42); } }
+@keyframes obDot  { 0%,100% { opacity: 0.35; transform: scale(0.8); }
+                    50%      { opacity: 1;    transform: scale(1.15); } }
+/* The sidebar has a fixed 17.5rem width, so pin the banner there near the
+   bottom. It is position:fixed (does NOT add to the content height), so it never
+   forces the sidebar to scroll; the page's own panels are short enough to sit
+   above it. */
+[class*="st-key-opbanner"], [class*="st-key-opcta"] {
+    position: fixed; bottom: 3rem; left: 0; width: 17.5rem; z-index: 60;
+    padding: 0 0.9rem;
+}
+.op-cta-head {
+    font-size: 0.72rem; line-height: 1.4; color: #9FB6E0;
+    margin-bottom: 0.45rem; opacity: 0.85;
+}
+/* The whole running banner is a click target: an invisible button overlays it
+   and jumps to the page where the job is running. */
+[class*="st-key-opbanner"] .op-banner { cursor: pointer; }
+[class*="st-key-opbanner"] [data-testid="stElementContainer"]:last-child {
+    position: absolute; inset: 0; margin: 0 !important; z-index: 5;
+}
+[class*="st-key-opbanner"] [data-testid="stButton"],
+[class*="st-key-opbanner"] [data-testid="stButton"] button {
+    width: 100% !important; height: 100% !important; margin: 0 !important;
+}
+[class*="st-key-opbanner"] [data-testid="stButton"] button {
+    opacity: 0 !important; min-height: 0 !important; border: none !important;
+    padding: 0 !important;
+}
+.op-banner .ob-go { margin-left: auto; font-size: 0.66rem; color: #C9A6FF;
+    font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; flex: 0 0 auto; }
+.op-banner .ob-head { flex-wrap: nowrap; }
+.op-banner .ob-head > span:nth-child(3) {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-banner {
+    background: linear-gradient(150deg, rgba(74,20,110,0.62), rgba(34,16,74,0.6));
+    border: 1px solid rgba(179,136,255,0.42); border-radius: 0.8rem;
+    padding: 0.85rem 0.95rem; animation: obGlow 2.6s ease-in-out infinite;
+    backdrop-filter: blur(3px);
+}
+.op-banner .ob-head {
+    display: flex; align-items: center; gap: 0.45rem;
+    font-size: 0.86rem; font-weight: 750; color: #E6D6FF; margin-bottom: 0.5rem;
+}
+.op-banner .ob-ic { display: inline-flex; color: #C9A6FF; }
+.op-banner .ob-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: #C77DFF;
+    box-shadow: 0 0 8px #C77DFF; animation: obDot 1.1s ease-in-out infinite; flex: 0 0 auto;
+}
+.op-banner .ob-sub { font-size: 0.74rem; color: #C7B6E6; margin-bottom: 0.45rem; }
+.op-banner .ob-track {
+    height: 6px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden;
+}
+.op-banner .ob-track span {
+    display: block; height: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, #B388FF, #7C4DFF);
+    transition: width 0.4s ease;
+}
+.op-banner .ob-pct { font-size: 0.7rem; color: #A98FD0; margin-top: 0.35rem; }
+.op-banner .ob-note { font-size: 0.68rem; color: #8A78AE; margin-top: 0.5rem; line-height: 1.4; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE — tablet & phone. The hero title scales fluidly; dense custom grids
+   collapse; and the sidebar collapse control (hidden on desktop) comes back so
+   the sidebar can be opened/closed on touch devices.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hero-banner h1 { font-size: clamp(1.85rem, 5.2vw, 3.1rem); }
+
+@media (max-width: 1024px) {
+    .stat-strip { grid-template-columns: repeat(2, 1fr); }
+    .pipe-row   { grid-template-columns: 1fr; gap: 0.5rem; }
+    .pipe-arrow { display: none; }
+    /* Tablets auto-collapse the sidebar — bring the open/close control back so it
+       is recoverable (it is hidden on the desktop always-open layout). */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] { display: inline-flex !important; }
+    .set-grid   { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 680px) {
+    [data-testid="stMainBlockContainer"] {
+        padding-left: 0.7rem !important; padding-right: 0.7rem !important;
+    }
+    .hero-banner   { padding: 1.25rem 1.25rem 1.35rem; }
+    .hero-overline { font-size: 0.6rem; letter-spacing: 0.15em; }
+    .hero-banner p { font-size: 0.9rem; line-height: 1.55; }
+    .hero-author   { gap: 0.4rem 0.6rem; font-size: 0.76rem; }
+    .stat-strip    { grid-template-columns: 1fr 1fr; }
+    .stat-cell     { padding: 0.8rem 0.9rem 0.75rem; }
+    .stat-cell .st-num { font-size: 1.3rem; }
+    .rep-grid      { grid-template-columns: 1fr; }
+    .panel-card    { min-height: auto; }
+    .mode-card     { height: auto !important; min-height: 11rem; }
+    .corpus-card, .method-card { height: auto; }
+    .hcw-step      { grid-template-columns: 44px 1fr; gap: 0.7rem; }
+    section[data-testid="stSidebar"] { width: 15rem !important; }
+    /* Re-enable the sidebar open/close affordance on small screens. */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] { display: inline-flex !important; }
+}
+</style>
