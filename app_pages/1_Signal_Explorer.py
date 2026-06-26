@@ -232,31 +232,37 @@ def _audio_suffix(name, raw: bytes) -> str:
     return ".flac"
 
 
+def _decode_with_ffmpeg(raw: bytes, sr: int) -> np.ndarray:
+    """Decode arbitrary audio bytes to mono float32 via the ffmpeg binary bundled
+    by ``imageio-ffmpeg`` — needs NO system ffmpeg, so it works on hosts where
+    soundfile's libsndfile chokes on a FLAC and audioread has no backend."""
+    import subprocess
+    import imageio_ffmpeg
+    exe = imageio_ffmpeg.get_ffmpeg_exe()
+    proc = subprocess.run(
+        [exe, "-nostdin", "-loglevel", "quiet", "-i", "pipe:0",
+         "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(sr), "pipe:1"],
+        input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+    )
+    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
+
+
 @st.cache_data(show_spinner=False, max_entries=16)
 def _decode_upload(name: str, blob: bytes) -> np.ndarray:
-    import os as _os, tempfile as _tf, warnings as _w
     ext = get_extractor()
     try:
         signal, _ = librosa.load(io.BytesIO(blob), sr=ext.sample_rate, mono=True)
     except Exception:
         # soundfile can't read compressed formats (mp3/m4a/ogg) or some FLAC from
-        # a BytesIO. Write a temp file with the right extension so librosa's
-        # audioread/ffmpeg fallback engages.
-        suffix = _audio_suffix(name, blob)
-        with _tf.NamedTemporaryFile(suffix=suffix, delete=False) as _f:
-            _f.write(blob)
-            _tmp = _f.name
+        # a BytesIO. Decode through the bundled ffmpeg binary, which is far more
+        # permissive and needs no system install.
         try:
-            with _w.catch_warnings():
-                _w.simplefilter("ignore")
-                signal, _ = librosa.load(_tmp, sr=ext.sample_rate, mono=True)
+            signal = _decode_with_ffmpeg(blob, ext.sample_rate)
         except Exception as _ex:
+            suffix = _audio_suffix(name, blob)
             raise RuntimeError(
-                f"unsupported or corrupt audio ({suffix}). Compressed formats "
-                f"(mp3/m4a/ogg) need ffmpeg installed on the host. [{_ex}]"
+                f"unsupported or corrupt audio ({suffix}). [{_ex}]"
             ) from _ex
-        finally:
-            _os.unlink(_tmp)
     if len(signal) < ext.n_fft:
         signal = np.pad(signal, (0, ext.n_fft - len(signal)))
     return signal

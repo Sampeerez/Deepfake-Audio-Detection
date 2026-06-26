@@ -351,34 +351,41 @@ def _audio_suffix(name, raw: bytes) -> str:
     return ".flac"
 
 
+def _decode_with_ffmpeg(raw: bytes, sr: int) -> np.ndarray:
+    """Decode arbitrary audio bytes to mono float32 via the ffmpeg binary bundled
+    by ``imageio-ffmpeg``. This needs NO system ffmpeg, so it works on hosts
+    (Streamlit Cloud) where soundfile's libsndfile chokes on a FLAC and audioread
+    has no backend. Pipes the raw container in, reads f32le PCM out."""
+    import subprocess
+    import imageio_ffmpeg
+    exe = imageio_ffmpeg.get_ffmpeg_exe()
+    proc = subprocess.run(
+        [exe, "-nostdin", "-loglevel", "quiet", "-i", "pipe:0",
+         "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(sr), "pipe:1"],
+        input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+    )
+    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
+
+
 def _load_signal(uploaded, name=None):
     try:
         signal, _ = librosa.load(uploaded, sr=extractor.sample_rate, mono=True)
     except Exception:
         # soundfile can't read compressed formats (mp3/m4a/ogg) or some FLAC from
-        # a BytesIO. Write to a temp file with the right extension so librosa's
-        # audioread/ffmpeg path engages, which is far more permissive.
-        import os as _os, tempfile as _tf, warnings as _w
+        # a BytesIO. Read the bytes and decode through the bundled ffmpeg binary,
+        # which is far more permissive and needs no system install.
         if hasattr(uploaded, "seek"):
             uploaded.seek(0)
         raw = (uploaded.read() if hasattr(uploaded, "read")
                else bytes(uploaded) if isinstance(uploaded, (bytes, bytearray))
                else b"")
-        suffix = _audio_suffix(name, raw)
-        with _tf.NamedTemporaryFile(suffix=suffix, delete=False) as _f:
-            _f.write(raw)
-            _tmp = _f.name
         try:
-            with _w.catch_warnings():
-                _w.simplefilter("ignore")
-                signal, _ = librosa.load(_tmp, sr=extractor.sample_rate, mono=True)
+            signal = _decode_with_ffmpeg(raw, extractor.sample_rate)
         except Exception as _ex:                          # final, clearer failure
+            suffix = _audio_suffix(name, raw)
             raise RuntimeError(
-                f"unsupported or corrupt audio ({suffix}). Compressed formats "
-                f"(mp3/m4a/ogg) need ffmpeg installed on the host. [{_ex}]"
+                f"unsupported or corrupt audio ({suffix}). [{_ex}]"
             ) from _ex
-        finally:
-            _os.unlink(_tmp)
     if len(signal) < extractor.n_fft:
         signal = np.pad(signal, (0, extractor.n_fft - len(signal)))
     return signal
@@ -923,8 +930,10 @@ with tab_analyse:
 
     a1, a2, a3, a4 = st.columns([1.3, 1, 1.4, 0.7], vertical_alignment="bottom")
     with a1:
-        corpus = st.selectbox("Eval corpus", list(HF_EVAL_DATASETS), key="da_corpus_hf",
-                              help="Eval split streamed from the public HF dataset.")
+        with st.container(key="nosearch_da_corpus_hf"):
+            corpus = st.selectbox("Eval corpus", list(HF_EVAL_DATASETS),
+                                  key="da_corpus_hf",
+                                  help="Eval split streamed from the public HF dataset.")
     with a2:
         nper = st.number_input("Clips / class", 5, 500, HF_EVAL_PER_CLASS, step=5,
                                key="da_nper_hf",

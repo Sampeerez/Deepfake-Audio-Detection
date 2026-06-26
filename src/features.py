@@ -90,6 +90,17 @@ class FeatureExtractor:
     # ------------------------------------------------------------------ #
     # Internal utilities
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _ffmpeg_exe() -> str:
+        """Prefer the ffmpeg binary bundled by ``imageio-ffmpeg`` (always present
+        as a dependency, so this works on hosts like Streamlit Cloud with no
+        system ffmpeg); fall back to a system ``ffmpeg`` on PATH."""
+        try:
+            import imageio_ffmpeg
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            return "ffmpeg"
+
     def _ffmpeg_load(self, path: str):
         """Decode *path* via ffmpeg subprocess. Returns float32 array or None."""
         tmp_path = None
@@ -98,7 +109,7 @@ class FeatureExtractor:
                 tmp_path = tmp.name
             result = subprocess.run(
                 [
-                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    self._ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
                     "-i", path,
                     "-ar", str(self.sample_rate),
                     "-ac", "1",
