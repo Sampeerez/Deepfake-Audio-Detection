@@ -88,12 +88,16 @@ deepfakes *in the wild* (DF). EER (%) per corpus, lower is better:
 
 **The "Test an audio" verdict** is a weighted late-fusion of the most trustworthy
 families. The classic slot is resolved at runtime to whichever classic model
-ranks best by EER — currently **SVM · CQCC**. If a member is missing, the rest
-renormalize automatically:
+ranks best by EER — currently **SVM · CQCC**. The design weights (0.40 / 0.20 /
+0.10) don't sum to 1 — RawNet3's share was dropped — so they are **renormalized**
+at fusion time; the percentages the app shows are those renormalized shares. If a
+member is missing, the rest renormalize the same way:
 
 ```
-verdict  =  0.40 · wav2vec2   +   0.20 · ResNet+SE   +   0.10 · best classic (SVM·CQCC)
-                              '---- renormalized ----'
+                0.40                 0.20                  0.10
+verdict  =  ───────── · wav2vec2 + ───────── · ResNet+SE + ───────── · best classic (SVM·CQCC)
+              0.70                   0.70                    0.70
+         =     57%   · wav2vec2 +    29%    · ResNet+SE +    14%    · best classic (SVM·CQCC)
 ```
 
 <div align="center">

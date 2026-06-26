@@ -820,6 +820,7 @@ with tab_analyse:
             _ssl_entries = [e for e in pre_models if e["kind"] == "raw"]
             with st.container(key="nosearch_da_ssl"):
                 cnn_name = st.selectbox("SSL model", [e["name"] for e in _ssl_entries],
+                                        format_func=lambda n: n.replace(" (SSL)", ""),
                                         key="da_ssl")
         else:
             st.caption("Scores the CNN trained in Benchmark · CNN this session.")
@@ -866,7 +867,7 @@ with tab_analyse:
                                   if e["kind"] == "raw" and e["name"] == cnn_name)
                     sc, lb = _score_raw_on_samples(load_pretrained_model(_entry),
                                                    device, samples)
-                    name = f"{cnn_name} · {corpus} eval"
+                    name = f"{cnn_name.replace(' (SSL)', '')} · {corpus} eval"
                 else:
                     sc, lb = _score_cnn_on_samples(st.session_state["cnn_model"],
                                                    device, samples)
@@ -920,6 +921,7 @@ with tab_analyse:
         elif source == "SSL":
             with st.container(key="nosearch_da_ssl_hf"):
                 cnn_name = st.selectbox("SSL model", [e["name"] for e in ssl_entries],
+                                        format_func=lambda n: n.replace(" (SSL)", ""),
                                         key="da_ssl_hf")
             st.caption("Self-supervised wav2vec 2.0, served on CPU.")
         else:
@@ -963,7 +965,7 @@ with tab_analyse:
                     entry = next(e for e in ssl_entries if e["name"] == cnn_name)
                     sc, lb = _score_raw_on_samples(load_pretrained_model(entry),
                                                    "cpu", samples)
-                    name = f"{cnn_name} · {corpus} eval"
+                    name = f"{cnn_name.replace(' (SSL)', '')} · {corpus} eval"
                 else:
                     entry = next(e for e in cnn_entries if e["name"] == cnn_name)
                     sc, lb = _score_cnn_on_samples(load_pretrained_model(entry),

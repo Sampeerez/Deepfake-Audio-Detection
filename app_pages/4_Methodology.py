@@ -17,7 +17,7 @@ import streamlit as st  # noqa: E402
 from src.ui_helpers import (  # noqa: E402
     corpus_available, corpus_configured_2021_la, corpus_configured_2021_df,
     fig_corpus_overview, fig_overall_split_bar, get_samples, load_config,
-    section_header, sidebar_panel, themed,
+    section_header, themed,
 )
 
 st.markdown(themed("""
@@ -286,12 +286,12 @@ st.markdown(
     '<li>ReduceLROnPlateau scheduler</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">IV</div><h5>Self-Supervised (Transformer)</h5><ul>'
-    '<li><strong>wav2vec 2.0</strong> — 12-layer transformer encoder (base)</li>'
+    '<li><strong>wav2vec 2.0</strong> — 12-layer transformer encoder (base, hidden 768)</li>'
     '<li>Self-supervised pretraining + fine-tuned spoof head</li>'
     '<li>Raw 16&nbsp;kHz waveform — no DSP, no spectrogram</li>'
     '<li>Mean-pooled embedding &rarr; linear 2-class head</li>'
-    '<li>Inference-only in the benchmark</li>'
-    '<li>Weighted late-fusion member (Test an audio)</li>'
+    '<li>Temperature-calibrated softmax (T=2) tames overconfidence</li>'
+    '<li>Inference-only; weighted late-fusion member (Test an audio)</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">V</div><h5>Evaluation Metrics</h5><ul>'
     '<li><strong>EER</strong> — point where FAR = FRR</li>'
