@@ -168,6 +168,72 @@ def parse_protocol(
     return samples
 
 
+def read_attack_ids(protocol_path: str) -> Dict[str, str]:
+    """Map ``audio_id -> attack_id`` (e.g. ``LA_T_1271820 -> 'A01'``) from an
+    ASVspoof 2019 protocol. Bonafide rows map to ``'-'``.
+
+    Used to carve an UNSEEN-ATTACK validation split out of the training set:
+    train/dev share the same attacks (A01-A06), so a model selected on dev (the
+    default) overfits the seen attacks. Holding out a couple of attack families
+    for early stopping gives model selection a real generalisation signal."""
+    out: Dict[str, str] = {}
+    if not os.path.isfile(protocol_path):
+        return out
+    with open(protocol_path, "r", encoding="utf-8") as f:
+        for line in f:
+            fields = line.strip().split()
+            if len(fields) >= 5:
+                out[fields[1]] = fields[3]
+    return out
+
+
+def split_unseen_attacks(
+    samples: List[Tuple[str, int]],
+    attack_ids: Dict[str, str],
+    holdout_attacks: List[str],
+    bonafide_val_frac: float = 0.1,
+    seed: int = 42,
+) -> Tuple[List[Tuple[str, int]], List[Tuple[str, int]]]:
+    """Split training ``(path, label)`` samples into ``(train, val)`` where the
+    validation set holds out the given spoof attacks (unseen during weight
+    updates) plus a stratified fraction of bonafide clips.
+
+    The held-out attacks are removed from training entirely, so early stopping /
+    model selection on ``val`` measures generalisation to attacks the network
+    never optimised against — a much stronger signal than the same-attack dev
+    set. ``attack_ids`` comes from :func:`read_attack_ids`.
+
+    Returns ``(train_samples, val_samples)``; if no sample matches a held-out
+    attack (e.g. the map is empty) ``val`` falls back to a random bonafide-only
+    slice so the caller always gets a usable, non-empty validation set."""
+    rng  = random.Random(seed)
+    hold = set(holdout_attacks or [])
+    train: List[Tuple[str, int]] = []
+    val_spoof: List[Tuple[str, int]] = []
+    bona: List[Tuple[str, int]] = []
+    for path, label in samples:
+        aid = attack_ids.get(os.path.splitext(os.path.basename(path))[0], "-")
+        if label == LABEL_BONAFIDE:
+            bona.append((path, label))
+        elif aid in hold:
+            val_spoof.append((path, label))
+        else:
+            train.append((path, label))
+
+    rng.shuffle(bona)
+    n_val_bona = max(1, int(len(bona) * bonafide_val_frac)) if bona else 0
+    val   = val_spoof + bona[:n_val_bona]
+    train = train + bona[n_val_bona:]
+    rng.shuffle(train)
+    rng.shuffle(val)
+
+    n_vb = sum(1 for _, e in val if e == LABEL_BONAFIDE)
+    print(f"[DATA] Unseen-attack split (holdout {sorted(hold)}): "
+          f"train {len(train)} | val {len(val)} "
+          f"({n_vb} bonafide / {len(val) - n_vb} spoof).")
+    return train, val
+
+
 def parse_protocol_2021(
     metadata_path: str,
     audio_dirs: List[str],

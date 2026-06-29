@@ -17,19 +17,26 @@ import concurrent.futures as _cf
 import contextlib
 import io
 import json
+import math
 import os
 import threading
+from statistics import mean as _mean, stdev as _stdev
 from typing import Callable, Dict, List, Optional, Tuple
 
 import joblib
 
-from src.data_loader import stratified_subsample
+from src.data_loader import (
+    read_attack_ids, split_unseen_attacks, stratified_subsample,
+)
 from src.pipeline import (
     MODEL_OPTIONS, extract_feature_matrix, run_classic_models,
     score_fitted_classic, evaluate_cnn_on_set, evaluate_raw_on_set,
     train_and_evaluate_cnn,
 )
-from src.reporting import COL_EER, COL_FEATURES, COL_MIN_DCF, COL_MODEL
+from src.reporting import (
+    COL_ACCURACY, COL_EER, COL_FEATURES, COL_FEAT_TIME, COL_INFER_TIME,
+    COL_MIN_DCF, COL_MODEL, COL_THRESHOLD, COL_TRAIN_TIME,
+)
 
 FEATURE_ORDER = ["1", "2", "3", "4", "6"]
 
@@ -182,6 +189,16 @@ def _registry():
     return MODELS_DIR, LEADERBOARD_PATH, PRETRAINED_REGISTRY
 
 
+def _train_protocol_path() -> str:
+    """Absolute path of the ASVspoof 2019 LA *train* protocol — the source of the
+    attack labels used to build the unseen-attack validation split."""
+    from src.model_registry import load_config
+    c    = load_config()
+    root = c["dataset"]["path_la2019"]
+    return os.path.join(root, c["dataset"]["protocols_dir"],
+                        c["dataset"]["protocols"]["train"])
+
+
 def _as_float(row: Dict, key: str) -> Optional[float]:
     try:
         return float(row.get(key))
@@ -198,7 +215,10 @@ def _metrics_from_rows(rows: List[Dict], match: Callable[[Dict], bool]
     ev  = next((r for r in rows if match(r)
                 and "[EVAL]" in str(r.get(COL_MODEL, ""))), {})
     return {"eer_dev":  _as_float(dev, COL_EER), "mindcf_dev":  _as_float(dev, COL_MIN_DCF),
-            "eer_eval": _as_float(ev,  COL_EER), "mindcf_eval": _as_float(ev,  COL_MIN_DCF)}
+            "eer_eval": _as_float(ev,  COL_EER), "mindcf_eval": _as_float(ev,  COL_MIN_DCF),
+            # Per-model operating point used by "Test an audio": the dev EER
+            # threshold (where FAR = FRR on the in-domain dev split).
+            "thr_dev":  _as_float(dev, COL_THRESHOLD)}
 
 
 def _record(key: str, metrics: Dict) -> None:
@@ -285,9 +305,12 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
                     res, lambda r, t=token: t in str(r.get(COL_MODEL, ""))))
         rows.extend(_tag_split(res, pname))
         try:
-            _best = min(float(r["minDCF"]) for r in res
-                        if "[EVAL]" not in str(r.get("Model", "")))
-            _item = f"{feat_labels[fk]} · best minDCF {_best:.3f}"
+            _dev = min(float(r["minDCF"]) for r in res
+                       if "[EVAL]" not in str(r.get("Model", "")))
+            _evs = [float(r["minDCF"]) for r in res
+                    if "[EVAL]" in str(r.get("Model", ""))]
+            _item = (f"{feat_labels[fk]} · dev minDCF {_dev:.3f}"
+                     + (f" · eval best {min(_evs):.3f}" if _evs else ""))
         except (ValueError, KeyError):
             _item = f"{feat_labels[fk]} · done"
         _stream("classic", label=f"{feat_labels[fk]} done", inc=1, item=_item)
@@ -295,55 +318,183 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
     return rows
 
 
+# Every deep architecture trained by the Full-comparison sweep (single source
+# of truth for how many CNN slots the progress streams reserve).
+_CNN_ARCHS = ["cnn", "cnn_se", "resnet", "resnext", "crnn"]
+
+
+def _push_float(acc: List[float], val) -> None:
+    """Append val to acc as a float, ignoring '—'/missing/unparseable entries."""
+    try:
+        acc.append(float(val))
+    except (TypeError, ValueError):
+        pass
+
+
+def _aggregate_seed_rows(seed_results: List[List[Dict]], n_seeds: int) -> List[Dict]:
+    """Collapse N per-seed result-row lists into ONE list of MEAN rows.
+
+    Rows are matched across seeds by (is_eval, corpus) — i.e. the dev row and
+    each eval-corpus row are averaged across seeds. EER / minDCF / accuracy and
+    the timing columns become their cross-seed means, and 'EER std' / 'minDCF
+    std' / 'Seeds' are added so the leaderboard can report variance. Row order
+    follows the first seed (dev first, then each eval corpus)."""
+    if not seed_results:
+        return []
+    order: List[Tuple[bool, str]] = []
+    groups: Dict[Tuple[bool, str], Dict] = {}
+    _avg_cols = [COL_EER, COL_MIN_DCF, COL_ACCURACY,
+                 COL_TRAIN_TIME, COL_FEAT_TIME, COL_INFER_TIME, COL_THRESHOLD]
+    for cres in seed_results:
+        for r in cres:
+            is_eval = "[EVAL]" in str(r.get(COL_MODEL, ""))
+            key = (is_eval, str(r.get("Corpus", "")))
+            if key not in groups:
+                groups[key] = {"template": r, **{c: [] for c in _avg_cols}}
+                order.append(key)
+            g = groups[key]
+            for c in _avg_cols:
+                _push_float(g[c], r.get(c))
+
+    out: List[Dict] = []
+    for key in order:
+        g = groups[key]
+        row = dict(g["template"])
+        if g[COL_EER]:
+            row[COL_EER]   = f"{_mean(g[COL_EER]):.2f}"
+            row["EER std"] = f"{_stdev(g[COL_EER]):.2f}" if len(g[COL_EER]) > 1 else "0.00"
+        if g[COL_MIN_DCF]:
+            row[COL_MIN_DCF]  = f"{_mean(g[COL_MIN_DCF]):.4f}"
+            row["minDCF std"] = (f"{_stdev(g[COL_MIN_DCF]):.4f}"
+                                 if len(g[COL_MIN_DCF]) > 1 else "0.0000")
+        if g[COL_ACCURACY]:
+            row[COL_ACCURACY] = f"{_mean(g[COL_ACCURACY]):.4f}"
+        if g[COL_THRESHOLD]:
+            row[COL_THRESHOLD] = f"{_mean(g[COL_THRESHOLD]):.4f}"
+        if g[COL_TRAIN_TIME]:
+            row[COL_TRAIN_TIME] = f"{_mean(g[COL_TRAIN_TIME]):.2f}"
+        for c in (COL_FEAT_TIME, COL_INFER_TIME):
+            if g[c]:
+                row[c] = f"{_mean(g[c]):.3f}"
+        row["Seeds"] = n_seeds
+        out.append(row)
+    return out
+
+
 def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
-               cnn_paths=None, cnn_keys=None):
-    cnn_paths = cnn_paths or {}
-    cnn_keys  = cnn_keys or {}
+               cnn_paths=None, cnn_keys=None, arch_params=None,
+               seeds=None, val_samples=None):
+    """Train every CNN architecture and score it on dev + each eval corpus.
+
+    When ``seeds`` has more than one entry each architecture is trained ONCE PER
+    SEED and the per-seed metrics are averaged (mean ± std) — a single run on a
+    saturated dev set can't tell the architectures apart, so repeating over
+    seeds is what makes the ranking trustworthy. ``val_samples`` (an unseen-attack
+    holdout) drives early stopping so model selection rewards generalisation.
+    The checkpoint persisted to ``cnn_paths[arch]`` is the BEST seed, picked by
+    its lowest (unseen-attack) validation loss."""
+    from src.models import arch_label
+
+    cnn_paths   = cnn_paths or {}
+    cnn_keys    = cnn_keys or {}
+    arch_params = arch_params or {}
+    seed_list   = list(seeds) if seeds else [seed]
+    n_seeds     = len(seed_list)
     rows = []
-    _arch_name = {"resnet": "ResNet + SE", "cnn": "2-D CNN"}
-    for arch in ["resnet", "cnn"]:
+    for arch in _CNN_ARCHS:
+        name = arch_label(arch)
         if _cancel.is_set():
             _stream("cnn", label="Cancelled")
             break
-        _step(f"CNN · {arch} (training on the full train set)")
-        _stream("cnn", label=f"{_arch_name[arch]} — starting…")
+        _step(f"CNN · {arch} ({n_seeds} seed{'s' if n_seeds > 1 else ''})")
         p = dict(base_params)
         # More DataLoader workers → faster FLAC decode each epoch (the CNN's
         # main cost, since spectrograms are re-extracted per epoch).
-        p.update({"semilla": seed, "augment": True, "arch": arch,
+        p.update({"augment": True, "arch": arch,
                   "num_workers": max(int(base_params.get("num_workers", 2)), 6)})
+        # Per-architecture OPTIMAL hyper-parameters (epochs / patience / batch /
+        # lr …) override the shared defaults so each model trains at its best.
+        p.update(arch_params.get(arch, {}))
         _ep = int(p.get("epochs", 1))
 
-        # Clear epoch list for each new architecture so the live chart always
-        # shows the CURRENT model's curves (not a mix of resnet + cnn3x3).
-        with _lock:
-            _cnn_epochs.clear()
+        final_ckpt   = cnn_paths.get(arch)
+        per_seed_cres: List[List[Dict]] = []
+        kept_tmps:     List[str] = []
+        best_tmp:      Optional[str] = None
+        best_val_loss  = float("inf")
 
-        def _cb(rec, _a=arch):
+        for si, sd in enumerate(seed_list):
+            if _cancel.is_set():
+                break
+            # Fresh live chart per seed so the curves always show the current run.
             with _lock:
-                _cnn_epochs.append(dict(rec))
-            _stream("cnn", label=(f"{_arch_name[_a]} · epoch {rec.get('epoch')}/{_ep} "
-                                  f"· val={rec.get('val_loss', 0):.4f}"))
+                _cnn_epochs.clear()
+            _stream("cnn", label=f"{name} — seed {si + 1}/{n_seeds} starting…")
+            pp = dict(p); pp["semilla"] = sd
 
-        def _cb_batch(epoch, n_batch, loss, _a=arch):
-            _stream("cnn", label=(f"{_arch_name[_a]} · epoch {epoch}/{_ep} "
-                                  f"· batch {n_batch} · loss={loss:.4f}"))
+            def _cb(rec, _a=name, _si=si):
+                with _lock:
+                    _cnn_epochs.append(dict(rec))
+                _stream("cnn", label=(f"{_a} · seed {_si + 1}/{n_seeds} · epoch "
+                                      f"{rec.get('epoch')}/{_ep} "
+                                      f"· val={rec.get('val_loss', 0):.4f}"))
 
-        # Persist the best weights to the registry path so the demo can serve them.
-        _, _, cres = train_and_evaluate_cnn(
-            train, primary, ext, p, eval_sets=(eval_corpora or []),
-            epoch_callback=_cb, batch_callback=_cb_batch, should_stop=_cancel.is_set,
-            checkpoint_path=cnn_paths.get(arch))
+            def _cb_batch(epoch, n_batch, loss, _a=name, _si=si):
+                _stream("cnn", label=(f"{_a} · seed {_si + 1}/{n_seeds} · epoch "
+                                      f"{epoch}/{_ep} · batch {n_batch} "
+                                      f"· loss={loss:.4f}"))
+
+            tmp_ckpt = f"{final_ckpt}.seed{sd}.tmp" if final_ckpt else None
+            _, history, cres = train_and_evaluate_cnn(
+                train, primary, ext, pp, eval_sets=(eval_corpora or []),
+                val_samples=val_samples, epoch_callback=_cb, batch_callback=_cb_batch,
+                should_stop=_cancel.is_set, checkpoint_path=tmp_ckpt)
+            if _cancel.is_set():
+                break
+            per_seed_cres.append(cres)
+            # Seed selection: keep the checkpoint with the lowest unseen-attack
+            # validation loss (the generalising one), not just the last seed.
+            _vl = min((r["val_loss"] for r in history
+                       if isinstance(r.get("val_loss"), (int, float))
+                       and math.isfinite(r["val_loss"])), default=float("inf"))
+            if tmp_ckpt:
+                kept_tmps.append(tmp_ckpt)
+                if _vl < best_val_loss:
+                    best_val_loss = _vl
+                    best_tmp      = tmp_ckpt
+
+        # Promote the best seed's weights to the registry path; drop the rest.
+        if final_ckpt and best_tmp and os.path.isfile(best_tmp):
+            try:
+                os.replace(best_tmp, final_ckpt)
+            except OSError:
+                pass
+        for t in kept_tmps:
+            if t != best_tmp and os.path.isfile(t):
+                try:
+                    os.remove(t)
+                except OSError:
+                    pass
+
+        if not per_seed_cres:                 # cancelled before any seed finished
+            _stream("cnn", label="Cancelled")
+            break
+
+        agg = _aggregate_seed_rows(per_seed_cres, n_seeds)
         if arch in cnn_keys and not _cancel.is_set():
-            _record(cnn_keys[arch], _metrics_from_rows(cres, lambda r: True))
-        rows.extend(_tag_split(cres, "dev"))
+            _record(cnn_keys[arch], _metrics_from_rows(agg, lambda r: True))
+        rows.extend(_tag_split(agg, "dev"))
         try:
-            _best = min(float(r["minDCF"]) for r in cres
-                        if "[EVAL]" not in str(r.get("Model", "")))
-            _item = f"{_arch_name[arch]} · dev minDCF {_best:.3f}"
+            _dev = min(float(r[COL_MIN_DCF]) for r in agg
+                       if "[EVAL]" not in str(r.get(COL_MODEL, "")))
+            _evs = [float(r[COL_MIN_DCF]) for r in agg
+                    if "[EVAL]" in str(r.get(COL_MODEL, ""))]
+            _item = (f"{name} · dev minDCF {_dev:.3f}"
+                     + (f" · eval best {min(_evs):.3f}" if _evs else "")
+                     + (f" · {n_seeds} seeds" if n_seeds > 1 else ""))
         except (ValueError, KeyError):
-            _item = f"{_arch_name[arch]} · done"
-        _stream("cnn", label=f"{_arch_name[arch]} done", inc=1, item=_item)
+            _item = f"{name} · done"
+        _stream("cnn", label=f"{name} done", inc=1, item=_item)
         _step(f"CNN · {arch} done", inc=1)
     return rows
 
@@ -415,12 +566,32 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
          classic_subset, cnn_subset, include_cnn, seed=42, export=True,
          eval_subset=0) -> Tuple[List[Dict], List[Dict]]:
     _cancel.clear()
-    _reset_streams(len(FEATURE_ORDER), 2 if include_cnn else 0)
+    n_cnn = len(_CNN_ARCHS) if include_cnn else 0
+    _reset_streams(len(FEATURE_ORDER), n_cnn)
     with _lock:
         _leaderboard.clear()
         _cnn_epochs.clear()   # reset so the full-comparison live view shows fresh curves
-        _state.update({"total": len(FEATURE_ORDER) + (2 if include_cnn else 0),
+        _state.update({"total": len(FEATURE_ORDER) + n_cnn,
                        "done": 0, "label": "Preparing data…"})
+
+    # Per-architecture optimal hyper-parameters from the YAML (epochs, patience,
+    # batch size, lr …) so the Full-comparison sweep trains each model at its best.
+    arch_params = {}
+    cnn_seeds   = [seed]
+    ms_holdout: List[str] = []
+    ms_bona_frac = 0.1
+    if include_cnn:
+        from src.model_registry import load_config
+        _cfg = load_config()
+        arch_params  = dict(_cfg.get("cnn_arch_params", {}) or {})
+        # Multi-seed + unseen-attack validation settings (rigour knobs): training
+        # each CNN over several seeds and averaging removes single-run luck, while
+        # an unseen-attack holdout gives early stopping a real generalisation
+        # signal instead of the saturated, same-attack dev set.
+        _ms = _cfg.get("cnn_multiseed", {}) or {}
+        cnn_seeds    = list(_ms.get("seeds", [seed])) or [seed]
+        ms_holdout   = list(_ms.get("holdout_attacks", []) or [])
+        ms_bona_frac = float(_ms.get("bonafide_val_frac", 0.1))
 
     # Map the registry models to their on-disk paths so the sweeps can persist
     # them (.pth / .joblib) and record their metrics for leaderboard.json.
@@ -433,10 +604,11 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
                          for e in reg if e["kind"] == "classic"}
         classic_keys  = {(e["feat"], e["clf"]): e["key"]
                          for e in reg if e["kind"] == "classic"}
-        cnn_paths = {("resnet" if e["key"] == "resnet" else "cnn"):
-                     os.path.join(models_dir, e["file"])
+        # Key the maps by the canonical arch key (registry "arch" field) so the
+        # CNN sweep persists each architecture's checkpoint to the right file.
+        cnn_paths = {e["arch"]: os.path.join(models_dir, e["file"])
                      for e in reg if e["kind"] == "cnn"}
-        cnn_keys  = {("resnet" if e["key"] == "resnet" else "cnn"): e["key"]
+        cnn_keys  = {e["arch"]: e["key"]
                      for e in reg if e["kind"] == "cnn"}
         # Raw-waveform models (wav2vec 2.0): evaluated-only, and only if the
         # checkpoint is actually on disk. They share the CNN progress stream.
@@ -467,12 +639,24 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
         n_pr = _sub(primary, cnn_subset, seed + 1)
         n_ev = [(lbl, _sub(s, n_ev_n, seed + 2)) for lbl, s in eval_corpora]
 
+        # Carve an UNSEEN-ATTACK validation split out of the CNN training pool: the
+        # held-out attacks (e.g. A05/A06) leave training entirely and drive early
+        # stopping, so model selection rewards generalisation rather than memorising
+        # the train/dev-shared attacks. Empty holdout ⇒ fall back to dev (n_pr).
+        cnn_val = None
+        if include_cnn and ms_holdout:
+            attack_ids = read_attack_ids(_train_protocol_path())
+            n_tr, cnn_val = split_unseen_attacks(
+                n_tr, attack_ids, ms_holdout, ms_bona_frac, seed)
+
         # Classic (CPU) and CNN (GPU) in parallel.
         with _cf.ThreadPoolExecutor(max_workers=2) as pool:
             f_c = pool.submit(_classic_sweep, ext, feat_labels, c_tr, c_pr, c_ev,
                               pname, seed, classic_paths, classic_keys)
             f_n = (pool.submit(_cnn_sweep, ext, base_params, n_tr, n_pr, n_ev, seed,
-                               cnn_paths, cnn_keys) if include_cnn else None)
+                               cnn_paths, cnn_keys, arch_params,
+                               cnn_seeds, cnn_val)
+                   if include_cnn else None)
             classic_rows = f_c.result()
             cnn_rows     = f_n.result() if f_n is not None else []
 
@@ -505,13 +689,14 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
                    base_params, seed=42) -> Tuple[List[Dict], List[Dict]]:
     """Load every saved registry model and score on eval_corpora (no training)."""
     import torch
-    from src.models import AudioDeepfakeCNN, ResNetCNN
+    from src.models import arch_label as arch_label_for, model_for_arch
 
     _cancel.clear()
-    _reset_streams(len(FEATURE_ORDER), 2)
+    n_cnn = len(_CNN_ARCHS)
+    _reset_streams(len(FEATURE_ORDER), n_cnn)
     with _lock:
         _cnn_epochs.clear()
-        _state.update({"total": len(FEATURE_ORDER) + 2, "done": 0,
+        _state.update({"total": len(FEATURE_ORDER) + n_cnn, "done": 0,
                        "label": "Evaluating saved models…"})
 
     models_dir, _, reg = _registry()
@@ -561,13 +746,12 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
         _step(f"Classic · {feat_labels[fk]} done", inc=1)
 
     # ── CNN models ─────────────────────────────────────────────────────────── #
-    _arch_name = {"resnet": "ResNet + SE", "cnn": "2-D CNN"}
     for e in [e for e in reg if e["kind"] == "cnn"]:
         if _cancel.is_set():
             _stream("cnn", label="Cancelled")
             break
-        arch_key   = "resnet" if e["key"] == "resnet" else "cnn"
-        arch_label = _arch_name.get(arch_key, e["name"])
+        arch_key   = e["arch"]
+        arch_label = arch_label_for(arch_key)
         path       = os.path.join(models_dir, e["file"])
 
         if not os.path.isfile(path):
@@ -578,9 +762,9 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
         _stream("cnn", label=f"{arch_label} — loading…")
         try:
             ckpt = torch.load(path, map_location=torch.device("cpu"))
-            model_cls = ResNetCNN if ckpt.get("arch") == "resnet" else AudioDeepfakeCNN
-            model = model_cls(dropout=float(ckpt.get("dropout",
-                                                      base_params.get("dropout", 0.3))))
+            model = model_for_arch(
+                ckpt.get("arch", arch_key),
+                dropout=float(ckpt.get("dropout", base_params.get("dropout", 0.3))))
             model.load_state_dict(ckpt["state_dict"])
             model.to("cpu").eval()
         except Exception as exc:

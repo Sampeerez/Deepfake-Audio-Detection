@@ -28,7 +28,8 @@ from src.jobs import (  # noqa: E402
     request_cancel, submit_benchmark,
 )
 from src.reporting import (  # noqa: E402
-    COL_ACCURACY, COL_EER, COL_FEATURES, COL_MIN_DCF, COL_MODEL,
+    COL_ACCURACY, COL_EER, COL_FEATURES, COL_FEAT_TIME, COL_INFER_TIME,
+    COL_MIN_DCF, COL_MODEL, COL_TRAIN_TIME,
 )
 from src.ui_helpers import (  # noqa: E402
     EVAL_CORPUS_CHOICES, available_pretrained_models, corpus_available,
@@ -36,7 +37,7 @@ from src.ui_helpers import (  # noqa: E402
     eval_corpora_for, get_extractor, get_samples,
     load_config, load_leaderboard_models, load_leaderboard_rows,
     load_pretrained_model, model_downloaded,
-    op_in_progress, show_empty_state, sidebar_panel, test_audio_cta,
+    op_in_progress, show_empty_state, sidebar_panel,
     themed,
 )
 
@@ -133,8 +134,8 @@ st.caption(
     "Every run this session — classic DSP pipelines and trained CNNs — ranked by "
     "**minDCF** (primary), EER as tiebreaker. Classic (CPU) and CNN (GPU) run **in "
     "parallel in the background**, so you can browse other pages while it works. "
-    "**Train and evaluate all** fits and saves all 17 trainable models (LR / SVM / "
-    "XGBoost × 5 DSP front-ends + both CNNs) and additionally **evaluates** the "
+    "**Train and evaluate all** fits and saves all 20 trainable models (LR / SVM / "
+    "XGBoost × 5 DSP front-ends + 5 CNN architectures) and additionally **evaluates** the "
     "pretrained wav2vec 2.0 SSL detector (inference-only), then scores every one on "
     "the 2019 LA dev split "
     "and every available eval corpus (2019 LA, 2021 LA, 2021 DF) — capped to a "
@@ -177,6 +178,34 @@ def _prefetch_models(entries, bar):
 _LB_TYPE_COLORS = {"Classic": "#4F8BF9", "CNN": "#AB47BC", "SSL": "#26C6DA"}
 
 
+def _aggregate_by_model(frame: "pd.DataFrame") -> "pd.DataFrame":
+    """Collapse a leaderboard frame to ONE row per model, averaging its metrics
+    and timings across EVERY split/corpus present.
+
+    The headline picks ("best model", "most efficient") and the Efficiency tab
+    use this so they reflect overall behaviour across all corpora — not just the
+    easy 2019 dev split, which flatters the deep nets. Training time only exists
+    on the dev row, so its mean is simply that single value."""
+    g = frame.copy()
+    for c in (COL_TRAIN_TIME, COL_FEAT_TIME, COL_INFER_TIME,
+              COL_EER, COL_MIN_DCF, COL_ACCURACY):
+        g[c] = pd.to_numeric(g[c], errors="coerce") if c in g.columns else float("nan")
+    agg = g.groupby(["Type", "Features", "Model", "Config"], as_index=False).agg(
+        Train_s=(COL_TRAIN_TIME, "mean"),
+        Extract_ms=(COL_FEAT_TIME, "mean"),
+        Infer_ms=(COL_INFER_TIME, "mean"),
+        EER=(COL_EER, "mean"),
+        minDCF=(COL_MIN_DCF, "mean"),
+        Accuracy=(COL_ACCURACY, "mean"),
+        Corpora=(COL_EER, "count"),
+    )
+    # End-to-end per-clip latency = feature extraction + model forward.
+    agg["Latency_ms"] = agg["Extract_ms"].fillna(0) + agg["Infer_ms"].fillna(0)
+    agg.loc[agg["Extract_ms"].isna() & agg["Infer_ms"].isna(),
+            "Latency_ms"] = float("nan")
+    return agg
+
+
 def _render_leaderboard(rows: list) -> None:
     """Render the leaderboard (champion banner, headline metrics, filters, ranking
     table + chart, sidebar) from a list of result rows. Shared by the LOCAL live
@@ -186,7 +215,8 @@ def _render_leaderboard(rows: list) -> None:
         s = str(s)
         for m in markers:
             s = s.replace(m, "")
-        return s.split("(")[0].strip()
+        # Collapse any whitespace left by removing mid-string markers (e.g. "PyTorch").
+        return " ".join(s.split("(")[0].split())
 
     def _dataset_of(split) -> str:
         s = str(split).strip()
@@ -197,12 +227,27 @@ def _render_leaderboard(rows: list) -> None:
     df = pd.DataFrame(rows)
     df[COL_EER]     = pd.to_numeric(df.get(COL_EER), errors="coerce")
     df[COL_MIN_DCF] = pd.to_numeric(df.get(COL_MIN_DCF), errors="coerce")
+    # Cross-seed variance (only present on multi-seed CNN rows; "—"/absent else).
+    # Guard column presence: older leaderboards / single-run rows lack these keys.
+    df["EER std"]    = (pd.to_numeric(df["EER std"], errors="coerce")
+                        if "EER std" in df.columns else float("nan"))
+    df["minDCF std"] = (pd.to_numeric(df["minDCF std"], errors="coerce")
+                        if "minDCF std" in df.columns else float("nan"))
+    df["Seeds"]      = (pd.to_numeric(df["Seeds"], errors="coerce").fillna(1).astype(int)
+                        if "Seeds" in df.columns else 1)
     df["Type"]      = df.get("Type", "Classic")
     df["Features"]  = df.get(COL_FEATURES, "").map(lambda s: _clean(s, "[EVAL]"))
-    df["Model"]     = df.get(COL_MODEL, "").map(lambda s: _clean(s, "[CPU]", "[CUDA]", "[EVAL]"))
+    df["Model"]     = df.get(COL_MODEL, "").map(
+        lambda s: _clean(s, "[CPU]", "[CUDA]", "[EVAL]", "PyTorch"))
     df["Config"]    = df["Features"] + " · " + df["Model"]
     df["Dataset"]   = df[COL_SPLIT].map(_dataset_of)
     df["SplitKind"] = df[COL_SPLIT].map(lambda s: "Dev" if str(s).strip() == "dev" else "Eval")
+    # User-facing split label: tag the bare "dev" with its corpus (always 2019 LA)
+    # so it reads like the eval rows ("dev · 2019 LA"). The raw COL_SPLIT value is
+    # kept untouched — SplitKind and the dedup key still rely on it.
+    df["SplitDisplay"] = df.apply(
+        lambda r: (f"dev · {r['Dataset']}" if str(r[COL_SPLIT]).strip() == "dev"
+                   else str(r[COL_SPLIT])), axis=1)
 
     # One row per (type, features, model, split): best by minDCF, EER as tiebreaker.
     _SORT = [COL_MIN_DCF, COL_EER]
@@ -216,16 +261,50 @@ def _render_leaderboard(rows: list) -> None:
     _fams = [t for t in _fam_order if (df["Type"] == t).any()] + \
             [t for t in df["Type"].unique() if t not in _fam_order]
 
-    if not ranked.empty:
-        best = ranked.iloc[0]
+    # Two headline picks, both judged ACROSS ALL CORPORA (not the easy dev split):
+    #   • Best model      — lowest mean minDCF (the model that detects best overall).
+    #   • Most efficient  — best accuracy×speed trade-off (mean EER × per-clip
+    #     latency, lower is better), so a fast detector with decent accuracy can win.
+    _by_all = _aggregate_by_model(ranked)
+    _det = _by_all.dropna(subset=["minDCF"]).sort_values(["minDCF", "EER"])
+    if not _det.empty:
+        b = _det.iloc[0]
         st.markdown(
             '<div class="champ-banner">'
-            '<span class="cb-tag">★ Best run</span>'
-            f'<span class="cb-combo">{best["Config"]}</span>'
-            f'<span class="cb-metric">type <b>{best["Type"]}</b></span>'
-            f'<span class="cb-metric">minDCF <b>{best[COL_MIN_DCF]:.3f}</b></span>'
-            f'<span class="cb-metric">EER <b>{best[COL_EER]:.2f} %</b></span>'
-            f'<span class="cb-metric">split <b>{best[COL_SPLIT]}</b></span>'
+            '<span class="cb-tag">★ Best model</span>'
+            f'<span class="cb-combo">{b["Config"]}</span>'
+            f'<span class="cb-metric">type <b>{b["Type"]}</b></span>'
+            f'<span class="cb-metric">minDCF <b>{b["minDCF"]:.3f}</b></span>'
+            f'<span class="cb-metric">EER <b>{b["EER"]:.2f} %</b></span>'
+            f'<span class="cb-metric">avg over <b>{int(b["Corpora"])} corpora</b></span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    _effp = _by_all.dropna(subset=["Latency_ms", "EER"]).copy()
+    if not _effp.empty:
+        # "Efficient" must reward QUALITY, not just raw speed — a fast but
+        # inaccurate classic isn't efficient. Min-max normalise EER and latency
+        # across the field and score 0.65·EER + 0.35·latency (lower = better), so
+        # the winner is the model with near-best accuracy at low cost (a light deep
+        # net), not the cheapest mediocre one nor the most accurate but slowest.
+        def _norm(s):
+            lo, hi = float(s.min()), float(s.max())
+            return (s - lo) / (hi - lo) if hi > lo else s * 0.0
+        _effp["score"] = 0.65 * _norm(_effp["EER"]) + 0.35 * _norm(_effp["Latency_ms"])
+        e = _effp.sort_values("score").iloc[0]
+        _train = f'{e["Train_s"]:.0f}s' if pd.notna(e["Train_s"]) else "—"
+        st.markdown(
+            '<div class="champ-banner" style="background:linear-gradient(135deg,'
+            'rgba(38,198,218,0.12) 0%,rgba(38,198,218,0.03) 100%);'
+            'border:1px solid rgba(38,198,218,0.32);border-left:3px solid #26C6DA;'
+            'animation:none;">'
+            '<span class="cb-tag" style="color:#7FE0EC">&#8623; Most efficient</span>'
+            f'<span class="cb-combo">{e["Config"]}</span>'
+            f'<span class="cb-metric">type <b>{e["Type"]}</b></span>'
+            f'<span class="cb-metric">latency <b>{e["Latency_ms"]:.2f} ms/clip</b></span>'
+            f'<span class="cb-metric">EER <b>{e["EER"]:.2f} %</b></span>'
+            f'<span class="cb-metric">train <b>{_train}</b></span>'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -240,47 +319,67 @@ def _render_leaderboard(rows: list) -> None:
     c4.metric("Best EER", f'{ranked[COL_EER].min():.2f} %' if not ranked.empty else "—")
 
     st.divider()
-    st.markdown('<div class="section-label">Filter the leaderboard</div>',
-                unsafe_allow_html=True)
-    _ds_present = [c for c in EVAL_CORPUS_CHOICES if c in set(ranked["Dataset"])]
-    fc1, fc2, fc3 = st.columns(3)
-    with fc1:
-        f_ds = st.segmented_control("Dataset", ["All"] + _ds_present,
-                                    default="All", key="lb_f_ds")
-    with fc2:
-        f_sp = st.segmented_control("Split", ["All", "Dev", "Eval"],
-                                    default="All", key="lb_f_sp")
-    with fc3:
-        f_ty = st.segmented_control("Model type", ["All"] + _fams,
-                                    default="All", key="lb_f_ty")
-    f_ds, f_sp, f_ty = (f_ds or "All"), (f_sp or "All"), (f_ty or "All")
+    # Hide the filters when the Efficiency (last) tab is active — it always averages
+    # every corpus, so Dataset/Split/Model-type don't apply there; they stay on the
+    # Ranking and Chart tabs. (:has fires when the last tab button is the selected one.)
+    st.markdown(
+        "<style>.st-key-lb_filterwrap:has(div[data-baseweb='tab-list'] "
+        "button[data-baseweb='tab']:last-of-type[aria-selected='true']) "
+        ".st-key-lb_filters{display:none}</style>",
+        unsafe_allow_html=True,
+    )
 
-    view = ranked
-    if f_ds != "All":
-        view = view[view["Dataset"] == f_ds]
-    if f_sp != "All":
-        view = view[view["SplitKind"] == f_sp]
-    if f_ty != "All":
-        view = view[view["Type"] == f_ty]
-    view = view.sort_values(_SORT, na_position="last").reset_index(drop=True)
+    # Filters + tabs share the `lb_filterwrap` container so the :has rule above can
+    # reach the tab state. st.tabs() is CALLED here (nesting the tab DOM inside the
+    # wrapper); the `with tab_*` blocks below stay at the outer indent — content is
+    # routed to each panel regardless of where the block lives.
+    with st.container(key="lb_filterwrap"):
+        with st.container(key="lb_filters"):
+            st.markdown('<div class="section-label">Filter the leaderboard</div>',
+                        unsafe_allow_html=True)
+            _ds_present = [c for c in EVAL_CORPUS_CHOICES if c in set(ranked["Dataset"])]
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                f_ds = st.segmented_control("Dataset", ["All"] + _ds_present,
+                                            default="All", key="lb_f_ds")
+            with fc2:
+                f_sp = st.segmented_control("Split", ["All", "Dev", "Eval"],
+                                            default="All", key="lb_f_sp")
+            with fc3:
+                f_ty = st.segmented_control("Model type", ["All"] + _fams,
+                                            default="All", key="lb_f_ty")
+            f_ds, f_sp, f_ty = (f_ds or "All"), (f_sp or "All"), (f_ty or "All")
 
-    _active = [f for f in (f_ds, f_sp, f_ty) if f != "All"]
-    st.caption(("Showing **all** results — pick a Dataset, Split or Model type to "
-                "narrow them." if not _active
-                else f"Filtered to **{len(view)}** of {len(ranked)} results "
-                     f"({' · '.join(_active)})."))
+            view = ranked
+            if f_ds != "All":
+                view = view[view["Dataset"] == f_ds]
+            if f_sp != "All":
+                view = view[view["SplitKind"] == f_sp]
+            if f_ty != "All":
+                view = view[view["Type"] == f_ty]
+            view = view.sort_values(_SORT, na_position="last").reset_index(drop=True)
 
-    tab_table, tab_chart = st.tabs(["Ranking", "Chart"])
+            _active = [f for f in (f_ds, f_sp, f_ty) if f != "All"]
+            st.caption(("Showing **all** results — pick a Dataset, Split or Model type "
+                        "to narrow them." if not _active
+                        else f"Filtered to **{len(view)}** of {len(ranked)} results "
+                             f"({' · '.join(_active)})."))
+
+        tab_table, tab_chart, tab_eff = st.tabs(["Ranking", "Chart", "Efficiency"])
+
     with tab_table:
         if view.empty:
             st.info("No results match the current filters.")
         else:
             show = view.copy()
             show.insert(0, "Rank", range(1, len(show) + 1))
-            show = show[["Rank", "Type", "Features", "Model", COL_SPLIT,
+            # Compact ranking: just the (seed-averaged) metrics, one row per model
+            # × split. The per-seed spread stays in leaderboard.json for anyone who
+            # wants it; the table keeps the headline numbers readable.
+            show = show[["Rank", "Type", "Features", "Model", "SplitDisplay",
                          COL_MIN_DCF, COL_EER, COL_ACCURACY]]
             show = show.rename(columns={COL_EER: "EER (%)", COL_MIN_DCF: "minDCF",
-                                        COL_ACCURACY: "Accuracy", COL_SPLIT: "Split"})
+                                        COL_ACCURACY: "Accuracy", "SplitDisplay": "Split"})
 
             def _hl(row):
                 base = ("background-color: rgba(255,193,7,0.14); font-weight:600;"
@@ -289,25 +388,169 @@ def _render_leaderboard(rows: list) -> None:
 
             _rh = 36
             st.dataframe(
-                show.style.apply(_hl, axis=1).format({"EER (%)": "{:.2f}", "minDCF": "{:.3f}"}),
+                show.style.apply(_hl, axis=1).format({"EER (%)": "{:.2f}",
+                                                      "minDCF": "{:.3f}"}),
                 width="stretch", hide_index=True,
                 row_height=_rh, height=int(_rh * (len(show) + 1) + 4),
             )
+            _seeds = int(df["Seeds"].max()) if "Seeds" in df.columns else 1
+            _seed_note = (f" CNN metrics are averaged over {_seeds} seeds."
+                          if _seeds > 1 else "")
             st.caption("Ranked by **minDCF** (the primary ASVspoof cost — lower is "
-                       "better), EER as tiebreaker. The leader is highlighted.")
-            st.download_button(
-                "Download leaderboard as CSV",
-                data=show.to_csv(index=False).encode("utf-8"),
-                file_name="leaderboard.csv", mime="text/csv",
-                icon=":material/download:",
+                       "better), EER as tiebreaker. The leader is highlighted."
+                       + _seed_note + " Hover the table and use its toolbar to "
+                       "download or copy it.")
+
+    with tab_eff:
+        # Cost-vs-benefit view AVERAGED ACROSS ALL CORPORA: training cost, the
+        # per-clip inference latency (feature extraction + forward) and the mean
+        # accuracy a model achieves over every split/corpus — so the trade-off
+        # reflects overall behaviour, not just the easy 2019 dev split. It ALWAYS
+        # aggregates the full set (`ranked`, not the filtered `view`): this tab is
+        # the overall-efficiency picture, so the Dataset/Split filters don't apply.
+        eff = _aggregate_by_model(ranked)
+
+        if eff[["Train_s", "Latency_ms"]].isna().all().all():
+            st.info("No timing data yet — run **Train and evaluate all** to record "
+                    "training time and inference latency for every model. (Older "
+                    "saved leaderboards predate these metrics.)")
+        else:
+            # Keep the Features front-end so a classic classifier on five DSP
+            # front-ends (each with a different extraction cost) stays distinct.
+            etab = (eff[["Type", "Features", "Model", "Train_s", "Extract_ms",
+                         "Infer_ms", "Latency_ms", "minDCF", "EER"]]
+                    .sort_values("Latency_ms", na_position="last")
+                    .rename(columns={"Train_s": "Train (s)",
+                                     "Extract_ms": "Extract (ms/clip)",
+                                     "Infer_ms": "Infer (ms/clip)",
+                                     "Latency_ms": "Latency (ms)",
+                                     "EER": "EER (%)"}))
+            _erh = 36   # fixed row height → size the frame to fit every row (no scroll)
+            st.dataframe(
+                etab.style.format({"Train (s)": "{:.1f}", "Extract (ms/clip)": "{:.2f}",
+                                   "Infer (ms/clip)": "{:.3f}", "Latency (ms)": "{:.2f}",
+                                   "minDCF": "{:.3f}", "EER (%)": "{:.2f}"}, na_rep="—"),
+                width="stretch", hide_index=True,
+                row_height=_erh, height=int(_erh * (len(etab) + 1) + 4),
             )
+            st.caption("Per-clip **Latency = Extract + Infer** (the cost a fresh "
+                       "audio pays end to end). minDCF / EER are the **mean across "
+                       "all four corpora** (2019 dev + 2019/2021 LA + 2021 DF). "
+                       "wav2vec 2.0 reads the raw waveform, so it has no separate "
+                       "extraction stage.")
+            st.markdown("<div style='height:1.4rem'></div>", unsafe_allow_html=True)
+
+            # Cost-vs-benefit scatter: latency (x) against overall EER (y). The
+            # sweet spot is the lower-left — fast AND accurate across all corpora.
+            sc = eff.dropna(subset=["Latency_ms", "EER"]).copy()
+            if not sc.empty:
+                _dom = [t for t in _fams if (sc["Type"] == t).any()]
+                # Pre-format EVERY tooltip field as a plain string in a cleanly named
+                # column. This sidesteps the two things that silently kill Vega-Lite
+                # hover here: numeric `format` on NaN cells (wav2vec 2.0 has no train
+                # time) serialising as invalid JSON, and field names Vega parses as
+                # shorthand. Strings → the tooltip always resolves.
+                sc["tt_train"]   = sc["Train_s"].map(
+                    lambda v: "—" if pd.isna(v) else f"{v:.0f} s")
+                sc["tt_latency"] = sc["Latency_ms"].map(lambda v: f"{v:.2f} ms/clip")
+                sc["tt_eer"]     = sc["EER"].map(lambda v: f"{v:.2f} %")
+                sc["tt_dcf"]     = sc["minDCF"].map(
+                    lambda v: "—" if pd.isna(v) else f"{v:.3f}")
+                _sel = alt.selection_point(name="effsel", fields=["Model"],
+                                           on="click", clear="dblclick", empty=False)
+                scatter = (
+                    alt.Chart(sc).mark_circle(size=170).encode(
+                        x=alt.X("Latency_ms:Q",
+                                title="Latency per clip (ms) — lower is faster",
+                                scale=alt.Scale(zero=False)),
+                        y=alt.Y("EER:Q", title="EER (%), avg over corpora — lower is better",
+                                scale=alt.Scale(zero=False)),
+                        color=alt.Color("Type:N",
+                                        scale=alt.Scale(domain=_dom,
+                                                        range=[_LB_TYPE_COLORS.get(t, "#90A4AE")
+                                                               for t in _dom]),
+                                        legend=alt.Legend(orient="bottom", title=None)),
+                        opacity=alt.condition(_sel, alt.value(1.0), alt.value(0.85)),
+                        tooltip=[alt.Tooltip("Model", title="Model"),
+                                 alt.Tooltip("Type", title="Family"),
+                                 alt.Tooltip("Features", title="Front-end"),
+                                 alt.Tooltip("tt_train", title="Train"),
+                                 alt.Tooltip("tt_latency", title="Latency"),
+                                 alt.Tooltip("tt_eer", title="EER"),
+                                 alt.Tooltip("tt_dcf", title="minDCF")],
+                    ).add_params(_sel).properties(height=340)
+                )
+                _ev = st.altair_chart(scatter, width="stretch", key="eff_scatter",
+                                      on_select="rerun")
+                # Hover tooltips can stop firing after a Streamlit rerun (a known Vega
+                # quirk), so ALSO support click-to-inspect: clicking a dot pins its
+                # full numbers below, which never depends on the hover handler.
+                _picked = None
+                try:
+                    _state = (_ev.selection if hasattr(_ev, "selection")
+                              else _ev.get("selection", {}))
+                    _hits = _state.get("effsel", []) if hasattr(_state, "get") else []
+                    if _hits:
+                        _picked = _hits[0].get("Model")
+                except Exception:
+                    _picked = None
+                if _picked is not None and (sc["Model"] == _picked).any():
+                    _pr = sc[sc["Model"] == _picked].iloc[0]
+                    st.caption(
+                        f"**{_picked}** ({_pr['Type']}) — latency "
+                        f"**{_pr['Latency_ms']:.2f} ms/clip** · EER "
+                        f"**{_pr['EER']:.2f} %** · minDCF **{_pr['minDCF']:.3f}** · "
+                        f"train {_pr['tt_train']}  ·  double-click to clear.")
+                else:
+                    st.caption("Each dot is a model, averaged over all corpora. "
+                               "**Lower-left = the best trade-off** (fast *and* "
+                               "accurate). **Hover** a point, or **click** it to pin "
+                               "its numbers here.")
+
+            # Second efficiency angle — TRAINING cost: wall-clock seconds to fit each
+            # model (one run; CNNs averaged over seeds). The latency scatter shows
+            # inference speed; this shows the very different up-front compute, where
+            # the grouped-convolution ResNeXt stands out as the most expensive.
+            tc = eff.dropna(subset=["Train_s"]).copy()
+            tc = tc[tc["Train_s"] > 0]
+            if not tc.empty:
+                st.markdown("<div style='height:1.6rem'></div>", unsafe_allow_html=True)
+                tc["tt_train"] = tc["Train_s"].map(lambda v: f"{v:.0f} s")
+                tc["tt_eer"]   = tc["EER"].map(lambda v: f"{v:.2f} %")
+                _domt = [t for t in _fams if (tc["Type"] == t).any()]
+                train_bar = (
+                    alt.Chart(tc)
+                    .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+                    .encode(
+                        y=alt.Y("Config:N", title=None,
+                                sort=alt.EncodingSortField(field="Train_s",
+                                                           order="descending"),
+                                axis=alt.Axis(labelLimit=300)),
+                        x=alt.X("Train_s:Q", title="Training time (s) — lower is cheaper"),
+                        color=alt.Color("Type:N",
+                                        scale=alt.Scale(domain=_domt,
+                                                        range=[_LB_TYPE_COLORS.get(t, "#90A4AE")
+                                                               for t in _domt]),
+                                        legend=alt.Legend(orient="bottom", title=None)),
+                        tooltip=[alt.Tooltip("Model", title="Model"),
+                                 alt.Tooltip("Features", title="Front-end"),
+                                 alt.Tooltip("tt_train", title="Train"),
+                                 alt.Tooltip("tt_eer", title="EER")],
+                    )
+                    .properties(height=alt.Step(24))
+                )
+                st.altair_chart(train_bar, width="stretch", key="eff_train_bar")
+                st.caption("Deep nets cost orders of magnitude more to train than the "
+                           "classic DSP detectors (near-zero here); among them the "
+                           "grouped-convolution **ResNeXt** is the most expensive. "
+                           "wav2vec 2.0 is inference-only, so it has no bar.")
 
     with tab_chart:
         if view.empty:
             st.info("No results match the current filters.")
         else:
             chart_df = view.copy()
-            chart_df["Entry"] = chart_df["Config"] + "  [" + chart_df[COL_SPLIT] + "]"
+            chart_df["Entry"] = chart_df["Config"] + "  [" + chart_df["SplitDisplay"] + "]"
             _dom = [t for t in _fams if (chart_df["Type"] == t).any()]
             chart = (
                 alt.Chart(chart_df)
@@ -325,7 +568,7 @@ def _render_leaderboard(rows: list) -> None:
                     opacity=alt.condition(alt.datum["SplitKind"] == "Eval",
                                           alt.value(0.6), alt.value(1.0)),
                     tooltip=["Type", "Features", "Model",
-                             alt.Tooltip(COL_SPLIT, title="Split"),
+                             alt.Tooltip("SplitDisplay", title="Split"),
                              alt.Tooltip(COL_MIN_DCF, title="minDCF", format=".3f"),
                              alt.Tooltip(COL_EER, title="EER (%)", format=".2f")],
                 )
@@ -352,19 +595,12 @@ _running = op_in_progress()
 # model from Hugging Face and shows their head-to-head results, ready to test.
 if not corpus_available():
     entries = available_pretrained_models()
-    st.subheader("Model hub")
-    st.caption(
-        "Training and live scoring need the multi-GB corpus and a GPU, so on the "
-        "web demo the comparison is precomputed. Download every pretrained model "
-        "(trained locally with its best default configuration) in one click, then "
-        "try them on your own audio in Detection Analysis."
-    )
 
     if not entries:
         demo_corpus_notice(
             "No pretrained models configured",
             "Run <b>Full comparison</b> once on a machine with the corpus to train "
-            "and export all 20 models, then set <b>HF_BASE_URL</b> in "
+            "and export all 21 models, then set <b>HF_BASE_URL</b> in "
             "src/ui_helpers.py to your Hugging Face folder to populate the hub.",
         )
         st.stop()
@@ -381,11 +617,7 @@ if not corpus_available():
             st.warning(f"{_nm}: {_err}")
 
     n_ready = sum(model_downloaded(e) for e in entries)
-    if n_ready == len(entries):
-        st.success(f"All {n_ready} pretrained models downloaded and ready — open "
-                   "Detection Analysis to test them on your own clip.",
-                   icon=":material/cloud_done:")
-    else:
+    if n_ready != len(entries):
         cdl, cinfo = st.columns([1, 2], vertical_alignment="center")
         with cdl:
             if st.button("Retry downloads", type="primary",
@@ -398,7 +630,6 @@ if not corpus_available():
 
     # The web demo shows the SAME full leaderboard as local — every model on every
     # split/corpus, filterable — read from the committed leaderboard.json rows.
-    st.divider()
     _lb_rows = load_leaderboard_rows()
     if _lb_rows:
         _render_leaderboard(_lb_rows)
@@ -410,7 +641,6 @@ if not corpus_available():
             "full ranking (classic, CNN and the wav2vec 2.0 SSL detector across every "
             "corpus) appears here.",
         )
-    test_audio_cta("Pick any of these models and hear them judge your own clip:")
     st.stop()
 
 # Fixed, best-effort training configuration — the Full comparison trains the
@@ -563,61 +793,17 @@ if g_train and not _running:
     st.rerun()
 
 
-def _collect():
-    rows = []
-    for r in st.session_state.get("experiment_rows", []):
-        d = dict(r)
-        d["Type"] = "Classic"
-        d.setdefault(COL_SPLIT, "dev")
-        rows.append(d)
-    for r in st.session_state.get("cnn_runs", []):
-        d = dict(r)
-        # Respect a family tag already set on the row (e.g. "SSL" for wav2vec2);
-        # default the rest of the cnn_runs stream to "CNN".
-        d["Type"] = d.get("Type") or "CNN"
-        # Full-comparison rows already carry a resolved "Split" (the job strips
-        # the [EVAL] marker when tagging). Manual CNN Learning rows don't, so
-        # derive it from the marker. RESPECT an existing split — re-deriving it
-        # here would mislabel eval rows as dev and the dedup would drop them.
-        if not d.get(COL_SPLIT):
-            _corpus = str(d.get("Corpus", "")).strip()
-            d[COL_SPLIT] = ((f"eval · {_corpus}" if _corpus else "eval")
-                            if "[EVAL]" in str(d.get(COL_MODEL, "")) else "dev")
-        rows.append(d)
-    return rows
-
-
-rows = _collect()
-
-# After a full comparison, confirm the deployment assets were written from here.
-if st.session_state.get("bench_done"):
-    from src.ui_helpers import LEADERBOARD_PATH  # noqa: E402
-    _models = available_pretrained_models()
-    _ready  = sum(model_downloaded(e) for e in _models)
-    _json   = "written" if os.path.isfile(LEADERBOARD_PATH) else "pending"
-    st.success(f"Deployment assets exported: {_ready}/{len(_models)} model files "
-               f"in models/ · leaderboard.json {_json}.",
-               icon=":material/cloud_done:")
-
-if not rows:
-    if not _running:
-        # No session rows yet — show the committed leaderboard.json if available.
-        _lb_rows = load_leaderboard_rows()
-        if _lb_rows:
-            st.info(
-                "Showing results from the last saved run (`leaderboard.json`). "
-                "Click **Train and evaluate all** to refresh with this session's results.",
-                icon=":material/info:",
-            )
-            _render_leaderboard(_lb_rows)
-        else:
-            show_empty_state(
-                "No runs yet",
-                "Run a few configurations in the Classic models and CNN modes — every "
-                "result is collected here and ranked by minDCF so you can compare the "
-                "classic front-ends, the CNNs and the wav2vec 2.0 SSL detector.",
-            )
-    st.stop()
-
-# Render the leaderboard (the SAME view the web demo shows, from session rows).
-_render_leaderboard(rows)
+# The leaderboard is ALWAYS the committed leaderboard.json. Manual evaluations run
+# in the Classic / CNN modes (kept in session for THOSE pages) are deliberately NOT
+# shown here. A full "Train and evaluate all" rewrites leaderboard.json when it
+# finishes, so its results appear in the table once the run completes.
+_lb_rows = load_leaderboard_rows()
+if _lb_rows:
+    _render_leaderboard(_lb_rows)
+elif not _running:
+    show_empty_state(
+        "Leaderboard not generated yet",
+        "Run <b>Train and evaluate all</b> once to train every model and write "
+        "<code>leaderboard.json</code> — the full ranking (classic, CNN and the "
+        "wav2vec 2.0 SSL detector across every corpus) appears here.",
+    )

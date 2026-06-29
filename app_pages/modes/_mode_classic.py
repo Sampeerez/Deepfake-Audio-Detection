@@ -344,43 +344,56 @@ if eval_btn:
             st.error("No models available for evaluation.")
             st.stop()
 
-    _eval_corpora = eval_corpora_for(corpus)
-    if not _eval_corpora:
-        st.warning("Selected eval corpus has no samples available.")
+    # Honour the "Score on" choice (Dev / Eval / Dev + Eval) — previously the
+    # Evaluate button always scored the eval corpus regardless of the selector.
+    _targets = []   # (kind, label, samples)
+    if score_split in (SPLIT_DEV, SPLIT_BOTH):
+        _dev = get_samples("dev")
+        if _dev:
+            _targets.append(("dev", "dev", _dev))
+    if score_split in (SPLIT_EVAL, SPLIT_BOTH):
+        for _lbl, _samps in eval_corpora_for(corpus):
+            _targets.append(("eval", _lbl, _samps))
+
+    if not _targets:
+        st.warning("Selected split has no samples available.")
     else:
-        _prog = st.progress(0.0, text="Preparing eval...")
+        _prog = st.progress(0.0, text="Preparing scoring…")
         try:
             _eval_results = []
-            for _i, (_lbl, _samps) in enumerate(_eval_corpora):
+            for _i, (_kind, _lbl, _samps) in enumerate(_targets):
                 if subset > 0:
                     _samps = stratified_subsample(_samps, int(subset), int(seed) + 2)
                 if not _samps:
                     continue
-                _prog.progress(
-                    _i / len(_eval_corpora),
-                    text=f"Extracting features for {_lbl}…",
-                )
+                _prog.progress(_i / len(_targets),
+                               text=f"Extracting features for {_lbl}…")
+                _tag = "dev" if _kind == "dev" else f"eval[{_lbl}]"
                 with contextlib.redirect_stdout(io.StringIO()):
                     _x_ev, _y_ev, _ = extract_feature_matrix(
-                        _samps, extractor, feature_option, f"eval[{_lbl}]",
+                        _samps, extractor, feature_option, _tag,
                         n_workers=int(workers), use_cache=use_cache,
                     )
-                _prog.progress(
-                    (_i + 0.7) / len(_eval_corpora),
-                    text=f"Scoring on {_lbl}…",
-                )
-                _eval_results += score_fitted_classic(
+                _prog.progress((_i + 0.7) / len(_targets), text=f"Scoring on {_lbl}…")
+                _scored = score_fitted_classic(
                     _models_to_eval, _x_ev, _y_ev,
-                    FEATURE_LABELS[feature_option],
-                    corpus_label=_lbl,
+                    FEATURE_LABELS[feature_option], corpus_label=_lbl,
                 )
+                # score_fitted_classic always stamps [EVAL]; for a DEV target strip
+                # it so _tag_rows files the row under the dev split, not eval.
+                if _kind == "dev":
+                    for _r in _scored:
+                        _r[COL_MODEL]    = _r.get(COL_MODEL, "").replace("[EVAL]", "").strip()
+                        _r[COL_FEATURES] = _r.get(COL_FEATURES, "").replace("[EVAL]", "").strip()
+                        _r["Corpus"] = ""
+                _eval_results += _scored
             _prog.progress(1.0)
         except Exception as _err:
             _prog.empty()
             st.exception(_err)
             st.stop()
         _prog.empty()
-        _eval_results = _tag_rows(_eval_results, "eval")
+        _eval_results = _tag_rows(_eval_results, "dev")
         st.session_state.setdefault("experiment_rows", []).extend(_eval_results)
         st.rerun()
 

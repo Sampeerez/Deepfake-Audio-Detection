@@ -3,7 +3,7 @@
 tests/test_models.py — The three detector families.
 
   A) Classic sklearn/xgboost estimators from the ``get_classic_model`` factory.
-  B) The 2-D spectrogram CNNs (AudioDeepfakeCNN, ResNetCNN).
+  B) The deep spectrogram models (CNN_5Block ±SE, ResNet_SE, ResNeXt_SE, CRNN).
   C) The self-supervised raw-waveform detector (Wav2Vec2Classifier) — skipped
      automatically if ``transformers`` is not installed.
 
@@ -16,7 +16,8 @@ import pytest
 import torch
 
 from src.models import (
-    CLASSIC_MODELS, AudioDeepfakeCNN, ResNetCNN, get_classic_model,
+    CLASSIC_MODELS, CNN_5Block, CNN_5Block_SE, CRNN_Model, ResNet_SE,
+    ResNeXt_SE, get_classic_model, model_for_arch,
 )
 
 
@@ -66,10 +67,13 @@ def test_unknown_classic_model():
 
 
 # ---------------------------------------------------------------------------
-# B) Spectrogram CNNs
+# B) Deep spectrogram models
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("Arch", [AudioDeepfakeCNN, ResNetCNN])
+_DEEP_ARCHS = [CNN_5Block, CNN_5Block_SE, ResNet_SE, ResNeXt_SE, CRNN_Model]
+
+
+@pytest.mark.parametrize("Arch", _DEEP_ARCHS)
 def test_cnn_forward_shape(Arch):
     """Forward pass returns one raw logit per item in the batch."""
     model = Arch().eval()
@@ -80,7 +84,10 @@ def test_cnn_forward_shape(Arch):
     assert torch.isfinite(out).all()
 
 
-@pytest.mark.parametrize("Arch,n_blocks", [(AudioDeepfakeCNN, 3), (ResNetCNN, 4)])
+@pytest.mark.parametrize("Arch,n_blocks", [
+    (CNN_5Block, 5), (CNN_5Block_SE, 5), (ResNet_SE, 4), (ResNeXt_SE, 4),
+    (CRNN_Model, 5),
+])
 def test_cnn_activation_taps(Arch, n_blocks):
     """forward_with_activations exposes one feature map per conv/residual block."""
     model = Arch().eval()
@@ -92,9 +99,18 @@ def test_cnn_activation_taps(Arch, n_blocks):
         assert a.dim() == 4                     # (batch, channels, H, W)
 
 
+@pytest.mark.parametrize("arch", ["cnn", "cnn_se", "resnet", "resnext", "crnn"])
+def test_model_for_arch_dispatch(arch):
+    """The arch-key registry instantiates a working model for every key."""
+    model = model_for_arch(arch, dropout=0.3).eval()
+    with torch.no_grad():
+        out = model(torch.randn(2, 1, 128, 300))
+    assert out.shape == (2,)
+
+
 def test_cnn_robust_to_input_size():
     """AdaptiveAvgPool decouples the head from the exact spectrogram size."""
-    model = AudioDeepfakeCNN().eval()
+    model = CNN_5Block().eval()
     with torch.no_grad():
         out = model(torch.randn(1, 1, 128, 200))   # non-default time frames
     assert out.shape == (1,)
@@ -102,7 +118,7 @@ def test_cnn_robust_to_input_size():
 
 def test_cnn_probability_after_sigmoid():
     """sigmoid(logit) yields a valid p(spoof) in [0, 1]."""
-    model = AudioDeepfakeCNN().eval()
+    model = CNN_5Block().eval()
     with torch.no_grad():
         p = torch.sigmoid(model(torch.randn(3, 1, 128, 300)))
     assert ((p >= 0.0) & (p <= 1.0)).all()

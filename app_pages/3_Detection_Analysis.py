@@ -3,7 +3,8 @@
 app_pages/3_Detection_Analysis.py — Two complementary views:
 
   • "Test an audio" — drop your own .flac / .wav and have EVERY pretrained model
-    (ResNet, 3-Block CNN and the classic XGBoost × DSP detectors) score it in
+    (wav2vec 2.0, the deep spectrogram nets — 5-Block CNN ±SE, ResNet+SE,
+    ResNeXt+SE, CRNN — and the classic ML × DSP detectors) score it in
     parallel on CPU: a live, side-by-side comparison with a consensus verdict.
     This is the star of the public web demo (no corpus required).
   • "Analyse on a split" — WHY a detector scores the EER / minDCF it does: score
@@ -22,7 +23,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import altair as alt  # noqa: E402
 import librosa  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
@@ -47,7 +47,10 @@ from src.ui_helpers import (  # noqa: E402
 )
 
 FEATURE_LABELS = FeatureExtractor.OPTION_NAMES
-FEATURE_ORDER  = ["1", "2", "3", "4", "6", "5"]
+# Front-ends offered in the split analysis — the five trained ones (RMS, MFCC,
+# LFCC, DWT, CQCC). "Full Fusion" (option "5") is intentionally left out: it is not
+# part of the model zoo / leaderboard.
+FEATURE_ORDER  = ["1", "2", "3", "4", "6"]
 CLASSIFIERS    = {
     "Logistic Regression": "logistic_regression",
     "SVM (RBF)":           "svm_lineal",
@@ -68,51 +71,38 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Weighted late-fusion that produces the headline verdict on "Test an audio".
-# The strongest detector families, weighted by trust (the user's design:
-# wav2vec2 0.40, ResNet+SE 0.20, best classic model 0.10 — RawNet3's share was
-# dropped and the rest are renormalised at fusion time, so they need not sum to
-# 1). The "_classic" member is resolved at runtime to whichever classic model
-# (LR / SVM / XGBoost × any DSP front-end) ranks best by eval EER in the
-# leaderboard. Any member missing (e.g. wav2vec2 failed to load) is simply
-# skipped and the remaining weights renormalised.
-FUSION_WEIGHTS = {"wav2vec2": 0.40, "resnet": 0.20, "_classic": 0.10}
+# The cross-domain benchmark (2019 eval + 2021 LA/DF) is unambiguous: the
+# self-supervised wav2vec 2.0 is by far the most reliable detector (~10.5% mean
+# eval EER, and the only model with a useful cross-domain minDCF), and among the
+# spectrogram nets the grouped-convolution ResNeXt+SE is the strongest AND the
+# most stable across seeds (best dev minDCF 0.24, EER std 0.04). The classic DSP
+# detectors collapse out of domain (minDCF ≈ 1.0), so they are NOT trusted for the
+# verdict — they stay visible in the full panel below. The verdict therefore fuses
+# just those two complementary views: raw-waveform SSL + the best spectrogram CNN.
+# Weights are renormalised at fusion time, and any member that fails to load is
+# skipped (so the verdict degrades gracefully to whatever loaded).
+FUSION_WEIGHTS = {"wav2vec2": 0.65, "resnext": 0.35}
 
-# Key prefixes that identify a classic DSP × ML detector in the registry.
-_CLASSIC_PREFIXES = ("lr_", "svm_", "xgb_")
 
-
-def _fusion_verdict(rows, board, threshold):
-    """Weighted late-fusion → headline verdict.
-
-    Simple weighted average of the fusion members' p(spoof). The classic slot is
-    resolved at runtime to whichever classic model ranks best by eval EER (then
-    minDCF as a tie-break) in the leaderboard. Any missing member is skipped and
-    weights renormalised."""
+def _fusion_verdict(rows):
+    """Weighted late-fusion → headline verdict: a renormalised weighted average of
+    the trusted members' p(spoof), compared against the weighted average of THEIR
+    OWN best thresholds (so the fused cut is consistent with the per-model operating
+    points). Any member missing from ``rows`` is skipped and the weights renormalised."""
     by_key = {r["key"]: r for r in rows}
-    classic_keys = [k for k in by_key if k.startswith(_CLASSIC_PREFIXES)]
-    best_classic = None
-    if classic_keys:
-        def _rank(k):
-            m   = board.get(k, {})
-            eer = m.get("eer_eval")
-            dcf = m.get("mindcf_eval")
-            return (eer if isinstance(eer, (int, float)) else float("inf"),
-                    dcf if isinstance(dcf, (int, float)) else float("inf"),
-                    k)
-        best_classic = min(classic_keys, key=_rank)
     members = []
     for key, w in FUSION_WEIGHTS.items():
-        rk = best_classic if key == "_classic" else key
-        if rk and rk in by_key:
-            r = by_key[rk]
-            members.append({"key": rk, "name": r["Model"], "weight": w,
-                            "p": r["p(spoof)"]})
-    wsum = sum(m["weight"] for m in members)
-    fused = (sum(m["weight"] * m["p"] for m in members) / wsum) if wsum else float("nan")
+        if key in by_key:
+            r = by_key[key]
+            members.append({"key": key, "name": r["Model"], "weight": w,
+                            "p": r["p(spoof)"], "thr": float(r.get("thr", 0.5))})
+    wsum  = sum(m["weight"] for m in members)
+    fused = (sum(m["weight"] * m["p"]   for m in members) / wsum) if wsum else float("nan")
+    fthr  = (sum(m["weight"] * m["thr"] for m in members) / wsum) if wsum else 0.5
     for m in members:
         m["wnorm"] = (m["weight"] / wsum) if wsum else 0.0
-    return {"members": members, "fused": fused,
-            "verdict": "SPOOF" if (wsum and fused >= threshold) else "BONAFIDE"}
+    return {"members": members, "fused": fused, "fused_thr": fthr,
+            "verdict": "SPOOF" if (wsum and fused >= fthr) else "BONAFIDE"}
 
 extractor = get_extractor()
 device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -225,6 +215,7 @@ def _score_classic_on_samples(entry, samples):
     return model.predict_proba(x_ev)[:, 1].tolist(), y_ev.tolist()
 
 
+@st.fragment
 def _render_split_results():
     """Shared rendering of a scored split: metrics, threshold slider and the
     distribution / ROC / DET plots. Reads da_scores / da_labels / da_name from
@@ -240,22 +231,48 @@ def _render_split_results():
 
     scores = np.asarray(st.session_state["da_scores"], dtype=float)
     labels = np.asarray(st.session_state["da_labels"], dtype=int)
-    bona   = scores[labels == LABEL_BONAFIDE]
-    spoof  = scores[labels == LABEL_SPOOF]
+    name   = st.session_state["da_name"]
 
-    eer, eer_thr = calculate_eer(scores.tolist(), labels.tolist())
-    mindcf       = calculate_min_dcf(scores.tolist(), labels.tolist())
+    # The EER / minDCF / ROC-DET curves and the binned histogram do NOT depend on
+    # the threshold, so compute them ONCE per analysed split and stash them in
+    # session state. Moving the slider then only recomputes the three cheap
+    # operating-point numbers, keeping the redraw snappy. Pre-binning the histogram
+    # (~80 rows instead of up to 10 000 raw points) is the other big win.
+    _fp = (name, int(scores.size), float(np.round(scores.sum(), 4)))
+    if st.session_state.get("_da_static_fp") != _fp:
+        _bona  = scores[labels == LABEL_BONAFIDE]
+        _spoof = scores[labels == LABEL_SPOOF]
+        _eer, _eer_thr = calculate_eer(scores.tolist(), labels.tolist())
+        _mindcf        = calculate_min_dcf(scores.tolist(), labels.tolist())
+        _grid = np.linspace(0.0, 1.0, 401)
+        _far  = np.array([(_spoof < t).mean() if len(_spoof) else 0.0 for t in _grid])
+        _frr  = np.array([(_bona >= t).mean() if len(_bona)  else 0.0 for t in _grid])
+        _tpr, _fpr = 1.0 - _far, _frr
+        _order = np.argsort(_fpr)
+        _trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
+        _auc  = float(_trapz(_tpr[_order], _fpr[_order]))
+        _edges = np.linspace(0.0, 1.0, 41)
+        _bc, _ = np.histogram(_bona,  bins=_edges)
+        _sc, _ = np.histogram(_spoof, bins=_edges)
+        _hist = pd.DataFrame({
+            "b0": np.concatenate([_edges[:-1], _edges[:-1]]),
+            "b1": np.concatenate([_edges[1:],  _edges[1:]]),
+            "count": np.concatenate([_bc, _sc]).astype(int),
+            "cls": ["Bonafide"] * (len(_edges) - 1) + ["Spoof"] * (len(_edges) - 1)})
+        st.session_state["_da_static"] = {
+            "bona": _bona, "spoof": _spoof, "eer": float(_eer),
+            "eer_thr": float(_eer_thr), "mindcf": float(_mindcf), "auc": _auc,
+            "hist": _hist,
+            "curve": pd.DataFrame({"TPR": _tpr, "FPR": _fpr,
+                                   "FAR_pct": _far * 100.0, "FRR_pct": _frr * 100.0})}
+        st.session_state["_da_static_fp"] = _fp
 
-    grid = np.linspace(0.0, 1.0, 501)
-    far  = np.array([(spoof < t).mean() if len(spoof) else 0.0 for t in grid])
-    frr  = np.array([(bona >= t).mean() if len(bona) else 0.0 for t in grid])
-    tpr  = 1.0 - far
-    fpr  = frr
-    order = np.argsort(fpr)
-    _trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
-    auc   = float(_trapz(tpr[order], fpr[order]))
+    S = st.session_state["_da_static"]
+    bona, spoof = S["bona"], S["spoof"]
+    eer, eer_thr, mindcf, auc = S["eer"], S["eer_thr"], S["mindcf"], S["auc"]
+    curve, hist_df = S["curve"], S["hist"]
 
-    st.markdown(f"**{st.session_state['da_name']}** &nbsp;·&nbsp; "
+    st.markdown(f"**{name}** &nbsp;·&nbsp; "
                 f"{len(scores):,} trials &nbsp;·&nbsp; "
                 f"{len(bona):,} bonafide / {len(spoof):,} spoof",
                 unsafe_allow_html=True)
@@ -269,61 +286,90 @@ def _render_split_results():
     st.divider()
     st.markdown('<div class="section-label">Decision threshold</div>',
                 unsafe_allow_html=True)
-    thr = st.slider("Threshold on p(spoof)", 0.0, 1.0, float(round(eer_thr, 3)), 0.005,
-                    help="score ≥ threshold → declared spoof.")
-    t_far = (spoof < thr).mean() if len(spoof) else 0.0
-    t_frr = (bona >= thr).mean() if len(bona) else 0.0
-    preds = (scores >= thr).astype(int)
-    t_acc = float((preds == labels).mean())
-    tc1, tc2, tc3 = st.columns(3)
-    tc1.metric("False acceptance (spoof let through)", f"{100 * t_far:.2f} %")
-    tc2.metric("False rejection (bonafide blocked)",   f"{100 * t_frr:.2f} %")
-    tc3.metric("Accuracy @ threshold",                 f"{100 * t_acc:.2f} %")
+    thr = st.slider(
+        "A clip is declared SPOOF when its score  p(spoof) ≥ threshold",
+        0.0, 1.0, float(round(eer_thr, 3)), 0.005)
+    t_far = float((spoof < thr).mean()) if len(spoof) else 0.0
+    t_frr = float((bona >= thr).mean()) if len(bona)  else 0.0
+    t_acc = float(((scores >= thr).astype(int) == labels).mean())
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("False acceptance", f"{100 * t_far:.2f} %",
+              help="Spoof clips let through (scored below the threshold).")
+    c2.metric("False rejection", f"{100 * t_frr:.2f} %",
+              help="Bonafide clips wrongly blocked (scored at/above the threshold).")
+    c3.metric("Accuracy", f"{100 * t_acc:.2f} %",
+              help="Correct decisions at this threshold.")
 
     st.divider()
-    g1, g2 = st.columns(2, gap="large")
+    # Only the threshold-dependent marks are rebuilt each move (tiny frames).
+    op = pd.DataFrame({"FPR": [t_frr], "TPR": [1 - t_far],
+                       "FAR_pct": [100 * t_far], "FRR_pct": [100 * t_frr]})
+    thr_df  = pd.DataFrame({"x": [float(thr)]})
+    eerx_df = pd.DataFrame({"x": [float(eer_thr)]})
+
+    # Fixed plot height; clip=True on the moving marks so a point at a scale edge
+    # never makes Vega re-pad (which is what resized the charts as the slider moved).
+    _H = 380
+    g1, g2, g3 = st.columns(3, gap="medium")
     with g1:
-        st.markdown("**Score distribution**")
-        fig, ax = plt.subplots(figsize=(5.2, 3.4))
-        ax.hist(bona,  bins=40, alpha=0.7, label="Bonafide", color=BONAFIDE_COLOR)
-        ax.hist(spoof, bins=40, alpha=0.7, label="Spoof",    color=SPOOF_COLOR)
-        ax.axvline(thr, color="#FFD54F", lw=1.6, ls="--", label=f"threshold {thr:.2f}")
-        ax.axvline(eer_thr, color="#9E9E9E", lw=1.1, ls=":", label=f"EER thr {eer_thr:.2f}")
-        ax.set_xlabel("p(spoof)"); ax.set_ylabel("count")
-        ax.legend(fontsize=7.5, loc="upper center")
-        fig.tight_layout(); st.pyplot(fig, clear_figure=True)
-
-        st.markdown("**ROC curve**")
-        fig, ax = plt.subplots(figsize=(5.2, 3.4))
-        ax.plot(fpr[order], tpr[order], color="#4FC3F7", lw=1.8)
-        ax.plot([0, 1], [0, 1], color="#5C6B8A", lw=0.8, ls="--")
-        ax.set_xlabel("False positive rate"); ax.set_ylabel("True positive rate")
-        ax.set_title(f"AUC = {auc:.3f}", fontsize=9)
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1)
-        fig.tight_layout(); st.pyplot(fig, clear_figure=True)
-
-    with g2:
-        st.markdown("**DET curve** (miss vs false-alarm)")
-        fig, ax = plt.subplots(figsize=(5.2, 3.4))
-        ax.plot(100 * far, 100 * frr, color="#AB47BC", lw=1.8)
-        lim = max(1.0, 100 * max(far.max(), frr.max()))
-        ax.plot([0, lim], [0, lim], color="#5C6B8A", lw=0.8, ls="--", label="EER line")
-        ax.scatter([100 * eer], [100 * eer], color="#FFD54F", zorder=5,
-                   label=f"EER {100 * eer:.1f}%")
-        ax.scatter([100 * t_far], [100 * t_frr], color="#66BB6A", zorder=5,
-                   label="threshold")
-        ax.set_xlabel("False acceptance (%)"); ax.set_ylabel("False rejection (%)")
-        ax.set_xlim(0, lim); ax.set_ylim(0, lim)
-        ax.legend(fontsize=7.5); fig.tight_layout(); st.pyplot(fig, clear_figure=True)
-
         st.markdown(
-            '<div class="info-card"><div class="ic-title">Reading it</div>'
-            '<p class="ic-body">The <b>EER</b> is where the two error rates meet '
-            '(the diagonal). <b>minDCF</b> weighs a false accept 10× a miss at a '
-            '5% prior, so it only drops below 1.0 once false acceptances are very '
-            'rare. Slide the threshold to walk along the DET curve.</p></div>',
-            unsafe_allow_html=True,
-        )
+            f"**Score distribution** &nbsp;&nbsp;"
+            f"<span style='color:{BONAFIDE_COLOR};font-weight:700;'>● Bonafide</span> "
+            f"&nbsp;<span style='color:{SPOOF_COLOR};font-weight:700;'>● Spoof</span>",
+            unsafe_allow_html=True)
+        # Two single-colour layers (one per class) so each bar is anchored to a
+        # zero baseline and they OVERLAY (translucent) instead of stacking — a
+        # colour-encoded bar with stack=None loses its 0-baseline and renders as
+        # thin floating dashes, which is what broke before.
+        def _hbar(_d, _c):
+            return alt.Chart(_d).mark_bar(opacity=0.6, color=_c).encode(
+                x=alt.X("b0:Q", bin="binned", title="p(spoof)",
+                        scale=alt.Scale(domain=[0, 1])),
+                x2="b1:Q",
+                y=alt.Y("count:Q", title="count"))
+        hist = (_hbar(hist_df[hist_df["cls"] == "Bonafide"], BONAFIDE_COLOR)
+                + _hbar(hist_df[hist_df["cls"] == "Spoof"], SPOOF_COLOR))
+        eer_rule = (alt.Chart(eerx_df).mark_rule(color="#9E9E9E", strokeDash=[2, 2],
+                    clip=True).encode(x="x:Q"))
+        thr_rule = (alt.Chart(thr_df).mark_rule(color="#FFD54F", strokeDash=[5, 4],
+                    size=2, clip=True).encode(x="x:Q"))
+        st.altair_chart((hist + eer_rule + thr_rule).properties(height=_H),
+                        width="stretch", key="da_dist")
+    with g2:
+        st.markdown(f"**ROC curve** &nbsp;·&nbsp; AUC = **{auc:.3f}**")
+        roc_line = alt.Chart(curve).mark_line(color="#4FC3F7", size=2, clip=True).encode(
+            x=alt.X("FPR:Q", title="False positive rate", scale=alt.Scale(domain=[0, 1])),
+            y=alt.Y("TPR:Q", title="True positive rate", scale=alt.Scale(domain=[0, 1])))
+        roc_diag = (alt.Chart(pd.DataFrame({"a": [0.0, 1.0]}))
+                    .mark_line(color="#5C6B8A", strokeDash=[4, 4]).encode(x="a:Q", y="a:Q"))
+        roc_eer = (alt.Chart(pd.DataFrame({"x": [float(eer)], "y": [float(1 - eer)]}))
+                   .mark_point(color="#FFD54F", size=95, filled=True, clip=True)
+                   .encode(x="x:Q", y="y:Q"))
+        roc_thr = (alt.Chart(op).mark_point(color="#66BB6A", size=160, filled=True,
+                   clip=True).encode(x="FPR:Q", y="TPR:Q"))
+        st.altair_chart((roc_line + roc_diag + roc_eer + roc_thr).properties(height=_H),
+                        width="stretch", key="da_roc")
+    with g3:
+        st.markdown("**DET curve** &nbsp;·&nbsp; miss vs false-alarm")
+        det_line = alt.Chart(curve).mark_line(color="#AB47BC", size=2, clip=True).encode(
+            x=alt.X("FAR_pct:Q", title="False acceptance (%)", scale=alt.Scale(domain=[0, 100])),
+            y=alt.Y("FRR_pct:Q", title="False rejection (%)", scale=alt.Scale(domain=[0, 100])))
+        det_diag = (alt.Chart(pd.DataFrame({"a": [0.0, 100.0]}))
+                    .mark_line(color="#5C6B8A", strokeDash=[4, 4]).encode(x="a:Q", y="a:Q"))
+        det_eer = (alt.Chart(pd.DataFrame({"x": [float(eer * 100)], "y": [float(eer * 100)]}))
+                   .mark_point(color="#FFD54F", size=95, filled=True, clip=True)
+                   .encode(x="x:Q", y="y:Q"))
+        det_thr = (alt.Chart(op).mark_point(color="#66BB6A", size=160, filled=True,
+                   clip=True).encode(x="FAR_pct:Q", y="FRR_pct:Q"))
+        st.altair_chart((det_line + det_diag + det_eer + det_thr).properties(height=_H),
+                        width="stretch", key="da_det")
+
+    st.caption("Yellow dashed line / green dot = the current **threshold**; grey "
+               "dotted line + yellow dot = the **EER** operating point. Move the "
+               "slider to walk the green dot along the ROC and DET curves. minDCF "
+               "weighs a false accept 10× a miss at a 5% prior, so it only drops "
+               "below 1.0 once false acceptances are rare.")
 
 
 # ===========================================================================
@@ -445,10 +491,12 @@ def _load_all_models(entries):
     return loaded, failed
 
 
-def _analyse_all_models(signal, entries, loaded, threshold):
+def _analyse_all_models(signal, entries, loaded, thresholds):
     """Score one clip with every pretrained model. DSP front-ends are extracted
     once each in parallel threads (librosa releases the GIL), then each model
-    predicts on its precomputed representation. Returns a list of result dicts."""
+    predicts on its precomputed representation. Each model is judged against ITS
+    OWN best threshold (``thresholds[key]``, the dev EER operating point from the
+    leaderboard; 0.5 if unknown). Returns a list of result dicts."""
     need_spec  = any(e["kind"] == "cnn" for e in entries)
     uniq_feats = sorted({e["feat"] for e in entries if e["kind"] == "classic"})
 
@@ -485,27 +533,29 @@ def _analyse_all_models(signal, entries, loaded, threshold):
                 prob = float(model.prob_spoof(wave).item())
         else:
             prob = float(model.predict_proba(feat_vecs[e["feat"]])[0, 1])
+        _thr = float(thresholds.get(e["key"], 0.5))
         rows.append({
             "key":     e["key"],
             "Model":   e["name"],
             "Front-end": e["front"],
             "p(spoof)": prob,
-            "Verdict": "SPOOF" if prob >= threshold else "BONAFIDE",
+            "thr":     _thr,
+            "Verdict": "SPOOF" if prob >= _thr else "BONAFIDE",
             "_acts":   acts,
         })
     return rows
 
 
-def _render_test_results(rows, signal, threshold, blob, fname):
+def _render_test_results(rows, signal, blob, fname):
     """Render the full Test-an-audio results panel: fusion card, model chips,
-    table/chart, signal views, and CNN activation maps."""
+    table/chart, signal views, and CNN activation maps. Each model's Verdict was
+    already decided at its OWN best threshold in _analyse_all_models."""
     probs   = [r["p(spoof)"] for r in rows]
     mean_p  = float(np.mean(probs))
-    n_spoof = int(sum(p >= threshold for p in probs))
+    n_spoof = int(sum(r["Verdict"] == "SPOOF" for r in rows))
     n_total = len(rows)
 
-    _board  = load_leaderboard_models()
-    fusion  = _fusion_verdict(rows, _board, threshold)
+    fusion  = _fusion_verdict(rows)
     _members = fusion["members"]
     fused_p  = fusion["fused"]
     v_color  = SPOOF_COLOR if fusion["verdict"] == "SPOOF" else BONAFIDE_COLOR
@@ -574,8 +624,9 @@ def _render_test_results(rows, signal, threshold, blob, fname):
     )
     st.divider()
 
-    df = (pd.DataFrame([{k: r[k] for k in ("Model", "Front-end", "p(spoof)", "Verdict")}
-                        for r in rows])
+    df = (pd.DataFrame([{"Model": r["Model"], "Front-end": r["Front-end"],
+                         "p(spoof)": r["p(spoof)"], "threshold": r.get("thr", 0.5),
+                         "Verdict": r["Verdict"]} for r in rows])
           .sort_values("p(spoof)", ascending=False).reset_index(drop=True))
 
     gcol1, gcol2 = st.columns([1.05, 1], gap="large")
@@ -588,7 +639,7 @@ def _render_test_results(rows, signal, threshold, blob, fname):
 
         _rh = 37
         st.dataframe(
-            df.style.format({"p(spoof)": "{:.3f}"})
+            df.style.format({"p(spoof)": "{:.3f}", "threshold": "{:.3f}"})
                     .map(_vcolor, subset=["Verdict"]),
             width="stretch", hide_index=True,
             row_height=_rh, height=int(_rh * (len(df) + 1) + 2),
@@ -602,11 +653,15 @@ def _render_test_results(rows, signal, threshold, blob, fname):
                     color=alt.Color("Verdict:N", legend=None,
                                     scale=alt.Scale(domain=["BONAFIDE", "SPOOF"],
                                                     range=[BONAFIDE_COLOR, SPOOF_COLOR])),
-                    tooltip=["Model", "Front-end", "p(spoof)", "Verdict"])
+                    tooltip=["Model", "Front-end", "p(spoof)", "threshold", "Verdict"])
                .properties(height=max(150, 42 * len(df))))
-        rule = (alt.Chart(pd.DataFrame({"t": [threshold]}))
-                .mark_rule(color="#FFD54F", strokeDash=[4, 4]).encode(x="t:Q"))
-        st.altair_chart(bar + rule, width="stretch")
+        # Each model's OWN threshold, as a yellow tick on its bar (no single line —
+        # every model now decides at a different cut).
+        ticks = (alt.Chart(df).mark_tick(color="#FFD54F", thickness=2, size=22)
+                 .encode(x="threshold:Q", y=alt.Y("Model:N", sort="-x")))
+        st.altair_chart(bar + ticks, width="stretch")
+        st.caption("Yellow tick = each model's own decision threshold (dev EER "
+                   "operating point).")
 
     st.divider()
     _sh1, _sh2 = st.columns([3, 1.4], vertical_alignment="center")
@@ -627,8 +682,12 @@ def _render_test_results(rows, signal, threshold, blob, fname):
         st.pyplot(fig_cnn_input(signal, extractor), clear_figure=True,
                   bbox_inches=None)
 
+    # Canonical display order: 5-Block CNN, +SE, ResNet+SE, ResNeXt+SE, CRNN — so
+    # the 2-per-row grid here AND the dropdown in CNN Learning both read row 1
+    # (cnn, cnn+se) · row 2 (resnet, resnext) · row 3 (crnn).
+    _MAP_ORDER = {"cnn5": 0, "cnn5_se": 1, "resnet": 2, "resnext": 3, "crnn": 4}
     _cnn_rows = sorted([r for r in rows if r["_acts"] is not None],
-                       key=lambda r: 0 if r["key"] == "resnet" else 1)
+                       key=lambda r: _MAP_ORDER.get(r["key"], 99))
     if _cnn_rows:
         st.divider()
         _ah1, _ah2 = st.columns([3, 1.4], vertical_alignment="center")
@@ -647,15 +706,19 @@ def _render_test_results(rows, signal, threshold, blob, fname):
                 }
                 st.session_state["bench_choice"] = "cnn"
                 st.switch_page("app_pages/2_Benchmark.py")
-        _acols = st.columns(len(_cnn_rows))
-        for _col, r in zip(_acols, _cnn_rows):
-            with _col:
-                st.pyplot(
-                    fig_activation_evolution(
-                        r["_acts"],
-                        f"{r['Model']} · p(spoof) = {r['p(spoof)']:.2f}"),
-                    clear_figure=True, bbox_inches=None,
-                )
+        # Two maps per row (instead of cramming all five into one) so each renders
+        # large enough to read; the last row may hold a single map.
+        _per_row = 2
+        for _start in range(0, len(_cnn_rows), _per_row):
+            _cols = st.columns(_per_row)
+            for _col, r in zip(_cols, _cnn_rows[_start:_start + _per_row]):
+                with _col:
+                    st.pyplot(
+                        fig_activation_evolution(
+                            r["_acts"],
+                            f"{r['Model']} · p(spoof) = {r['p(spoof)']:.2f}"),
+                        clear_figure=True, bbox_inches=None,
+                    )
 
 
 # ===========================================================================
@@ -685,13 +748,19 @@ with tab_test:
     st.markdown(
         f"Your clip is scored by **all {len(pre_models)} pretrained models** at "
         "once — the self-supervised **wav2vec 2.0** transformer on the raw "
-        "waveform, the two CNNs on the STFT-dB spectrogram and the classic "
-        "detectors (LR / SVM / XGBoost) on their DSP front-ends. The **final "
-        "verdict** is a weighted late-fusion of the strongest models "
-        "(wav2vec 2.0 + ResNet+SE + best classic model); the full panel is shown below."
+        "waveform, the deep spectrogram nets (5-Block CNN ±SE, ResNet+SE, "
+        "ResNeXt+SE, CRNN) and the classic detectors (LR / SVM / XGBoost) on "
+        "their DSP front-ends. Each model decides at **its own best threshold** "
+        "(the dev EER operating point), not a flat 0.5. The **final verdict** is a "
+        "weighted late-fusion of the two most reliable cross-domain detectors — "
+        "**wav2vec 2.0** (0.65) and the best spectrogram net, **ResNeXt+SE** (0.35); "
+        "the full panel of every model is shown below."
     )
-    # Fixed 0.5 decision threshold.
-    threshold = 0.50
+    # Per-model decision thresholds — each model's dev EER operating point, recorded
+    # in leaderboard.json by the full sweep (0.5 fallback when not present yet).
+    _board = load_leaderboard_models() or {}
+    thresholds = {k: float(m["thr_dev"]) for k, m in _board.items()
+                  if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
     # ── Upload / Analyze / Clear row ─────────────────────────────────────── #
     _c_up, _c_an, _c_cl = st.columns([5, 1.5, 1], vertical_alignment="center")
@@ -753,7 +822,7 @@ with tab_test:
                 st.error("No model could be loaded — check the download URLs.")
                 st.stop()
             with st.spinner("Running it past the astromech (scoring every model)…"):
-                rows = _analyse_all_models(signal, entries_ok, loaded, threshold)
+                rows = _analyse_all_models(signal, entries_ok, loaded, thresholds)
             st.session_state["da_test_rows"] = rows
 
         _cached_rows = st.session_state.get("da_test_rows")
@@ -763,7 +832,7 @@ with tab_test:
                 "Click Analyze above to score this clip with all pretrained models.",
             )
         else:
-            _render_test_results(_cached_rows, signal, threshold, _blob, _fname)
+            _render_test_results(_cached_rows, signal, _blob, _fname)
 
 
 # ===========================================================================
@@ -809,7 +878,7 @@ with tab_analyse:
                 with st.container(key="nosearch_da_clf"):
                     clf_disp = st.selectbox("Classifier", list(CLASSIFIERS), key="da_clf")
         elif source == "CNN":
-            # Pick WHICH pretrained CNN (ResNet + SE vs 3-Block CNN) to score.
+            # Pick WHICH pretrained deep model (ResNet+SE, 5-Block CNN, CRNN, …) to score.
             _cnn_entries = [e for e in pre_models if e["kind"] == "cnn"]
             with st.container(key="nosearch_da_cnn"):
                 cnn_name = st.selectbox("CNN", [e["name"] for e in _cnn_entries],

@@ -43,7 +43,7 @@
 ```mermaid
 flowchart LR
     A[Audio 16 kHz] --> B[Classic DSP<br/>MFCC · LFCC · CQCC · DWT · RMS]
-    A --> C[2D CNNs<br/>3-Block · ResNet+SE]
+    A --> C[Deep nets<br/>5-Block CNN ±SE · ResNet/ResNeXt+SE · CRNN]
     A --> D[wav2vec 2.0<br/>self-supervised]
     B --> E{{Weighted<br/>Fusion}}
     C --> E
@@ -63,13 +63,21 @@ Best of each family on the **ASVspoof 2019 LA eval** set — lower is better:
 | # | Model | Type | Front-end | EER&nbsp;(%) | minDCF |
 |:---:|---|---|---|:---:|:---:|
 | **1** | **wav2vec 2.0 (SSL)** | Self-supervised | Raw waveform | **4.96** | **0.674** |
-| 2 | 3-Block CNN (3×3) | 2D CNN | STFT-dB spectrogram | 9.81 | 0.972 |
-| 3 | ResNet + SE | 2D CNN + attention | STFT-dB spectrogram | 10.78 | 0.954 |
-| 4 | SVM (RBF) · CQCC | Classic ML | CQCC | 12.84 | 0.985 |
+| 2 | ResNeXt+SE CNN¹ | Deep net (grouped conv) | STFT-dB spectrogram | 11.40 | 0.984 |
+| 3 | SVM (RBF) · CQCC | Classic ML | CQCC | 12.84 | 0.985 |
 
-> **The headline finding:** the self-supervised model reaches **less than half**
-> the EER of the best classic detector. Full per-model, per-corpus metrics live in
+> ¹ The deep-spectrogram family was expanded to **five architectures**
+> (5-Block CNN ±SE, ResNet+SE, ResNeXt+SE, CRNN), trained over **3 seeds** with
+> an unseen-attack validation split. On the easy 2019 eval the five land within
+> ~0.2% EER of each other, but **ResNeXt+SE** is picked as the best deep net for
+> the reason that matters: it has the lowest cross-domain mean EER (**18.8%** over
+> 2019+2021) **and** is by far the most stable across seeds (EER std 0.04 vs ~7.5
+> for the plain ResNet/5-Block/CRNN — its grouped convolutions act as a
+> regulariser). Full per-model, per-corpus metrics live in
 > [`leaderboard.json`](leaderboard.json).
+>
+> **The headline finding:** the self-supervised model reaches **less than half**
+> the EER of the best deep or classic detector under domain shift.
 
 ### Generalization to unseen conditions
 
@@ -79,20 +87,23 @@ deepfakes *in the wild* (DF). EER (%) per corpus, lower is better:
 | Model | 2019 LA | 2021 LA | 2021 DF |
 |---|:---:|:---:|:---:|
 | **wav2vec 2.0 (SSL)** | **4.96** | **13.04** | **13.51** |
-| ResNet + SE | 10.78 | 25.34 | 30.06 |
-| 3-Block CNN (3×3) | 9.81 | 27.83 | 34.50 |
+| ResNeXt+SE CNN (best deep) | 11.40 | 20.02 | 25.09 |
 
-> Under domain shift the spectrogram CNNs **collapse** (EER 25–34%), while the
-> self-supervised model **stays near 13%** — roughly half the error of the next
-> best. This robustness to unseen attacks is the core argument of the project.
+> Under domain shift the spectrogram nets still **degrade sharply** — even the
+> best, ResNeXt+SE, rises to **20–25%** EER on 2021 — while the self-supervised
+> model **stays near 13%**, roughly half the error of the best deep net. This
+> robustness to unseen attacks and channels is the core argument of the project.
 
-**The "Test an audio" verdict** is a weighted late-fusion of the most trustworthy
-families. The classic slot is resolved at runtime to whichever classic model
-ranks best by EER — currently **SVM · CQCC**. The design weights (0.40 / 0.20 /
-0.10) sum to 0.70, so they renormalize to these percentages:
+**The "Test an audio" verdict** is a weighted late-fusion of the **two most
+reliable cross-domain detectors**. The benchmark is unambiguous: wav2vec 2.0 is
+the only model with a useful out-of-domain minDCF, and ResNeXt+SE is the strongest
+and most stable spectrogram net, so the verdict trusts just those two
+complementary views — raw-waveform SSL + the best spectrogram CNN. The classic DSP
+detectors collapse out of domain (minDCF ≈ 1.0) and stay visible in the panel but
+are **not** trusted for the verdict:
 
 ```
-verdict   =   57%   · wav2vec2 +   29%   · ResNet+SE +   14%   · best classic (SVM·CQCC)
+verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 ```
 
 <div align="center">
@@ -109,7 +120,7 @@ verdict   =   57%   · wav2vec2 +   29%   · ResNet+SE +   14%   · best classic
 |---|---|
 | **Home** | The project at a glance: corpora, methodology, key metrics. |
 | **Signal Explorer** | Visualize waveform + every spectral view (STFT-dB, CNN input, MFCC, LFCC, CQCC), or pit a **real voice against a deepfake** side by side. |
-| **Benchmark** | Three modes — **Classic** (DSP × classifier), **CNN** (train live, loss curves per epoch) and **Full comparison** (all 18 models, leaderboard). |
+| **Benchmark** | Three modes — **Classic** (DSP × classifier), **CNN** (train live, loss curves per epoch) and **Full comparison** (all 21 models, leaderboard). |
 | **Detection Analysis** | **Test an audio** — drop a clip, every model scores it in parallel, weighted-fusion verdict. **Analyse on a split** — *why* a detector gets its EER: score distributions, ROC/DET curves, interactive threshold. |
 | **Methodology** | The full reference: corpora, DSP front-ends, classifiers, architectures, metrics. |
 | **Settings** | **Light / Dark Side** theme, animated background, accessibility, and a few easter eggs. |
@@ -118,7 +129,7 @@ verdict   =   57%   · wav2vec2 +   29%   · ResNet+SE +   14%   · best classic
 
 ---
 
-## The detector zoo — 18 models, 3 families
+## The detector zoo — 21 models, 3 families
 
 <table>
 <tr>
@@ -136,11 +147,13 @@ verdict   =   57%   · wav2vec2 +   29%   · ResNet+SE +   14%   · best classic
 </td>
 <td width="33%" valign="top">
 
-### 2D CNNs
-On STFT-dB spectrograms
+### Deep nets
+On STFT-dB spectrograms — **5 models**
 
-`3-Block CNN (3×3)`
-`ResNet + SE` — *4 residual blocks, channel attention, SpecAugment*
+`5-Block CNN` — *±Squeeze-and-Excitation*
+`ResNet + SE` — *4 residual blocks, channel attention*
+`ResNeXt + SE` — *grouped convolutions (cardinality)*
+`CRNN` — *conv extractor + bidirectional GRU (time axis)*
 
 </td>
 <td width="33%" valign="top">
@@ -262,7 +275,7 @@ Deepfake-Audio-Detection/
 ├── src/
 │   ├── data_loader.py          # Protocol parsers + PyTorch Datasets (spectrogram & raw wave)
 │   ├── features.py             # DSP extractors (RMS, MFCC, LFCC, DWT, CQCC, STFT)
-│   ├── models.py               # Classic classifiers, 2D CNN, ResNet+SE, Wav2Vec2Classifier
+│   ├── models.py               # Classic classifiers, 5-Block CNN ±SE, ResNet/ResNeXt+SE, CRNN, Wav2Vec2Classifier
 │   ├── pipeline.py             # Extraction, training & evaluation
 │   ├── metrics.py              # EER & minDCF (pure Python)
 │   ├── jobs.py                 # Background tasks (benchmark sweeps)
@@ -272,7 +285,7 @@ Deepfake-Audio-Detection/
 │   ├── ui/                     # UI layer: styles (CSS/theme) · figures · components
 │   └── ui_helpers.py           # Thin facade re-exporting ui/ + model_registry + leaderboard
 ├── static/                     # styles.css (page stylesheet) + canvas.js (animated background)
-├── models/                     # 15 classic .joblib + resnet.pth + cnn3x3.pth (wav2vec2.pth from HF)
+├── models/                     # 15 classic .joblib + 5 deep .pth (cnn5, cnn5_se, resnet, resnext, crnn); wav2vec2.pth from HF
 ├── samples/                    # Example clips per corpus/subset (app always has audio)
 ├── config/config.yaml          # Signal, CNN & corpus-path parameters
 ├── tests/                      # Test suite (metrics, features, models, data_loader, pipeline, page smoke)
@@ -291,8 +304,8 @@ Deepfake-Audio-Detection/
 <br/>
 
 The **model zoo is versioned in the repo** (`models/`): the 15 classic `.joblib`
-estimators (a few KB each) plus the two CNNs (`resnet.pth`, `cnn3x3.pth`) — loaded
-instantly, no download.
+estimators (a few KB each) plus the five deep nets (`cnn5.pth`, `cnn5_se.pth`,
+`resnet.pth`, `resnext.pth`, `crnn.pth`) — loaded instantly, no download.
 
 The **only exception** is the **wav2vec 2.0** checkpoint (~469 MB), which exceeds
 GitHub's 100 MB hard limit:
@@ -318,12 +331,39 @@ the code never hard-codes magic numbers.
 | `sample_rate` | 16000 Hz | Sampling rate (Nyquist = 8 kHz). |
 | `n_fft` / `hop_length` | 1024 / 512 | FFT window & hop (50% overlap). |
 | `cnn_input` | 128 × 300 | Frequency bins × time frames (≈ 9.6 s). |
-| `epochs` / `batch_size` / `lr` | 20 / 32 / 1e-3 | CNN training (Adam). |
+| `epochs` / `batch_size` / `lr` | 20 / 32 / 1e-3 | CNN training (Adam); per-arch optima in `cnn_arch_params`. |
 | `semilla` | 42 | Global reproducibility seed. |
+| `cnn_multiseed.seeds` | [42, 43, 44] | Seeds each CNN is trained over; metrics averaged. |
+| `cnn_multiseed.holdout_attacks` | [A05, A06] | Attacks held out for unseen-attack early-stopping validation. |
 
 **Metrics:** **EER** (equal error rate, the headline metric, pure Python) ·
 **minDCF** (NIST cost: `C_miss=1`, `C_fa=10`, `P_target=0.05`) · **Accuracy**
 (context only, misleading under the ~1:9 class imbalance).
+
+**Efficiency metrics:** the Full comparison's **Efficiency** tab also reports, per
+model, the **training time (s)**, the **feature-extraction latency** (ms/clip — the
+DSP front-end for classic models, the STFT spectrogram for the CNNs, measured cold
+with the cache bypassed) and the **inference latency** (ms/clip, the model forward
+pass), plus their sum as the end-to-end **per-clip latency**. Accuracy and the
+latencies are **averaged across every corpus** the model was scored on (not just the
+easy 2019 dev split), so the cost-vs-accuracy scatter reflects overall behaviour. The
+leaderboard headlines two picks: the **best model** (lowest mean minDCF across all
+corpora) and the **most efficient** (best accuracy×speed trade-off). These let you
+weigh cost against accuracy ("how much does each model *pay off*"). They are persisted
+to [`leaderboard.json`](leaderboard.json) and shown identically in the web demo —
+**but they are wall-clock times measured on the machine that ran the training**
+(its CPU/GPU, disk and dataloader settings), so treat them as *relative* comparisons
+within a single run, not portable absolute benchmarks. The web demo never re-times;
+it just displays the values recorded when the sweep was last run and committed.
+
+**Benchmark rigour (Full comparison):** because dev shares its attacks with train,
+the spectrogram nets saturate it (~0 % dev EER) and a single run can't rank them — so
+each CNN is trained over **several seeds** (`cnn_multiseed.seeds`, default 3) and the
+leaderboard reports the **mean** across seeds. Early stopping watches an
+**unseen-attack validation split** (`holdout_attacks`, default A05/A06 held out of
+training) instead of the saturated dev set, so model selection rewards generalisation;
+the saved checkpoint is the **best seed** (lowest unseen-attack validation loss). The
+eval sets (A07–A19, 2021 LA/DF) are never touched by training or selection.
 
 </details>
 

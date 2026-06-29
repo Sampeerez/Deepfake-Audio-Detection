@@ -17,7 +17,8 @@ import torch
 
 from src.data_loader import (
     LABEL_BONAFIDE, LABEL_SPOOF, ASVspoofRawWaveDataset, ASVspoofTorchDataset,
-    parse_protocol, parse_protocol_2021, stratified_subsample,
+    parse_protocol, parse_protocol_2021, split_unseen_attacks,
+    stratified_subsample,
 )
 
 SR = 16_000
@@ -68,6 +69,44 @@ def test_parse_protocol_invalid_subset(tmp_path):
 def test_parse_protocol_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         parse_protocol(str(tmp_path / "nope.txt"), str(tmp_path), "train")
+
+
+# ---------------------------------------------------------------------------
+# split_unseen_attacks — unseen-attack validation split for early stopping
+# ---------------------------------------------------------------------------
+
+def test_split_unseen_attacks_holds_out_attacks():
+    # 4 attack families A01-A04 + bonafide; hold out A03/A04 for validation.
+    samples = ([(f"/x/sp_{i}.flac", LABEL_SPOOF) for i in range(8)]
+               + [(f"/x/bo_{i}.flac", LABEL_BONAFIDE) for i in range(10)])
+    attack_ids = {}
+    for i in range(8):
+        attack_ids[f"sp_{i}"] = f"A0{(i % 4) + 1}"   # A01..A04 cycled
+    train, val = split_unseen_attacks(
+        samples, attack_ids, holdout_attacks=["A03", "A04"],
+        bonafide_val_frac=0.2, seed=7)
+
+    train_ids = {os.path.basename(p)[:-5] for p, _ in train}
+    val_ids   = {os.path.basename(p)[:-5] for p, _ in val}
+    # Held-out attacks must NOT leak into training…
+    assert not any(attack_ids.get(i) in {"A03", "A04"} for i in train_ids)
+    # …and every held-out spoof must be in validation.
+    held = {i for i, a in attack_ids.items() if a in {"A03", "A04"}}
+    assert held <= val_ids
+    # Bonafide is split across both (≈20% to val), no spoof leakage either way.
+    assert any(lbl == LABEL_BONAFIDE for _, lbl in val)
+    assert train and val
+    assert not (train_ids & val_ids)                 # disjoint
+
+
+def test_split_unseen_attacks_empty_holdout_falls_back():
+    # No matching attacks → still returns a usable, non-empty bonafide val set.
+    samples = ([(f"/x/sp_{i}.flac", LABEL_SPOOF) for i in range(4)]
+               + [(f"/x/bo_{i}.flac", LABEL_BONAFIDE) for i in range(6)])
+    train, val = split_unseen_attacks(samples, {}, holdout_attacks=["A99"],
+                                      bonafide_val_frac=0.25, seed=1)
+    assert val                                       # never empty
+    assert all(lbl == LABEL_BONAFIDE for _, lbl in val)
 
 
 def test_parse_protocol_malformed_line(tmp_path):

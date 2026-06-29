@@ -53,6 +53,54 @@ train_params:
   semilla: 42               # Semilla global de reproducibilidad.
   early_stopping_patience: 5  # Épocas sin mejora de loss_val antes de parar.
 
+# Configuración ÓPTIMA por arquitectura para "Full Comparison": cada modelo se
+# entrena con sus mejores hiperparámetros (sobrescriben train_params en el
+# barrido masivo). Ajusta estos valores tras los primeros entrenamientos.
+# Claves de arquitectura: cnn, cnn_se, resnet, resnext, crnn.
+cnn_arch_params:
+  cnn:                      # 5-Block CNN (baseline rápida).
+    epochs: 25
+    batch_size: 32
+    lr: 0.001
+    early_stopping_patience: 5
+  cnn_se:                   # 5-Block CNN + Squeeze-and-Excitation.
+    epochs: 30
+    batch_size: 32
+    lr: 0.001
+    early_stopping_patience: 6
+  resnet:                   # ResNet + SE (residual, generaliza mejor).
+    epochs: 35
+    batch_size: 32
+    lr: 0.0005
+    early_stopping_patience: 7
+  resnext:                  # ResNeXt + SE (convolución agrupada, cardinalidad).
+    epochs: 35
+    batch_size: 32
+    lr: 0.0005
+    early_stopping_patience: 7
+  crnn:                     # CRNN (CNN + GRU bidireccional, eje temporal).
+    epochs: 30
+    batch_size: 16
+    lr: 0.0005
+    early_stopping_patience: 6
+
+# Rigor del barrido CNN en "Full Comparison":
+#   - seeds: cada arquitectura se entrena UNA VEZ POR SEMILLA y las métricas se
+#     promedian (media ± desviación). Una sola corrida sobre un dev saturado no
+#     distingue bien entre arquitecturas; repetir sobre semillas hace fiable el
+#     ranking. El checkpoint guardado en /models es el de la MEJOR semilla (menor
+#     loss de validación con ataques no vistos).
+#   - holdout_attacks: ataques retirados del entrenamiento y usados SOLO para el
+#     early stopping / selección de modelo. train/dev comparten ataques (A01-A06),
+#     así que validar sobre A05/A06 "no vistos" da señal real de generalización
+#     sin tocar el eval (A07-A19 / 2021). Lista vacía ⇒ se usa dev como antes.
+#   - bonafide_val_frac: fracción de bonafide que acompaña a los ataques retenidos
+#     en el set de validación (el bonafide no tiene ataque que retirar).
+cnn_multiseed:
+  seeds: [42, 43, 44]
+  holdout_attacks: ["A05", "A06"]
+  bonafide_val_frac: 0.1
+
 experiment:
   usar_cache: true          # Caché de vectores DSP en disco (directorio cache/).
   n_workers_dsp: 4          # Hilos para extracción DSP paralela (1 = secuencial).

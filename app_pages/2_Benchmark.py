@@ -186,7 +186,7 @@ if choice not in _MODES:
             "A classic model fits the DSP features, or a convolutional network "
             "learns directly from the spectrogram — both run in parallel "
             "(CPU ∥ GPU) during a full comparison.",
-            ["Logistic Reg.", "SVM (RBF)", "XGBoost", "2-D CNN", "ResNet + SE"],
+            ["Logistic Reg.", "SVM (RBF)", "XGBoost", "5-Block CNN", "ResNet + SE", "CRNN"],
         )
         + _hcw_step(
             "3", "Score · metrics",
@@ -199,11 +199,14 @@ if choice not in _MODES:
         unsafe_allow_html=True,
     )
 else:
-    c_back, _ = st.columns([1, 5])
-    with c_back:
-        if st.button("← Modes", key="bench_back", width="stretch"):
-            del st.session_state["bench_choice"]
-            st.rerun()
+    # In the CNN activation-map handoff view, _mode_cnn renders its own
+    # "← Back to CNN training" button, so don't also show the "← Modes" bar there.
+    if not (choice == "cnn" and st.session_state.get("cnn_handoff")):
+        c_back, _ = st.columns([1, 5])
+        with c_back:
+            if st.button("← Modes", key="bench_back", width="stretch"):
+                del st.session_state["bench_choice"]
+                st.rerun()
     runpy.run_path(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "modes", _MODES[choice]),
         run_name="__main__",

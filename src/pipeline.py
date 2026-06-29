@@ -32,10 +32,10 @@ from src.data_loader import (
 )
 from src.features import FeatureExtractor
 from src.metrics import calculate_eer, calculate_eer_and_min_dcf, calculate_min_dcf
-from src.models import AudioDeepfakeCNN, ResNetCNN, get_classic_model
+from src.models import arch_label as arch_label_for, get_classic_model, model_for_arch
 from src.reporting import (
-    COL_ACCURACY, COL_EER, COL_FEATURES, COL_INFER_TIME,
-    COL_MIN_DCF, COL_MODEL, COL_TRAIN_TIME,
+    COL_ACCURACY, COL_EER, COL_FEATURES, COL_FEAT_TIME, COL_INFER_TIME,
+    COL_MIN_DCF, COL_MODEL, COL_THRESHOLD, COL_TRAIN_TIME,
 )
 
 # On-disk cache directory for DSP feature vectors.
@@ -176,26 +176,31 @@ def extract_feature_matrix(
 
 
 def _metrics_result_row(scores, labels, *, features_label: str, model_label: str,
-                        train_time="—", infer_time="—", corpus=None
+                        train_time="—", feat_time="—", infer_time="—", corpus=None
                         ) -> Dict[str, str]:
     """Compute accuracy / EER / minDCF from raw scores+labels and assemble the
     shared COL_* result row — the single source of truth for the row schema used
     by the inference scorers below.
 
-    ``train_time`` / ``infer_time`` accept a preformatted string (e.g. "—") or a
-    number to format. ``corpus`` adds the optional 'Corpus' key only when given."""
+    ``train_time`` / ``feat_time`` / ``infer_time`` accept a preformatted string
+    (e.g. "—") or a number to format. ``feat_time`` is the per-audio cost of
+    turning a raw clip into the model's input (DSP vector / STFT spectrogram);
+    combined with ``infer_time`` (the model forward) it gives the end-to-end
+    per-clip latency. ``corpus`` adds the optional 'Corpus' key only when given."""
     scores_l = scores.tolist() if hasattr(scores, "tolist") else list(scores)
     labels_l = labels.tolist() if hasattr(labels, "tolist") else list(labels)
     preds    = [1 if s >= 0.5 else 0 for s in scores_l]
     accuracy = sum(p == e for p, e in zip(preds, labels_l)) / max(len(labels_l), 1)
-    eer, _, min_dcf = calculate_eer_and_min_dcf(scores_l, labels_l)
+    eer, eer_thr, min_dcf = calculate_eer_and_min_dcf(scores_l, labels_l)
     row = {
         COL_FEATURES:   features_label,
         COL_MODEL:      model_label,
         COL_ACCURACY:   f"{accuracy:.4f}",
         COL_EER:        f"{100 * eer:.2f}",
         COL_MIN_DCF:    f"{min_dcf:.4f}",
+        COL_THRESHOLD:  f"{eer_thr:.4f}",
         COL_TRAIN_TIME: train_time if isinstance(train_time, str) else f"{train_time:.2f}",
+        COL_FEAT_TIME:  feat_time if isinstance(feat_time, str) else f"{feat_time:.3f}",
         COL_INFER_TIME: infer_time if isinstance(infer_time, str) else f"{infer_time:.3f}",
     }
     if corpus is not None:
@@ -272,7 +277,11 @@ def run_classic_models(
             COL_ACCURACY:   f"{accuracy:.4f}",
             COL_EER:        f"{100 * eer:.2f}",
             COL_MIN_DCF:    f"{min_dcf:.4f}",
+            COL_THRESHOLD:  f"{threshold:.4f}",
             COL_TRAIN_TIME: f"{train_time:.2f}",
+            # DSP front-end cost per audio — same for every classifier of this
+            # front-end, so it doubles as the front-end's extraction latency.
+            COL_FEAT_TIME:  f"{ms_dsp_dev:.3f}",
             COL_INFER_TIME: f"{ms_infer:.3f}",
         })
 
@@ -297,6 +306,7 @@ def run_classic_models(
                 COL_EER:        f"{100 * eer_ev:.2f}",
                 COL_MIN_DCF:    f"{dcf_ev:.4f}",
                 COL_TRAIN_TIME: "—",
+                COL_FEAT_TIME:  "—",
                 COL_INFER_TIME: "—",
                 "Corpus":       corpus_label,
             })
@@ -329,7 +339,7 @@ def score_fitted_classic(
 
 
 def evaluate_cnn_on_set(
-    model: "AudioDeepfakeCNN",
+    model: "nn.Module",
     samples: List[Tuple[str, int]],
     extractor: "FeatureExtractor",
     params: Dict,
@@ -441,7 +451,7 @@ def evaluate_raw_on_set(
 # ===========================================================================
 
 def _train_cnn(
-    model: AudioDeepfakeCNN,
+    model: nn.Module,
     loader_train: DataLoader,
     loader_dev: DataLoader,
     criterion: nn.Module,
@@ -594,7 +604,7 @@ def _train_cnn(
 
 
 def _evaluate_cnn(
-    model: AudioDeepfakeCNN,
+    model: nn.Module,
     loader: DataLoader,
     device: "torch.device",
 ) -> Tuple[List[float], List[int], float]:
@@ -621,6 +631,29 @@ def _evaluate_cnn(
     return scores, out_labels, ms_per_audio
 
 
+def _measure_spectrogram_ms(
+    samples: List[Tuple[str, int]],
+    extractor: FeatureExtractor,
+    n_probe: int = 200,
+) -> float:
+    """Per-audio cost (ms) of turning a raw clip into the CNN's STFT spectrogram
+    — decode + transform — measured on a capped probe set with the disk cache
+    BYPASSED, so it reflects a cold, fresh-clip latency (what 'Test an audio'
+    pays) rather than a warm cache hit. Returns 0.0 if there is nothing to probe."""
+    probe = samples[:max(int(n_probe), 1)]
+    if not probe:
+        return 0.0
+    ds = ASVspoofTorchDataset(
+        probe, extractor.get_spectrogram_matrix, extractor.sample_rate,
+        augment=False, cache_tag=None,          # no cache → true extraction cost
+    )
+    t0 = time.perf_counter()
+    for i in range(len(ds)):
+        _ = ds[i]
+    elapsed = time.perf_counter() - t0
+    return 1000.0 * elapsed / max(len(ds), 1)
+
+
 def train_and_evaluate_cnn(
     train_samples: List[Tuple[str, int]],
     dev_samples:   List[Tuple[str, int]],
@@ -632,17 +665,23 @@ def train_and_evaluate_cnn(
     should_stop:   Optional[Callable[[], bool]] = None,
     checkpoint_path: Optional[str] = None,
     batch_callback: Optional[Callable[[int, int, float], None]] = None,
-) -> Tuple[AudioDeepfakeCNN, List[Dict], List[Dict[str, str]]]:
+    val_samples:   Optional[List[Tuple[str, int]]] = None,
+) -> Tuple[nn.Module, List[Dict], List[Dict[str, str]]]:
     """Full CNN orchestration returning the model, training history and result rows.
 
     Args:
         train_samples: List of (path, label) for training.
-        dev_samples:   List of (path, label) for validation / dev evaluation.
+        dev_samples:   List of (path, label) for the reported dev metrics.
         extractor:     FeatureExtractor instance (provides get_spectrogram_matrix).
         params:        Dict from config.yaml['train_params'] plus 'semilla'.
         eval_samples:  Optional eval subset; if provided, an extra [EVAL] row
                        is appended to the results.
         epoch_callback: Optional per-epoch callback for live progress reporting.
+        val_samples:   Optional early-stopping / model-selection set. When given,
+                       the validation loss that drives early stopping and the LR
+                       scheduler is computed on THIS set (e.g. an unseen-attack
+                       holdout) instead of ``dev_samples`` — dev is then only
+                       scored for reporting. Falls back to dev when None.
 
     Returns:
         (trained_model, history, result_rows) where result_rows use the COL_*
@@ -692,6 +731,11 @@ def train_and_evaluate_cnn(
 
     loader_train = _make_loader(train_samples, shuffle=True,  augment=use_augment)
     loader_dev   = _make_loader(dev_samples,   shuffle=False, augment=False)
+    # Early stopping / LR scheduling watch this set. By default it's dev, but a
+    # caller can pass an unseen-attack holdout so model selection rewards
+    # generalisation instead of memorising the train/dev-shared attacks.
+    loader_es    = (_make_loader(val_samples, shuffle=False, augment=False)
+                    if val_samples else loader_dev)
 
     n_bonafide = sum(1 for _, e in train_samples if e == LABEL_BONAFIDE)
     n_spoof    = sum(1 for _, e in train_samples if e == LABEL_SPOOF)
@@ -700,17 +744,13 @@ def train_and_evaluate_cnn(
     )
 
     arch = params.get("arch", "cnn")
-    if arch == "resnet":
-        model      = ResNetCNN(dropout=float(params["dropout"])).to(device)
-        arch_label = "ResNet+SE CNN"
-    else:
-        model      = AudioDeepfakeCNN(dropout=float(params["dropout"])).to(device)
-        arch_label = "2D CNN"
+    model      = model_for_arch(arch, dropout=float(params["dropout"])).to(device)
+    arch_label = arch_label_for(arch)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(params["lr"]))
 
     train_time, n_epochs, history = _train_cnn(
-        model, loader_train, loader_dev, criterion, optimizer,
+        model, loader_train, loader_es, criterion, optimizer,
         device, int(params["epochs"]), patience,
         epoch_callback=epoch_callback, should_stop=should_stop,
         batch_callback=batch_callback,
@@ -755,14 +795,19 @@ def train_and_evaluate_cnn(
             COL_ACCURACY:   f"{accuracy:.4f}",
             COL_EER:        f"{100 * eer:.2f}",
             COL_MIN_DCF:    f"{min_dcf:.4f}",
+            COL_THRESHOLD:  f"{threshold:.4f}",
             COL_TRAIN_TIME: f"{train_time:.2f}" if not suffix else "—",
+            COL_FEAT_TIME:  f"{feat_ms:.3f}" if not suffix else "—",
             COL_INFER_TIME: f"{ms:.3f}",
             "Corpus":       corpus,
         }
 
+    # Cold spectrogram-extraction latency (decode + STFT) on a capped dev probe —
+    # the front-end cost a fresh clip pays before the forward pass.
+    feat_ms = _measure_spectrogram_ms(dev_samples, extractor)
     scores_dev, labels_dev, ms = _evaluate_cnn(model, loader_dev, device)
     print(f"[CNN] train={train_time:.2f}s ({n_epochs} epochs) | "
-          f"dev inference={ms:.3f} ms/audio")
+          f"extract={feat_ms:.3f} ms/audio | dev inference={ms:.3f} ms/audio")
 
     results = [_build_result(scores_dev, labels_dev)]
 

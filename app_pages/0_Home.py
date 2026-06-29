@@ -159,13 +159,11 @@ st.markdown("""
     <p>
         An interactive benchmark for synthetic-speech detection. Three model
         families go head to head across three ASVspoof corpora: classical DSP
-        front-ends (RMS, MFCC, LFCC, DWT, CQCC) with traditional classifiers,
-        2-D CNNs on STFT spectrograms — including a
-        <strong>ResNet + Squeeze-and-Excitation</strong> — and a self-supervised
-        <strong>wav2vec 2.0</strong> transformer working on the raw waveform.
-        Explore each feature representation, train models live, run the full
-        head-to-head comparison and analyse the decision threshold, all measured
-        with the standard EER and minDCF metrics.
+        front-ends with traditional classifiers, deep nets on STFT spectrograms
+        (<strong>5-Block CNN</strong>, <strong>ResNet/ResNeXt + SE</strong>,
+        <strong>CRNN</strong>) and a self-supervised <strong>wav2vec 2.0</strong>
+        transformer on the raw waveform — all measured with the standard EER and
+        minDCF metrics.
     </p>
     <div class="hero-author">
         <span class="ha-name">Samuel Pérez López</span>

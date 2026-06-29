@@ -170,12 +170,24 @@ _FEAT_DEFS = [
 ]
 
 PRETRAINED_REGISTRY: List[Dict] = [
-    {"key": "resnet", "name": "ResNet + SE", "kind": "cnn", "clf": None,
-     "feat": None, "front": "STFT-dB spectrogram",
+    # Deep spectrogram models. "arch" is the canonical key consumed by
+    # src.models.model_for_arch (single source of truth for class dispatch);
+    # it is also what gets stored in each checkpoint's "arch" field.
+    {"key": "cnn5", "name": "5-Block CNN", "kind": "cnn", "arch": "cnn",
+     "clf": None, "feat": None, "front": "STFT-dB spectrogram",
+     "file": "cnn5.pth", "url": _hf_url("cnn5.pth")},
+    {"key": "cnn5_se", "name": "5-Block CNN + SE", "kind": "cnn", "arch": "cnn_se",
+     "clf": None, "feat": None, "front": "STFT-dB spectrogram",
+     "file": "cnn5_se.pth", "url": _hf_url("cnn5_se.pth")},
+    {"key": "resnet", "name": "ResNet + SE", "kind": "cnn", "arch": "resnet",
+     "clf": None, "feat": None, "front": "STFT-dB spectrogram",
      "file": "resnet.pth", "url": _hf_url("resnet.pth")},
-    {"key": "cnn3x3", "name": "3-Block CNN (3×3)", "kind": "cnn", "clf": None,
-     "feat": None, "front": "STFT-dB spectrogram",
-     "file": "cnn3x3.pth", "url": _hf_url("cnn3x3.pth")},
+    {"key": "resnext", "name": "ResNeXt + SE", "kind": "cnn", "arch": "resnext",
+     "clf": None, "feat": None, "front": "STFT-dB spectrogram",
+     "file": "resnext.pth", "url": _hf_url("resnext.pth")},
+    {"key": "crnn", "name": "CRNN", "kind": "cnn", "arch": "crnn",
+     "clf": None, "feat": None, "front": "STFT-dB spectrogram",
+     "file": "crnn.pth", "url": _hf_url("crnn.pth")},
     # Self-supervised raw-waveform detector (fine-tuned wav2vec 2.0 base + linear
     # head). "raw" kind: no DSP front-end, no spectrogram — it eats the 16 kHz
     # waveform directly. Inference-only (it is evaluated, never trained, by the
@@ -603,14 +615,14 @@ def load_pretrained_torch(file: str, url: str, name: str):
     Returns (model_in_eval_mode, checkpoint_meta). Cached per (file)."""
     import torch
 
-    from src.models import AudioDeepfakeCNN, ResNetCNN
+    from src.models import model_for_arch
 
     path = file if os.path.isabs(file) else os.path.join(MODELS_DIR, file)
     _download_if_missing(url, path, name)
     with st.spinner(f"Consulting the Jedi Archives — loading {name} on CPU…"):
         ckpt = torch.load(path, map_location=torch.device("cpu"))
-        model_cls = ResNetCNN if ckpt.get("arch") == "resnet" else AudioDeepfakeCNN
-        model = model_cls(dropout=float(ckpt.get("dropout", 0.3)))
+        model = model_for_arch(ckpt.get("arch", "cnn"),
+                               dropout=float(ckpt.get("dropout", 0.3)))
         model.load_state_dict(ckpt["state_dict"])
         model.to("cpu").eval()
     return model, ckpt

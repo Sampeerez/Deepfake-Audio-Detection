@@ -11,7 +11,9 @@ minDCF can be computed on continuous scores:
      - XGBoost with L1/L2 regularisation, subsampling, and bounded depth.
 
   B) DEEP (CPU/GPU, PyTorch) on 2-D STFT-dB spectrograms:
-     - Lightweight 3-block CNN with BatchNorm and Dropout.
+     - 5-block CNN with BatchNorm and Dropout (optional SE attention).
+     - Residual SE CNN (ResNet_SE) and its grouped-conv ResNeXt_SE variant.
+     - CRNN: convolutional extractor + bidirectional GRU over the time axis.
 
 The ``get_classic_model`` factory decouples the rest of the app from the
 concrete libraries: adding a new model = adding one branch.
@@ -142,20 +144,48 @@ def get_classic_model(
     )
 
 
-class AudioDeepfakeCNN(nn.Module):
-    """Lightweight 2-D CNN for deepfake detection on STFT-dB spectrograms.
+def _conv_block(in_channels: int, out_channels: int,
+                use_se: bool = False) -> nn.Sequential:
+    """Conv2d(3×3, same padding, no bias) → BatchNorm2d → ReLU → [SE] → MaxPool2d(2×2).
+
+    When ``use_se`` is True a Squeeze-and-Excitation gate is inserted right
+    AFTER the ReLU and BEFORE the MaxPool, re-weighting each channel by its
+    discriminative importance.
+    """
+    layers = [
+        nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,   # 'same' padding: preserves height and width.
+            bias=False,  # Bias is redundant: BatchNorm already re-centres.
+        ),
+        nn.BatchNorm2d(num_features=out_channels),
+        nn.ReLU(inplace=True),
+    ]
+    if use_se:
+        layers.append(_SEBlock(out_channels))
+    layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+    return nn.Sequential(*layers)
+
+
+class CNN_5Block(nn.Module):
+    """2-D CNN with FIVE convolutional blocks for deepfake detection on
+    STFT-dB spectrograms.
 
     The network treats the spectrogram (1 × freq_bins × time_frames) as a
-    single-channel image and learns HIERARCHICALLY:
-      * Block 1: local time-frequency edges and textures (transients,
+    single-channel image and learns HIERARCHICALLY through 5 blocks with a
+    growing receptive field (channels 16 → 32 → 64 → 128 → 256):
+      * Early blocks: local time-frequency edges and textures (transients,
         phoneme transitions, harmonic grids).
-      * Block 2: mid-level compositions (formants, vocoder noise bands,
-        discontinuities between synthesised frames).
-      * Block 3: global discriminative structures separating natural speech
-        from synthetic audio without manual feature engineering.
+      * Mid blocks: formants, vocoder noise bands, discontinuities between
+        synthesised frames.
+      * Deep blocks: global discriminative structures separating natural
+        speech from synthetic audio without manual feature engineering.
 
     Each block follows the canonical pattern Conv2d -> BatchNorm2d -> ReLU
-    -> MaxPool2d:
+    -> [SE] -> MaxPool2d:
       * Conv2d 3×3: local filters with SHARED weights across the entire
         time-frequency plane -> drastic parameter reduction vs a dense
         layer, plus translation equivariance (an artefact betrays the
@@ -167,6 +197,8 @@ class AudioDeepfakeCNN(nn.Module):
       * ReLU: non-linearity max(0, x); without it, stacking convolutions
         would collapse into a single linear transformation.  Its constant
         gradient in the active region prevents gradient vanishing.
+      * SE (optional): Squeeze-and-Excitation channel attention re-weighting
+        each frequency channel by its discriminative importance.
       * MaxPool2d 2×2: downsampling retaining the dominant activation of
         each neighbourhood: gains local invariance and halves the spatial
         cost of subsequent layers.
@@ -177,14 +209,16 @@ class AudioDeepfakeCNN(nn.Module):
     in [0, 1], consistent with the convention 0=bonafide / 1=spoof.
     """
 
-    def __init__(self, dropout: float = 0.3) -> None:
+    CHANNELS = (16, 32, 64, 128, 256)
+
+    def __init__(self, dropout: float = 0.3, use_se: bool = False) -> None:
         super().__init__()
 
-        self.conv_extractor = nn.Sequential(
-            self._conv_block(in_channels=1,  out_channels=16),
-            self._conv_block(in_channels=16, out_channels=32),
-            self._conv_block(in_channels=32, out_channels=64),
-        )
+        chans = (1,) + self.CHANNELS
+        self.conv_extractor = nn.Sequential(*[
+            _conv_block(chans[i], chans[i + 1], use_se=use_se)
+            for i in range(len(self.CHANNELS))
+        ])
 
         # Adaptive pooling: any residual spatial resolution is collapsed to
         # 4×8 (freq × time) by averaging.  Makes the network robust to
@@ -192,8 +226,8 @@ class AudioDeepfakeCNN(nn.Module):
         self.adaptive_pool = nn.AdaptiveAvgPool2d(output_size=(4, 8))
 
         self.classifier = nn.Sequential(
-            nn.Flatten(),                    # (B, 64, 4, 8) -> (B, 2048)
-            nn.Linear(64 * 4 * 8, 128),
+            nn.Flatten(),                    # (B, 256, 4, 8) -> (B, 8192)
+            nn.Linear(self.CHANNELS[-1] * 4 * 8, 256),
             nn.ReLU(inplace=True),
             # Dropout: during training, randomly deactivates 30% of neurons
             # at each step.  Prevents co-adaptation (multiple neurons
@@ -201,24 +235,7 @@ class AudioDeepfakeCNN(nn.Module):
             # implicit ensembling of sub-networks -> direct overfitting
             # mitigation.  Automatically disabled in .eval() mode.
             nn.Dropout(p=dropout),
-            nn.Linear(128, 1),               # Single binary logit.
-        )
-
-    @staticmethod
-    def _conv_block(in_channels: int, out_channels: int) -> nn.Sequential:
-        """Conv2d(3×3, same padding, no bias) → BatchNorm2d → ReLU → MaxPool2d(2×2)."""
-        return nn.Sequential(
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=3,
-                stride=1,
-                padding=1,   # 'same' padding: preserves height and width.
-                bias=False,  # Bias is redundant: BatchNorm already re-centres.
-            ),
-            nn.BatchNorm2d(num_features=out_channels),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Linear(256, 1),               # Single binary logit.
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -262,6 +279,19 @@ class AudioDeepfakeCNN(nn.Module):
         return logits, activations
 
 
+class CNN_5Block_SE(CNN_5Block):
+    """``CNN_5Block`` with a Squeeze-and-Excitation gate in every block.
+
+    Identical topology to :class:`CNN_5Block`, but each convolutional block
+    inserts an SE channel-attention gate after the ReLU (and before the
+    MaxPool), letting the network suppress irrelevant frequency bands and
+    amplify attack-specific synthesis artefacts at every resolution level.
+    """
+
+    def __init__(self, dropout: float = 0.3) -> None:
+        super().__init__(dropout=dropout, use_se=True)
+
+
 # ===========================================================================
 # ResNet-style CNN with Squeeze-and-Excitation attention
 # ===========================================================================
@@ -303,15 +333,24 @@ class _ResBlock(nn.Module):
     so that the residual sum is always dimension-compatible.  MaxPool at the
     end halves both spatial dimensions, matching the behaviour of the plain
     CNN blocks and keeping the progressive resolution reduction intact.
+
+    ``groups`` enables ResNeXt-style GROUPED convolutions (cardinality): the
+    channels are split into independent groups, each convolved separately,
+    which decorrelates feature paths at a lower parameter cost. Grouping is
+    applied per-conv only when both its in/out channels are divisible by
+    ``groups`` (so the 1→32 stem, not divisible by 32, falls back to a normal
+    convolution automatically).
     """
 
-    def __init__(self, in_ch: int, out_ch: int) -> None:
+    def __init__(self, in_ch: int, out_ch: int, groups: int = 1) -> None:
         super().__init__()
+        g1 = groups if (in_ch % groups == 0 and out_ch % groups == 0) else 1
+        g2 = groups if (out_ch % groups == 0) else 1
         self.conv = nn.Sequential(
-            nn.Conv2d(in_ch,  out_ch, 3, 1, 1, bias=False),
+            nn.Conv2d(in_ch,  out_ch, 3, 1, 1, bias=False, groups=g1),
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_ch, out_ch, 3, 1, 1, bias=False),
+            nn.Conv2d(out_ch, out_ch, 3, 1, 1, bias=False, groups=g2),
             nn.BatchNorm2d(out_ch),
         )
         self.skip = (
@@ -330,7 +369,7 @@ class _ResBlock(nn.Module):
         return self.pool(self.se(out))
 
 
-class ResNetCNN(nn.Module):
+class ResidualSECNN(nn.Module):
     """Residual CNN with SE channel attention for deepfake audio detection.
 
     Designed for better generalisation to unseen spoofing attacks (ASVspoof
@@ -341,8 +380,10 @@ class ResNetCNN(nn.Module):
     * SE attention re-weights spectral channels at each resolution level,
       letting the network suppress irrelevant bands (e.g. telephone codec
       roll-off) and amplify band-specific synthesis artefacts.
-    * 4 blocks (vs. 3 in the baseline) capture one more level of abstraction
-      over the time-frequency plane at minimal extra compute cost.
+
+    ``groups`` selects the convolution cardinality: ``groups=1`` is the plain
+    ResNet (:class:`ResNet_SE`); ``groups>1`` turns the residual convolutions
+    into ResNeXt-style grouped convolutions (:class:`ResNeXt_SE`).
 
     Architecture (input 1 × 128 × 300):
         ResBlock(1  → 32)  → (32,  64, 150)
@@ -353,13 +394,13 @@ class ResNetCNN(nn.Module):
         Flatten → Linear(4096→256) → ReLU → Dropout → Linear(256→1)
     """
 
-    def __init__(self, dropout: float = 0.3) -> None:
+    def __init__(self, dropout: float = 0.3, groups: int = 1) -> None:
         super().__init__()
         self.blocks = nn.ModuleList([
-            _ResBlock(1,   32),
-            _ResBlock(32,  64),
-            _ResBlock(64,  128),
-            _ResBlock(128, 128),
+            _ResBlock(1,   32,  groups=groups),
+            _ResBlock(32,  64,  groups=groups),
+            _ResBlock(64,  128, groups=groups),
+            _ResBlock(128, 128, groups=groups),
         ])
         self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 8))
         self.classifier = nn.Sequential(
@@ -379,7 +420,7 @@ class ResNetCNN(nn.Module):
 
     @torch.no_grad()
     def forward_with_activations(self, x: torch.Tensor):
-        """Same interface as AudioDeepfakeCNN — one activation tensor per residual block."""
+        """Same GUI interface — one activation tensor per residual block."""
         activations = []
         for block in self.blocks:
             x = block(x)
@@ -387,6 +428,124 @@ class ResNetCNN(nn.Module):
         pooled = self.adaptive_pool(x)
         logits = self.classifier(pooled).squeeze(1)
         return logits, activations
+
+
+class ResNet_SE(ResidualSECNN):
+    """4-block residual CNN with SE attention (plain convolutions, groups=1)."""
+
+    def __init__(self, dropout: float = 0.3) -> None:
+        super().__init__(dropout=dropout, groups=1)
+
+
+class ResNeXt_SE(ResidualSECNN):
+    """ResNeXt variant of :class:`ResNet_SE`.
+
+    An advanced ResNet that introduces CARDINALITY by splitting the residual
+    convolution channels into 32 independent groups (grouped convolutions).
+    Same 4 residual blocks and SE attention; the grouping decorrelates feature
+    paths and tends to improve generalisation at a comparable parameter budget.
+    """
+
+    def __init__(self, dropout: float = 0.3, groups: int = 32) -> None:
+        super().__init__(dropout=dropout, groups=groups)
+
+
+# ===========================================================================
+# CRNN: convolutional feature extractor + bidirectional recurrent layer
+# ===========================================================================
+
+class CRNN_Model(nn.Module):
+    """Convolutional-Recurrent network for deepfake audio detection.
+
+    The 5-block convolutional extractor of :class:`CNN_5Block` learns local
+    time-frequency patterns; instead of collapsing the time axis with global
+    pooling, the per-frame feature vectors are fed to a BIDIRECTIONAL GRU that
+    models their TEMPORAL evolution (forward + backward context). The recurrent
+    states are mean-pooled over time and projected to a single logit.
+
+    The frequency axis is adaptively pooled to a fixed height (4) so the GRU
+    input size stays constant regardless of ``freq_bins`` in the YAML.
+    """
+
+    CHANNELS = (16, 32, 64, 128, 256)
+    FREQ_OUT = 4
+
+    def __init__(self, dropout: float = 0.3, hidden: int = 128,
+                 rnn_layers: int = 1, use_se: bool = False) -> None:
+        super().__init__()
+        chans = (1,) + self.CHANNELS
+        self.conv_extractor = nn.Sequential(*[
+            _conv_block(chans[i], chans[i + 1], use_se=use_se)
+            for i in range(len(self.CHANNELS))
+        ])
+        # Collapse the frequency axis to a fixed height, keep the time axis.
+        self.freq_pool = nn.AdaptiveAvgPool2d((self.FREQ_OUT, None))
+        rnn_in = self.CHANNELS[-1] * self.FREQ_OUT
+        self.rnn = nn.GRU(
+            input_size=rnn_in, hidden_size=hidden, num_layers=rnn_layers,
+            batch_first=True, bidirectional=True,
+        )
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=dropout),
+            nn.Linear(2 * hidden, 1),        # 2× for bidirectional.
+        )
+
+    def _sequence(self, feat: torch.Tensor) -> torch.Tensor:
+        """(B, C, F, T) → (B, T, C*F): per-frame feature vectors over time."""
+        feat = self.freq_pool(feat)
+        b, c, f, t = feat.shape
+        return feat.permute(0, 3, 1, 2).reshape(b, t, c * f)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Args: x — (batch, 1, freq_bins, time_frames). Returns raw logits (batch,)."""
+        seq = self._sequence(self.conv_extractor(x))
+        out, _ = self.rnn(seq)               # (B, T, 2*hidden)
+        return self.classifier(out.mean(dim=1)).squeeze(1)
+
+    @torch.no_grad()
+    def forward_with_activations(self, x: torch.Tensor):
+        """Same GUI interface — one activation tensor per convolutional block."""
+        activations = []
+        out = x
+        for block in self.conv_extractor:
+            out = block(out)
+            activations.append(out.detach().cpu())
+        seq = self._sequence(out)
+        rnn_out, _ = self.rnn(seq)
+        logits = self.classifier(rnn_out.mean(dim=1)).squeeze(1)
+        return logits, activations
+
+
+# ===========================================================================
+# Architecture registry — single source of truth for arch-key → model class
+# ===========================================================================
+
+_ARCH_MODELS = {
+    "cnn":     CNN_5Block,
+    "cnn_se":  CNN_5Block_SE,
+    "resnet":  ResNet_SE,
+    "resnext": ResNeXt_SE,
+    "crnn":    CRNN_Model,
+}
+
+_ARCH_LABELS = {
+    "cnn":     "5-Block CNN",
+    "cnn_se":  "5-Block CNN + SE",
+    "resnet":  "ResNet+SE CNN",
+    "resnext": "ResNeXt+SE CNN",
+    "crnn":    "CRNN",
+}
+
+
+def model_for_arch(arch: str, dropout: float = 0.3) -> nn.Module:
+    """Instantiate the deep model for an ``arch`` key (defaults to CNN_5Block)."""
+    cls = _ARCH_MODELS.get(arch, CNN_5Block)
+    return cls(dropout=float(dropout))
+
+
+def arch_label(arch: str) -> str:
+    """Human-readable label for an ``arch`` key (used on leaderboards)."""
+    return _ARCH_LABELS.get(arch, _ARCH_LABELS["cnn"])
 
 
 class Wav2Vec2Classifier(nn.Module):

@@ -31,7 +31,7 @@ from src.data_loader import (  # noqa: E402
     LABEL_BONAFIDE, LABEL_SPOOF, ASVspoofTorchDataset, stratified_subsample,
 )
 from src.metrics import calculate_eer, calculate_min_dcf  # noqa: E402
-from src.models import AudioDeepfakeCNN, ResNetCNN  # noqa: E402
+from src.models import model_for_arch  # noqa: E402
 from src.jobs import cnn_epochs, request_cancel, submit_cnn_training  # noqa: E402
 from src.pipeline import evaluate_cnn_on_set  # noqa: E402
 from src.reporting import (  # noqa: E402
@@ -63,15 +63,23 @@ st.caption(
 # render the FULL feature-map grids for that clip and short-circuit the page.
 _handoff = st.session_state.get("cnn_handoff")
 if _handoff:
+    if st.button("← Back to CNN training", key="cnn_handoff_back"):
+        st.session_state.pop("cnn_handoff", None)
+        st.rerun()
     st.markdown(
         f"Full convolutional activation maps for your uploaded clip "
         f"**{_handoff.get('fname') or 'audio'}** — every feature map of every "
         f"block, for each CNN that judged it in Detection Analysis."
     )
-    if st.button("← Back to CNN training", key="cnn_handoff_back"):
-        st.session_state.pop("cnn_handoff", None)
-        st.rerun()
-    for _item in _handoff.get("items", []):
+    _items = _handoff.get("items", [])
+    _names = [it["name"] for it in _items]
+    # Pick WHICH model's maps to show, instead of stacking all of them down the
+    # page. Dropdown-only (no typing, via the nosearch container); the option
+    # order is the canonical 5-Block → +SE → ResNet → ResNeXt → CRNN set upstream.
+    with st.container(key="nosearch_cnn_handoff"):
+        _pick = (st.selectbox("Show maps for", _names, key="cnn_handoff_pick")
+                 if len(_items) > 1 else (_names[0] if _names else None))
+    for _item in [it for it in _items if it["name"] == _pick]:
         _col = SPOOF_COLOR if _item["p"] >= 0.5 else BONAFIDE_COLOR
         _pred = "spoof" if _item["p"] >= 0.5 else "bonafide"
         st.markdown(
@@ -99,7 +107,7 @@ if _web:
         "CNN — evaluation only in the web demo",
         "Training the network needs a GPU and the full ASVspoof corpus, so on the "
         "public cloud <b>training is disabled</b>. You can still <b>Evaluate</b> "
-        "the pretrained CNNs (ResNet + SE and the 3-Block CNN) on eval clips "
+        "the pretrained deep models (ResNet + SE, 5-Block CNN, CRNN, …) on eval clips "
         "streamed from Hugging Face — the same view you get locally.",
     )
 
@@ -107,8 +115,9 @@ if _web:
 # Training configuration — main-area panel
 # ===========================================================================
 
-ARCH_BASELINE = "3-Block CNN"
-ARCH_RESNET   = "ResNet + SE"
+ARCH_CNN    = "5-Block CNN"
+ARCH_RESNET = "ResNet + SE"
+ARCH_CRNN   = "CRNN"
 
 # Right column tweaks: the Evaluate/Score box fills the full column width and
 # the Train CNN button matches the height of the classifier row (like Classic).
@@ -131,7 +140,7 @@ with st.container(border=True):
     with _r1l:
         with st.container(key="nosearch_arch"):
             arch = st.selectbox(
-                "Architecture", [ARCH_RESNET, ARCH_BASELINE], key="cnn_arch",
+                "Architecture", [ARCH_CNN, ARCH_RESNET, ARCH_CRNN], key="cnn_arch",
             )
     with _r1r:
         _train_lbl = "Trained on" if "cnn_history" in st.session_state else "Train on"
@@ -169,12 +178,35 @@ with st.container(border=True):
                     "SpecAugment (recommended)", value=True,
                     help="Random time + frequency masking on each training "
                          "spectrogram. Strongly reduces overfitting on small subsets.")
+                # Architecture-specific switches.
+                use_se = use_resnext = False
+                if arch == ARCH_CNN:
+                    use_se = st.toggle(
+                        "Enable Squeeze-and-Excitation (SE) block", value=False,
+                        help="Inserts an SE channel-attention gate after the ReLU of "
+                             "every convolutional block, re-weighting each frequency "
+                             "channel by its discriminative importance.")
+                elif arch == ARCH_RESNET:
+                    use_resnext = st.toggle(
+                        "ResNeXt mode (grouped convolution)", value=False,
+                        help="Splits the residual convolutions into 32 independent "
+                             "groups (cardinality), an advanced ResNet variant that "
+                             "decorrelates feature paths.")
         clear_btn = st.button("Clear results", icon=":material/delete:",
                               width="stretch", disabled=_is_busy)
 
+    # Resolve the canonical arch key from the selector + advanced toggles.
+    if arch == ARCH_RESNET:
+        arch_key = "resnext" if use_resnext else "resnet"
+    elif arch == ARCH_CRNN:
+        arch_key = "crnn"
+    else:
+        arch_key = "cnn_se" if use_se else "cnn"
+
     with _r2r:
         # Evaluate is enabled only when the selected architecture is actually on disk.
-        arch_hf_key = "resnet" if arch == ARCH_RESNET else "cnn3x3"
+        arch_hf_key = {"cnn": "cnn5", "cnn_se": "cnn5_se", "resnet": "resnet",
+                       "resnext": "resnext", "crnn": "crnn"}.get(arch_key, "cnn5")
         _hf_cnn = [e for e in available_pretrained_models() if e["kind"] == "cnn"]
         # Locally we require the checkpoint to be on disk; on the web demo the
         # registry entries are downloadable, so allow eval (it fetches on click).
@@ -196,7 +228,6 @@ with st.container(border=True):
         )
 
 train_corpus = "2019 LA"
-arch_key = "resnet" if arch == ARCH_RESNET else "cnn"
 
 if clear_btn:
     for _k in ["cnn_history", "cnn_model", "cnn_dev", "cnn_results",
@@ -211,10 +242,12 @@ if clear_btn:
 
 def _render_architecture(arch_key):
     if True:
+        _is_resid = arch_key in ("resnet", "resnext")
         col_desc, col_table = st.columns([1, 2], gap="medium")
         with col_desc:
-            if arch_key == "resnet":
-                st.markdown("##### ResNet + SE")
+            if _is_resid:
+                st.markdown("##### ResNet + SE"
+                            + (" → ResNeXt" if arch_key == "resnext" else ""))
                 st.markdown(
                     "Four **residual blocks** with **Squeeze-and-Excitation "
                     "channel attention**. Residual connections prevent gradient "
@@ -222,19 +255,40 @@ def _render_architecture(arch_key):
                     "discriminative importance — critical for generalising to "
                     "unseen TTS/VC attacks (ASVspoof 2021+)."
                 )
-                model_cls = ResNetCNN
-            else:
-                st.markdown("##### 3-Block CNN (baseline)")
+                if arch_key == "resnext":
+                    st.markdown(
+                        "**ResNeXt mode** is an advanced ResNet variant that "
+                        "introduces **cardinality**, splitting the channels of "
+                        "each residual convolution into 32 independent groups "
+                        "(grouped convolutions) to decorrelate feature paths."
+                    )
+            elif arch_key == "crnn":
+                st.markdown("##### CRNN")
                 st.markdown(
-                    "Three convolutional blocks progressively extract "
-                    "discriminative time-frequency patterns from fixed-size "
-                    "**128 × 300** STFT-dB spectrograms (z-score normalised "
-                    "per sample)."
+                    "A 5-block convolutional extractor learns local time-frequency "
+                    "patterns; instead of pooling the time axis away, the per-frame "
+                    "feature vectors feed a **bidirectional GRU** that models their "
+                    "**temporal** evolution (forward + backward context) before the "
+                    "final logit — capturing how artefacts unfold over time."
                 )
-                model_cls = AudioDeepfakeCNN
+            else:
+                st.markdown("##### 5-Block CNN"
+                            + (" + SE" if arch_key == "cnn_se" else ""))
+                st.markdown(
+                    "Five convolutional blocks (channels 16 → 32 → 64 → 128 → 256) "
+                    "progressively extract discriminative time-frequency patterns "
+                    "from fixed-size **128 × 300** STFT-dB spectrograms (z-score "
+                    "normalised per sample)."
+                )
+                if arch_key == "cnn_se":
+                    st.markdown(
+                        "**SE enabled:** a Squeeze-and-Excitation gate after every "
+                        "block re-weights each channel by its global importance."
+                    )
 
             try:
-                _m = model_cls(dropout=float(config["train_params"]["dropout"]))
+                _m = model_for_arch(arch_key,
+                                    dropout=float(config["train_params"]["dropout"]))
                 n_params = sum(p.numel() for p in _m.parameters())
                 st.caption(f"Trainable parameters: **{n_params:,}**")
                 del _m
@@ -242,26 +296,48 @@ def _render_architecture(arch_key):
                 pass
 
         with col_table:
-            if arch_key == "resnet":
+            _se = " → SE" if arch_key == "cnn_se" else ""
+            _grp = " (grouped, 32 groups)" if arch_key == "resnext" else ""
+            if _is_resid:
                 arch_rows = [
                     {"Block / Layer": "Input",            "Output shape": "(1, 1, 128, 300)",   "Description": "z-scored STFT-dB spectrogram"},
-                    {"Block / Layer": "Res Block 1",      "Output shape": "(1, 32, 64, 150)",   "Description": "Conv3×3 → BN → ReLU → Conv3×3 → BN + skip → SE → MaxPool"},
-                    {"Block / Layer": "Res Block 2",      "Output shape": "(1, 64, 32, 75)",    "Description": "Conv3×3 → BN → ReLU → Conv3×3 → BN + proj-skip → SE → MaxPool"},
-                    {"Block / Layer": "Res Block 3",      "Output shape": "(1, 128, 16, 37)",   "Description": "Conv3×3 → BN → ReLU → Conv3×3 → BN + proj-skip → SE → MaxPool"},
-                    {"Block / Layer": "Res Block 4",      "Output shape": "(1, 128, 8, 18)",    "Description": "Conv3×3 → BN → ReLU → Conv3×3 → BN + identity → SE → MaxPool"},
+                    {"Block / Layer": "Res Block 1",      "Output shape": "(1, 32, 64, 150)",   "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + skip → SE → MaxPool"},
+                    {"Block / Layer": "Res Block 2",      "Output shape": "(1, 64, 32, 75)",    "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + proj-skip → SE → MaxPool"},
+                    {"Block / Layer": "Res Block 3",      "Output shape": "(1, 128, 16, 37)",   "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + proj-skip → SE → MaxPool"},
+                    {"Block / Layer": "Res Block 4",      "Output shape": "(1, 128, 8, 18)",    "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + identity → SE → MaxPool"},
                     {"Block / Layer": "AdaptiveAvgPool",  "Output shape": "(1, 128, 4, 8)",     "Description": "Adaptive average pooling to fixed spatial size"},
                     {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)",               "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
+                ]
+            elif arch_key == "crnn":
+                arch_rows = [
+                    {"Block / Layer": "Input",            "Output shape": "(1, 1, 128, 300)",  "Description": "z-scored STFT-dB spectrogram"},
+                    {"Block / Layer": "Conv Blocks 1-5",  "Output shape": "(1, 256, 4, 9)",    "Description": "5× (Conv2d 3×3 → BatchNorm → ReLU → MaxPool2d 2×2)"},
+                    {"Block / Layer": "Freq pool + reshape", "Output shape": "(1, 9, 1024)",   "Description": "AdaptiveAvgPool freq→4, per-frame vectors over time"},
+                    {"Block / Layer": "BiGRU",            "Output shape": "(1, 9, 256)",       "Description": "Bidirectional GRU (hidden 128 × 2) over the time axis"},
+                    {"Block / Layer": "Temporal mean",    "Output shape": "(1, 256)",          "Description": "Mean-pool recurrent states over time"},
+                    {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)",              "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
                 ]
             else:
                 arch_rows = [
                     {"Block / Layer": "Input",            "Output shape": "(1, 1, 128, 300)",  "Description": "z-scored STFT-dB spectrogram"},
-                    {"Block / Layer": "Conv Block 1",     "Output shape": "(1, 16, 64, 150)",  "Description": "Conv2d 3×3 → BatchNorm → ReLU → MaxPool2d 2×2"},
-                    {"Block / Layer": "Conv Block 2",     "Output shape": "(1, 32, 32, 75)",   "Description": "Conv2d 3×3 → BatchNorm → ReLU → MaxPool2d 2×2"},
-                    {"Block / Layer": "Conv Block 3",     "Output shape": "(1, 64, 16, 37)",   "Description": "Conv2d 3×3 → BatchNorm → ReLU → MaxPool2d 2×2"},
-                    {"Block / Layer": "AdaptiveAvgPool",  "Output shape": "(1, 64, 4, 8)",     "Description": "Adaptive average pooling to fixed spatial size"},
+                    {"Block / Layer": "Conv Block 1",     "Output shape": "(1, 16, 64, 150)",  "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "Conv Block 2",     "Output shape": "(1, 32, 32, 75)",   "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "Conv Block 3",     "Output shape": "(1, 64, 16, 37)",   "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "Conv Block 4",     "Output shape": "(1, 128, 8, 18)",   "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "Conv Block 5",     "Output shape": "(1, 256, 4, 9)",    "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "AdaptiveAvgPool",  "Output shape": "(1, 256, 4, 8)",    "Description": "Adaptive average pooling to fixed spatial size"},
                     {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)",              "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
                 ]
-            st.dataframe(pd.DataFrame(arch_rows), width="stretch", hide_index=True)
+            st.dataframe(
+                pd.DataFrame(arch_rows), width="stretch", hide_index=True,
+                column_config={
+                    "Block / Layer": st.column_config.TextColumn(width="small"),
+                    # Keep the shape column tight so the Description gets the room
+                    # it needs and stops wrapping/clipping.
+                    "Output shape": st.column_config.TextColumn(width="small"),
+                    "Description": st.column_config.TextColumn(width="large"),
+                },
+            )
 
 
 def _render_design(arch_key):
@@ -277,7 +353,7 @@ def _render_design(arch_key):
 
         dc1, dc2 = st.columns(2, gap="medium")
         with dc1:
-            if arch_key == "resnet":
+            if arch_key in ("resnet", "resnext"):
                 _choice_card(
                     "Residual connections",
                     "Skip connections add each block's input back to its output, "
@@ -292,6 +368,30 @@ def _render_design(arch_key):
                     "bands while amplifying band-specific synthesis artefacts. Key "
                     "for 2021+ attacks.",
                     tag="ResNet",
+                )
+            if arch_key == "resnext":
+                _choice_card(
+                    "Cardinality (grouped conv)",
+                    "Each residual convolution is split into 32 independent groups, "
+                    "an extra design axis besides depth and width that decorrelates "
+                    "feature paths and improves generalisation at a similar cost.",
+                    tag="ResNeXt",
+                )
+            if arch_key == "cnn_se":
+                _choice_card(
+                    "SE channel attention",
+                    "An SE gate after every convolutional block re-weights each "
+                    "frequency channel by its global importance, amplifying "
+                    "band-specific synthesis artefacts.",
+                    tag="SE",
+                )
+            if arch_key == "crnn":
+                _choice_card(
+                    "Bidirectional GRU",
+                    "A recurrent layer reads the per-frame convolutional features "
+                    "forward and backward, modelling how synthesis artefacts evolve "
+                    "<em>over time</em> instead of collapsing the time axis.",
+                    tag="CRNN",
                 )
             _choice_card(
                 "STFT-dB input",

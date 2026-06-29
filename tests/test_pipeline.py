@@ -12,7 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.models import AudioDeepfakeCNN
+from src.models import CNN_5Block
 from src.pipeline import (
     evaluate_cnn_on_set, evaluate_raw_on_set, extract_feature_matrix,
     run_classic_models, score_fitted_classic,
@@ -111,10 +111,10 @@ def test_evaluate_cnn_on_set(extractor, labelled_samples, tmp_path, monkeypatch)
     # Redirect the spectrogram cache into tmp so the test leaves no artefacts.
     monkeypatch.setattr("src.pipeline.CACHE_DIR", str(tmp_path / "cache"))
     samples = labelled_samples(n=6)
-    model = AudioDeepfakeCNN().eval()           # random weights — shape test only
+    model = CNN_5Block().eval()                 # random weights — shape test only
     rows = evaluate_cnn_on_set(model, samples, extractor,
                                params={"num_workers": 0, "batch_size": 4},
-                               corpus_label="unit", arch_label="3-Block CNN")
+                               corpus_label="unit", arch_label="5-Block CNN")
     assert len(rows) == 1
     assert rows[0]["Corpus"] == "unit"
     assert 0.0 <= float(rows[0][COL_EER]) <= 100.0
@@ -142,3 +142,42 @@ def test_evaluate_raw_on_set(labelled_samples):
     assert "Raw waveform" in row["Feature Configuration"]
     assert row["Corpus"] == "unit"
     assert 0.0 <= float(row[COL_EER]) <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# _aggregate_seed_rows — cross-seed mean ± std for the multi-seed CNN sweep
+# ---------------------------------------------------------------------------
+
+def test_aggregate_seed_rows_means_and_std():
+    from src.jobs import _aggregate_seed_rows
+    from src.reporting import COL_MIN_DCF as _DCF
+
+    def _row(model, eer, dcf, corpus=""):
+        return {COL_MODEL: model, COL_EER: f"{eer}", _DCF: f"{dcf}",
+                "Accuracy": "0.9", "Corpus": corpus}
+
+    # Two seeds, each with a dev row and one eval row.
+    seed_a = [_row("5-Block CNN [CUDA]", 10.0, 0.90),
+              _row("5-Block CNN [CUDA][EVAL]", 20.0, 0.95, "2021 LA")]
+    seed_b = [_row("5-Block CNN [CUDA]", 12.0, 0.94),
+              _row("5-Block CNN [CUDA][EVAL]", 24.0, 0.99, "2021 LA")]
+    agg = _aggregate_seed_rows([seed_a, seed_b], n_seeds=2)
+
+    assert len(agg) == 2                              # one dev + one eval row
+    dev = next(r for r in agg if "[EVAL]" not in r[COL_MODEL])
+    ev  = next(r for r in agg if "[EVAL]" in r[COL_MODEL])
+    assert float(dev[COL_EER]) == 11.0               # mean(10, 12)
+    assert float(ev[COL_EER]) == 22.0                # mean(20, 24)
+    assert dev["Seeds"] == 2
+    assert float(dev["EER std"]) > 0                 # std recorded
+    assert "minDCF std" in ev
+
+
+def test_aggregate_seed_rows_single_seed():
+    from src.jobs import _aggregate_seed_rows
+    one = [{COL_MODEL: "CRNN [CUDA]", COL_EER: "8.0", COL_MIN_DCF: "0.5",
+            "Accuracy": "0.9", "Corpus": ""}]
+    agg = _aggregate_seed_rows([one], n_seeds=1)
+    assert len(agg) == 1
+    assert agg[0]["Seeds"] == 1
+    assert float(agg[0][COL_EER]) == 8.0
