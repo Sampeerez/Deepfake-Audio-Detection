@@ -120,7 +120,7 @@ verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 |---|---|
 | **Home** | The project at a glance: corpora, methodology, key metrics. |
 | **Signal Explorer** | Visualize waveform + every spectral view (STFT-dB, CNN input, MFCC, LFCC, CQCC), or pit a **real voice against a deepfake** side by side. |
-| **Benchmark** | Three modes: **Classic** (DSP × classifier), **CNN** (train live, loss curves per epoch) and **Full comparison** (all 21 models, leaderboard). |
+| **Benchmark** | Three modes: **Classic** (DSP × classifier), **Deep Networks** (train live, loss curves per epoch) and **Full comparison** (all 21 models, leaderboard). |
 | **Detection Analysis** | **Test an audio**: drop a clip, every model scores it in parallel, weighted-fusion verdict. **Analyse on a split**: *why* a detector gets its EER, with score distributions, ROC/DET curves, interactive threshold. |
 | **Methodology** | The full reference: corpora, DSP front-ends, classifiers, architectures, metrics. |
 | **Settings** | **Light / Dark Side** theme, animated background, accessibility, and a few easter eggs. |
