@@ -21,11 +21,12 @@ from src.ui_helpers import (  # noqa: E402
 )
 
 _SIDE_LABELS = {"dark": "Dark Side", "light": "Light Side"}
+_AUDIO_COLORS = {"Red": "#FF5252", "Purple": "#9D4EDD", "Blue": "#4FC3F7", "Green": "#66BB6A"}
 _DEFAULTS = {
     "sw_theme": "dark", "sw_saber": "Auto", "sw_bg": "Star Wars",
     "sw_bg_intensity": "Normal", "sw_show_ships": True,
     "sw_show_deathstar": True, "sw_reduced_motion": False,
-    "sw_contrast": False, "sw_text_scale": "Normal",
+    "sw_contrast": False, "sw_text_scale": "Normal", "sw_audio_color": "Red",
 }
 
 
@@ -45,6 +46,7 @@ def _reset() -> None:
         st.session_state[k] = v
     st.session_state["sw_side_ctl"]      = _SIDE_LABELS["dark"]
     st.session_state["sw_saber_ctl"]     = "Auto"
+    st.session_state["sw_audio_color_ctl"] = "Red"
     st.session_state["sw_bg_ctl"]        = "Star Wars"
     st.session_state["sw_intensity_ctl"] = "Normal"
     st.session_state["sw_ships_ctl"]     = True
@@ -59,6 +61,7 @@ def _reset() -> None:
 # the first time the widget is created.
 st.session_state.setdefault("sw_side_ctl", _SIDE_LABELS[theme_mode()])
 st.session_state.setdefault("sw_saber_ctl", st.session_state.get("sw_saber", "Auto"))
+st.session_state.setdefault("sw_audio_color_ctl", st.session_state.get("sw_audio_color", "Red"))
 st.session_state.setdefault("sw_bg_ctl", st.session_state.get("sw_bg", "Star Wars"))
 st.session_state.setdefault("sw_intensity_ctl", st.session_state.get("sw_bg_intensity", "Normal"))
 st.session_state.setdefault("sw_ships_ctl", bool(st.session_state.get("sw_show_ships", True)))
@@ -175,6 +178,13 @@ with _c2:
         st.markdown('<div class="saber-demo"></div>'
                     '<div class="saber-hint">Live preview, this is your blade.</div>',
                     unsafe_allow_html=True)
+        st.selectbox(
+            "Audio equaliser colour",
+            list(_AUDIO_COLORS.keys()),
+            key="sw_audio_color_ctl", on_change=_sync, args=("sw_audio_color", "sw_audio_color_ctl"),
+            label_visibility="collapsed",
+            help="Colour of the dancing audio bars on the home page.",
+        )
 
 
 # ── Viewport / background ─────────────────────────────────────────────────────

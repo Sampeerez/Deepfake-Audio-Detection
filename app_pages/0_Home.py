@@ -19,7 +19,17 @@ from src.ui_helpers import (  # noqa: E402
     sidebar_panel, themed,
 )
 
-st.markdown(themed("""
+# Audio equaliser colour from settings (red, purple, blue, green) with fallback gradient
+_AUDIO_COLORS = {"Red": "#FF5252", "Purple": "#9D4EDD", "Blue": "#4FC3F7", "Green": "#66BB6A"}
+_audio_color_name = st.session_state.get("sw_audio_color", "Red")
+_audio_color_hex = _AUDIO_COLORS.get(_audio_color_name, "#FF5252")
+# Gradient: lighter shade to darker shade of the chosen color
+_audio_grad_light = f"{_audio_color_hex}EE"
+_audio_grad_mid = _audio_color_hex
+_audio_grad_dark = f"{_audio_color_hex}88"
+_audio_gradient = f"linear-gradient(180deg, {_audio_grad_light} 0%, {_audio_grad_mid} 55%, {_audio_grad_dark} 100%)"
+
+st.markdown(themed(f"""
 <style>
 /* Separate the "Open …" page links from the panel card above them. */
 [data-testid="stPageLink"] { margin-top: 0.7rem !important; }
@@ -31,22 +41,22 @@ st.markdown(themed("""
     width: 100%;                              /* span the full header width */
     opacity: 0.82;
 }
-.audio-eq span {
+.audio-eq span {{
     display: block; width: 4px; border-radius: 2px;
-    background: linear-gradient(180deg, #E0AAFF 0%, #9D4EDD 55%, #7B2CBF 100%);
+    background: {_audio_gradient};
     animation: eqBounce 1.2s ease-in-out infinite;
     transition: filter .6s ease;          /* smooth glow in/out */
     will-change: transform;
-}
+}}
 @keyframes eqBounce {
     0%, 100% { transform: scaleY(0.18); }
     50%      { transform: scaleY(1); }
 }
 /* Glow ramps in/out smoothly (the SPEED ramp is handled in JS via playbackRate,
    which CSS cannot transition). */
-.audio-eq:hover span {
-    filter: brightness(1.35) drop-shadow(0 0 7px rgba(157,78,221,0.75));
-}
+.audio-eq:hover span {{
+    filter: brightness(1.35) drop-shadow(0 0 7px {_audio_color_hex}C0);
+}}
 
 /* ── Tech stack pills ────────────────────────────────────────────────────── */
 .tech-stack {
