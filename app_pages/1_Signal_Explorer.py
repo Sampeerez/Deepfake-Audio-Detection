@@ -379,13 +379,14 @@ def _corpus_picker(key_prefix: str, n: int = 1):
         options = [_PLACEHOLDER] + list(range(len(pool_shown)))
         _shown_note = (f"{pool_total:,} files available"
                        + (", showing the first 500" if pool_total > 500 else ""))
-        sel_idx = st.selectbox(
-            "Audio file",
-            options,
-            format_func=lambda i: ", select a file, " if i == _PLACEHOLDER else names[i],
-            key=state_key,
-            help=_shown_note,
-        )
+        with st.container(key=f"nosearch_{key_prefix}_file"):
+            sel_idx = st.selectbox(
+                "Audio file",
+                options,
+                format_func=lambda i: "Select an audio file" if i == _PLACEHOLDER else names[i],
+                key=state_key,
+                help=_shown_note,
+            )
 
     if sel_idx == _PLACEHOLDER:
         return None, None, None
