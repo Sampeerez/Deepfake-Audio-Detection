@@ -67,31 +67,31 @@ st.markdown("""
 <style>
 [class*="st-key-da_analyze_btn"] button,
 [class*="st-key-da_clear_btn"] button {
-    min-height: 56px !important;
-    height: 56px !important;
+    min-height: 44px !important;
+    height: 44px !important;
     width: 100% !important;
 }
 [class*="st-key-nosearch_corpus"] [data-baseweb="select"],
 [class*="st-key-nosearch_type"] [data-baseweb="select"],
 [class*="st-key-nosearch_sample"] [data-baseweb="select"] {
-    min-height: 56px !important;
-    height: 56px !important;
+    min-height: 44px !important;
+    height: 44px !important;
 }
 [class*="st-key-nosearch_corpus"] [data-baseweb="select"] > div,
 [class*="st-key-nosearch_type"] [data-baseweb="select"] > div,
 [class*="st-key-nosearch_sample"] [data-baseweb="select"] > div {
-    height: 56px !important;
-    min-height: 56px !important;
+    height: 44px !important;
+    min-height: 44px !important;
     display: flex !important;
     align-items: center !important;
-    padding: 6px 8px !important;
+    padding: 4px 8px !important;
 }
 [class*="st-key-da_test_upload"] {
-    height: 56px !important;
+    height: 44px !important;
 }
 [class*="st-key-da_test_upload"] [data-testid="stFileUploadDropzone"] {
-    min-height: 56px !important;
-    height: 56px !important;
+    min-height: 44px !important;
+    height: 44px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -809,7 +809,7 @@ with tab_test:
 
     # OR separator
     with _c_or:
-        st.markdown("<div style='text-align:center;color:#9EA8C0;font-size:0.85rem;transform:translateY(-8px);'>OR</div>",
+        st.markdown("<div style='text-align:center;color:#9EA8C0;font-size:0.85rem;display:flex;align-items:center;height:44px;'>OR</div>",
                    unsafe_allow_html=True)
 
     # Corpus selector
