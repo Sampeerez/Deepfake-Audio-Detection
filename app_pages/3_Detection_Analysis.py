@@ -37,11 +37,15 @@ from src.features import FeatureExtractor  # noqa: E402
 from src.metrics import calculate_eer, calculate_min_dcf  # noqa: E402
 from src.models import get_classic_model  # noqa: E402
 from src.pipeline import extract_feature_matrix  # noqa: E402
+from src.model_registry import (  # noqa: E402
+    get_samples, get_samples_2021_la, get_samples_2021_df,
+    corpus_available_2021_la, corpus_available_2021_df,
+)
 from src.ui_helpers import (  # noqa: E402
     BONAFIDE_COLOR, SPOOF_COLOR, EVAL_CORPUS_CHOICES, HF_EVAL_DATASETS,
     HF_EVAL_PER_CLASS, available_pretrained_models, corpus_available,
     demo_corpus_notice, eval_corpora_for, fig_activation_evolution,
-    fig_cnn_input, fig_waveform, get_extractor, get_samples, hf_eval_samples,
+    fig_cnn_input, fig_waveform, get_extractor, hf_eval_samples,
     load_leaderboard_models, load_pretrained_model, op_busy_notice,
     show_empty_state, sidebar_panel,
 )
@@ -771,32 +775,55 @@ with tab_test:
     thresholds = {k: float(m["thr_dev"]) for k, m in _board.items()
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
-    # ── Upload / Select / Analyze / Clear in one row ─────────────────────── #
-    _c1, _c2, _c3, _c4 = st.columns([2, 2, 1.2, 0.8], vertical_alignment="center")
+    # ── Corpus & Type selection ───────────────────────────────────────────── #
+    _sel_corpus, _sel_type, _sel_sample, _analyze_btn = st.columns([1.5, 1.2, 2.5, 0.8], vertical_alignment="center")
 
-    # Option 1: Upload a file
-    with _c1:
-        uploaded = st.file_uploader(
-            "Upload",
-            type=["flac", "wav", "mp3", "ogg", "m4a"],
-            key="da_test_upload", label_visibility="collapsed")
+    # Build available corpus options
+    _corpus_opts = []
+    if corpus_available():
+        _corpus_opts.append("2019 LA")
+    if corpus_available_2021_la():
+        _corpus_opts.append("2021 LA")
+    if corpus_available_2021_df():
+        _corpus_opts.append("2021 DF")
 
-    # Option 2: Select a project sample
-    with _c2:
-        _dev_samples = get_samples("dev") if corpus_available() else []
-        if _dev_samples:
-            # Format samples to show name + type (bonafide/spoof) + origin
-            _sample_display = []
-            _sample_data = []
-            for path, label in _dev_samples[:50]:
-                fname = path.split('/')[-1].replace('.flac', '')
-                lbl_str = "bonafide · real" if label == 0 else "spoof · deepfake"
-                # Extract origin from audio_id (e.g., LA_D_123456 → dev · 2019 LA)
-                origin = "2019 LA · dev"
-                display_str = f"{fname} ({lbl_str}) — {origin}"
-                _sample_display.append(display_str)
-                _sample_data.append((path, label))
+    # Corpus selector
+    with _sel_corpus:
+        _sel_corp = st.selectbox("Corpus", _corpus_opts or ["—"],
+                                key="da_corpus", label_visibility="collapsed")
 
+    # Type selector (bonafide / spoof)
+    with _sel_type:
+        _sel_typ = st.selectbox("Type", ["Bonafide", "Spoof"],
+                               key="da_type", label_visibility="collapsed")
+
+    # Load samples based on corpus selection
+    if _sel_corp and _sel_corp != "—":
+        if _sel_corp == "2019 LA":
+            _all_samples = get_samples("dev") if corpus_available() else []
+            _corpus_label = "2019 LA · dev"
+        elif _sel_corp == "2021 LA":
+            _all_samples = get_samples_2021_la() if corpus_available_2021_la() else []
+            _corpus_label = "2021 LA"
+        else:  # 2021 DF
+            _all_samples = get_samples_2021_df() if corpus_available_2021_df() else []
+            _corpus_label = "2021 DF"
+
+        # Filter by type
+        _label_val = 0 if _sel_typ == "Bonafide" else 1
+        _filtered_samples = [(p, l) for p, l in _all_samples if l == _label_val]
+
+        # Format samples for display
+        _sample_display = []
+        _sample_data = []
+        for path, label in _filtered_samples[:50]:
+            fname = path.split('/')[-1].replace('.flac', '')
+            display_str = f"{fname} — {_corpus_label}"
+            _sample_display.append(display_str)
+            _sample_data.append((path, label))
+
+        # Sample selector
+        with _sel_sample:
             with st.container(key="nosearch_sample"):
                 _sel = st.selectbox("Sample", ["—"] + _sample_display,
                                    key="da_test_sample", label_visibility="collapsed")
@@ -811,15 +838,27 @@ with tab_test:
                     st.session_state["da_test_name"] = _sel_path.split("/")[-1]
                 except Exception:
                     pass
-        else:
+    else:
+        with _sel_sample:
             st.selectbox("Sample", ["—"], label_visibility="collapsed", disabled=True)
 
-    with _c3:
+    with _analyze_btn:
         _has_audio = st.session_state.get("da_test_bytes") is not None
         do_analyze = st.button("Analyze", type="primary", icon=":material/radar:",
                                width="stretch", key="da_analyze_btn",
                                disabled=not _has_audio)
-    with _c4:
+
+    # ── Upload option on second line ──────────────────────────────────────── #
+    st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
+    _c1, _c_spacer, _c_clear = st.columns([1.5, 2.2, 0.8], vertical_alignment="center")
+
+    # Option 1: Upload a file
+    with _c1:
+        uploaded = st.file_uploader(
+            "Upload",
+            type=["flac", "wav", "mp3", "ogg", "m4a"],
+            key="da_test_upload", label_visibility="collapsed")
+    with _c_clear:
         do_clear = st.button("Clear", icon=":material/close:", width="stretch",
                              key="da_clear_btn")
 
