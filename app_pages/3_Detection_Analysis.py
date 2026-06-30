@@ -789,7 +789,7 @@ with tab_test:
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
     # ── All controls in one compact row ──────────────────────────────────── #
-    _c_up, _c_or, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([2, 0.3, 0.7, 0.7, 0.7, 1, 0.5], vertical_alignment="center")
+    _c_up, _c_or, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([2, 0.6, 0.7, 0.7, 0.7, 1, 0.5], vertical_alignment="center")
 
     # Build available corpus options
     _corpus_opts = []
@@ -809,7 +809,7 @@ with tab_test:
 
     # OR separator
     with _c_or:
-        st.markdown("<div style='text-align:center;color:#9EA8C0;font-size:0.85rem;display:flex;align-items:center;height:56px;'>OR</div>",
+        st.markdown("<div style='text-align:center;color:#9EA8C0;font-size:0.85rem;display:flex;align-items:center;justify-content:center;height:56px;width:100%;'>OR</div>",
                    unsafe_allow_html=True)
 
     # Corpus selector
