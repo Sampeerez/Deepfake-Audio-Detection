@@ -67,23 +67,9 @@ st.markdown("""
 <style>
 [class*="st-key-da_analyze_btn"] button,
 [class*="st-key-da_clear_btn"] button {
-    min-height: 38px !important;
-    height: 38px !important;
+    min-height: 56px !important;
+    height: 56px !important;
     width: 100% !important;
-}
-[data-baseweb="select"] {
-    height: 38px !important;
-    min-height: 38px !important;
-}
-[data-baseweb="select"] > div {
-    height: 38px !important;
-    min-height: 38px !important;
-    display: flex !important;
-    align-items: center !important;
-    padding: 4px 8px !important;
-}
-[data-baseweb="select"] input {
-    font-size: 13px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -790,7 +776,7 @@ with tab_test:
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
     # ── All controls in one compact row ──────────────────────────────────── #
-    _c_up, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([1, 1, 1, 1, 1, 0.7], vertical_alignment="center")
+    _c_up, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([1.2, 0.95, 1, 2, 0.95, 0.6], vertical_alignment="center")
 
     # Build available corpus options
     _corpus_opts = []
@@ -810,13 +796,15 @@ with tab_test:
 
     # Corpus selector
     with _c_corp:
-        _sel_corp = st.selectbox("Corpus", _corpus_opts or ["—"],
-                                key="da_corpus_sel", label_visibility="collapsed")
+        with st.container(key="nosearch_corpus"):
+            _sel_corp = st.selectbox("Corpus", _corpus_opts or ["—"],
+                                    key="da_corpus_sel", label_visibility="collapsed")
 
     # Type selector (bonafide / spoof)
     with _c_type:
-        _sel_typ = st.selectbox("Type", ["Bonafide", "Spoof"],
-                               key="da_type_sel", label_visibility="collapsed")
+        with st.container(key="nosearch_type"):
+            _sel_typ = st.selectbox("Type", ["Bonafide", "Spoof"],
+                                   key="da_type_sel", label_visibility="collapsed")
 
     # Load samples based on corpus selection
     if _sel_corp and _sel_corp != "—":
