@@ -574,9 +574,9 @@ def _render_test_results(rows, signal, blob, fname):
                 f"<div style='font-size:0.7rem;color:#9EA8C0;margin-top:0.15rem;'>"
                 f"p={p_val:.2f}</div></div>")
     _member_chips = "".join(_member_chip(m) for m in _members)
-    # Enlarged verdict panel (left) with smaller member chips (right)
+    # Enlarged verdict panel, centered, with members to the right
     st.markdown(
-        f"<div style='display:flex;gap:1.6rem;align-items:flex-start;margin:1.2rem auto 1.6rem;max-width:900px;'>"
+        f"<div style='display:flex;gap:1.6rem;align-items:center;margin:1.2rem auto 1.6rem;max-width:1000px;justify-content:center;'>"
         f"<div style='flex:0 0 380px;padding:2.5rem 3rem;border-radius:1rem;border:2px solid {v_color}59;"
         f"box-shadow:0 0 30px {v_color}55, inset 0 0 30px {v_color}1f;text-align:center;'>"
         f"<span style='display:block;font-size:0.7rem;font-weight:800;letter-spacing:0.16em;"
@@ -585,7 +585,7 @@ def _render_test_results(rows, signal, blob, fname):
         f"{v_text}</span>"
         f"<span style='color:#9EA8C0;font-size:1rem;margin-top:0.8rem;display:block;'>"
         f"p(spoof) = <b style='color:#C9D7F5;'>{fused_p:.3f}</b></span></div>"
-        f"<div style='flex:1;display:flex;flex-direction:column;gap:0.5rem;align-items:flex-start;'>"
+        f"<div style='display:flex;flex-direction:column;gap:0.5rem;align-items:flex-start;'>"
         f"{_member_chips}</div></div>",
         unsafe_allow_html=True,
     )
