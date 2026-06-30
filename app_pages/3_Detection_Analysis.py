@@ -791,7 +791,7 @@ with tab_test:
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
     # ── All controls in one compact row ──────────────────────────────────── #
-    _c_up, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([2, 0.7, 0.7, 0.7, 1, 0.7], vertical_alignment="center")
+    _c_up, _c_or, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([2, 0.3, 0.7, 0.7, 0.7, 1, 0.5], vertical_alignment="center")
 
     # Build available corpus options
     _corpus_opts = []
@@ -808,6 +808,11 @@ with tab_test:
             "Upload",
             type=["flac", "wav", "mp3", "ogg", "m4a"],
             key="da_test_upload", label_visibility="collapsed")
+
+    # OR separator
+    with _c_or:
+        st.markdown("<div style='text-align:center;color:#9EA8C0;font-size:0.85rem;margin-top:0.5rem;'>OR</div>",
+                   unsafe_allow_html=True)
 
     # Corpus selector
     with _c_corp:
