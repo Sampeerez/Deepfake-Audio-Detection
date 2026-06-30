@@ -675,7 +675,7 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
         for r in classic_rows:
             d = dict(r); d["Type"] = "Classic"; persist_rows.append(d)
         for r in cnn_rows:
-            d = dict(r); d["Type"] = d.get("Type") or "Deep Networks"; persist_rows.append(d)
+            d = dict(r); d["Type"] = d.get("Type") or "Deep Network"; persist_rows.append(d)
         _write_leaderboard(rows=persist_rows)
     return classic_rows, cnn_rows
 

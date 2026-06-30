@@ -175,7 +175,7 @@ def _prefetch_models(entries, bar):
 
 
 # Model-family palette, Classic (blue), Deep Networks (purple), SSL/transformer (cyan).
-_LB_TYPE_COLORS = {"Classic": "#4F8BF9", "Deep Networks": "#AB47BC", "SSL": "#26C6DA"}
+_LB_TYPE_COLORS = {"Classic": "#4F8BF9", "Deep Network": "#AB47BC", "SSL": "#26C6DA"}
 
 
 def _aggregate_by_model(frame: "pd.DataFrame") -> "pd.DataFrame":
@@ -257,7 +257,7 @@ def _render_leaderboard(rows: list) -> None:
     ranked = df.dropna(subset=[COL_EER]).sort_values(_SORT, na_position="last").reset_index(drop=True)
 
     # Model families actually present, in a stable display order.
-    _fam_order = ["Classic", "Deep Networks", "SSL"]
+    _fam_order = ["Classic", "Deep Network", "SSL"]
     _fams = [t for t in _fam_order if (df["Type"] == t).any()] + \
             [t for t in df["Type"].unique() if t not in _fam_order]
 
