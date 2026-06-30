@@ -811,7 +811,7 @@ with tab_test:
 
     # OR separator
     with _c_or:
-        st.markdown("<div style='text-align:center;color:#9EA8C0;font-size:0.85rem;margin-top:0.5rem;'>OR</div>",
+        st.markdown("<div style='text-align:center;color:#9EA8C0;font-size:0.85rem;transform:translateY(-8px);'>OR</div>",
                    unsafe_allow_html=True)
 
     # Corpus selector
@@ -902,9 +902,8 @@ with tab_test:
     if _blob is None:
         show_empty_state(
             "No audio uploaded",
-            "Drop an audio clip (flac / wav / mp3 / ogg / m4a) above, then click "
-            "Analyze to score it "
-            "with every pretrained model.",
+            "Drop an audio clip (flac / wav / mp3 / ogg / m4a) above, or select a sample from the corpus, "
+            "then click Analyze to score it with every pretrained model.",
         )
     else:
         if uploaded is None and _fname:
