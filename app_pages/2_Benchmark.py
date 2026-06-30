@@ -37,10 +37,10 @@ _ICON_FULL = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
 _OPTIONS = [
     ("classic", "Classic models", _ICON_CLASSIC,
      "Tune one DSP extractor × classifier by hand and accumulate the results."),
-    ("cnn", "CNN", _ICON_CNN,
-     "Train the 2-D CNN / ResNet + SE and inspect how it learns."),
+    ("cnn", "Deep networks", _ICON_CNN,
+     "Train deep neural networks (5-Block CNN, ResNet, ResNeXt, CRNN) and inspect how they learn."),
     ("full", "Full comparison", _ICON_FULL,
-     "Run every extractor, classifier and the CNN at once, the ranked, "
+     "Run every extractor, classifier and neural network at once, the ranked, "
      "scientific comparison."),
 ]
 

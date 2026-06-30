@@ -954,7 +954,7 @@ with tab_analyse:
     has_cnn = "cnn_model" in st.session_state
     with st.container(border=True):
         st.markdown('<div class="section-label">Detector</div>', unsafe_allow_html=True)
-        st.markdown('<div style="height:0.2rem;"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:0.1rem;"></div>', unsafe_allow_html=True)
         src_opts = ["Classic models"]
         if any(e["kind"] == "cnn" for e in pre_models):
             src_opts.append("Deep networks")
