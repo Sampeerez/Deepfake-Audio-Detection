@@ -611,7 +611,7 @@ def _download_if_missing(url: str, path: str, label: str) -> None:
 
 @st.cache_resource(show_spinner=False)
 def load_pretrained_torch(file: str, url: str, name: str):
-    """Load a torch CNN checkpoint on CPU (downloading it first if needed).
+    """Load a torch deep network checkpoint on CPU (downloading it first if needed).
     Returns (model_in_eval_mode, checkpoint_meta). Cached per (file)."""
     import torch
 
@@ -684,7 +684,7 @@ def load_pretrained_raw(file: str, url: str, name: str,
 
 
 def load_pretrained_model(entry: Dict):
-    """Load one registry entry (torch CNN, raw-waveform model or classic estimator) on CPU."""
+    """Load one registry entry (torch deep network, raw-waveform model or classic estimator) on CPU."""
     if entry["kind"] == "cnn":
         model, _ = load_pretrained_torch(entry["file"], entry["url"], entry["name"])
         return model
@@ -695,12 +695,12 @@ def load_pretrained_model(entry: Dict):
 
 
 def load_pretrained_cnn():
-    """Backward-compatible helper: load the first available CNN entry (or the
+    """Backward-compatible helper: load the first available deep network entry (or the
     legacy single checkpoint) and return (model, meta)."""
     for entry in available_pretrained_models():
         if entry["kind"] == "cnn":
             return load_pretrained_torch(entry["file"], entry["url"], entry["name"])
     if os.path.isfile(CHECKPOINT_PATH):
-        return load_pretrained_torch(CHECKPOINT_PATH, "", "Pretrained CNN")
-    raise FileNotFoundError("No pretrained CNN available.")
+        return load_pretrained_torch(CHECKPOINT_PATH, "", "Pretrained deep network")
+    raise FileNotFoundError("No pretrained deep network available.")
 

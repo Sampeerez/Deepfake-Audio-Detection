@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-src/models.py, Classifiers: classic ML models and a 2-D CNN.
+src/models.py, Classifiers: classic ML models and 2-D deep networks.
 
 Two detector families, both with probabilistic output so that EER and
 minDCF can be computed on continuous scores:

@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 src/pipeline.py, Experiment orchestration: feature extraction, classic
-                  classifiers, and CNN training + evaluation.
+                  classifiers, and deep network training + evaluation.
 
 Public entry points (all used by the web app):
     extract_feature_matrix(...), vectorise a subset of audio with one extractor
     run_classic_models(...), DSP features + sklearn/XGBoost classifiers
-    train_and_evaluate_cnn(...), STFT-dB spectrogram + 2-D CNN (model + history)
+    train_and_evaluate_cnn(...), STFT-dB spectrogram + 2-D deep network (model + history)
 
-The classic / CNN runners return a list of result dicts whose keys match the
+The classic / deep network runners return a list of result dicts whose keys match the
 COL_* constants in src.reporting, which the GUI reads to build its table.
 """
 
@@ -47,8 +47,8 @@ MODEL_OPTIONS: Dict[str, Tuple[str, ...]] = {
     "2": ("svm_lineal",),
     "3": ("xgboost",),
     "4": ("logistic_regression", "svm_lineal", "xgboost"),
-    # The CNN is a separate pipeline branch (train_and_evaluate_cnn), driven by
-    # the CNN Learning page, it is not one of these classic-model options.
+    # Deep networks are a separate pipeline branch (train_and_evaluate_cnn), driven by
+    # the Deep Networks Learning page, it is not one of these classic-model options.
 }
 
 # Human-readable display names for classic classifiers.
@@ -344,12 +344,12 @@ def evaluate_cnn_on_set(
     extractor: "FeatureExtractor",
     params: Dict,
     corpus_label: str = "",
-    arch_label: str = "CNN",
+    arch_label: str = "Deep Networks",
     suffix: str = "[EVAL]",
 ) -> List[Dict[str, str]]:
-    """Score an already-trained CNN on one sample set without retraining.
+    """Score an already-trained deep network on one sample set without retraining.
     Returns a list with one result dict (COL_* keys). Used by the Evaluate
-    button in CNN mode to score a session-trained or HF-pretrained model.
+    button in Deep Networks mode to score a session-trained or HF-pretrained model.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     _spec_tag = (f"{int(extractor.sample_rate)}_{int(extractor.n_fft)}_"
@@ -447,7 +447,7 @@ def evaluate_raw_on_set(
 
 
 # ===========================================================================
-# Pipeline B: 2-D CNN (CPU or GPU-CUDA)
+# Pipeline B: 2-D Deep Networks (CPU or GPU-CUDA)
 # ===========================================================================
 
 def _train_cnn(
@@ -562,7 +562,7 @@ def _train_cnn(
             "lr":         optimizer.param_groups[0]["lr"],
         }
         history.append(record)
-        print(f"[CNN] Epoch {epoch:02d}/{epochs} | "
+        print(f"[Deep Networks] Epoch {epoch:02d}/{epochs} | "
               f"loss_train={record['train_loss']:.4f} | "
               f"loss_val={val_loss:.4f} | lr={record['lr']:.2e}")
         if epoch_callback is not None:
