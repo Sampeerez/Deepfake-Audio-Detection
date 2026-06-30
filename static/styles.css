@@ -932,8 +932,14 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 [class*="st-key-nosearch"] [data-baseweb="select"] input {
     pointer-events: none !important;
     caret-color: transparent !important;
+    cursor: default !important;
 }
-[class*="st-key-nosearch"] [data-baseweb="select"] > div {
+[class*="st-key-nosearch"] [data-baseweb="select"],
+[class*="st-key-nosearch"] [data-baseweb="select"] > div,
+[class*="st-key-nosearch"] [data-baseweb="select"] input {
+    cursor: default !important;
+}
+[class*="st-key-nosearch"] [data-baseweb="select"] * {
     cursor: default !important;
 }
 

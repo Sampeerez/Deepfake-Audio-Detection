@@ -20,9 +20,9 @@ from src.ui_helpers import (  # noqa: E402
 )
 
 # Audio equaliser colour from settings (red, purple, blue, green) with fallback gradient
-_AUDIO_COLORS = {"Red": "#FF5252", "Purple": "#9D4EDD", "Blue": "#4FC3F7", "Green": "#66BB6A"}
+_ACCENT_COLORS = {"Red": "#FF3B3B", "Blue": "#2C82FF", "Green": "#46E36B", "Purple": "#B36BFF", "Amber": "#FFB23B"}
 _audio_color_name = st.session_state.get("sw_audio_color", "Red")
-_audio_color_hex = _AUDIO_COLORS.get(_audio_color_name, "#FF5252")
+_audio_color_hex = _ACCENT_COLORS.get(_audio_color_name, "#FF5252")
 _audio_grad_light = f"{_audio_color_hex}EE"
 _audio_grad_mid = _audio_color_hex
 _audio_grad_dark = f"{_audio_color_hex}88"

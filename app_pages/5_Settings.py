@@ -21,7 +21,8 @@ from src.ui_helpers import (  # noqa: E402
 )
 
 _SIDE_LABELS = {"dark": "Dark Side", "light": "Light Side"}
-_AUDIO_COLORS = {"Red": "#FF5252", "Purple": "#9D4EDD", "Blue": "#4FC3F7", "Green": "#66BB6A"}
+# All Star Wars lightsaber colors for accent and audio
+_ACCENT_COLORS = {"Red": "#FF3B3B", "Blue": "#2C82FF", "Green": "#46E36B", "Purple": "#B36BFF", "Amber": "#FFB23B"}
 _DEFAULTS = {
     "sw_theme": "dark", "sw_saber": "Red", "sw_bg": "Star Wars",
     "sw_bg_intensity": "Normal", "sw_show_ships": True,
@@ -175,7 +176,7 @@ with _c2:
                     unsafe_allow_html=True)
         st.selectbox(
             "Accent & Audio colour",
-            list(_AUDIO_COLORS.keys()),
+            list(_ACCENT_COLORS.keys()),
             key="sw_color_ctl", on_change=_sync_color,
             label_visibility="collapsed",
             help="Colour of the lightsaber blade accents across the app and the dancing audio bars on the home page.",
