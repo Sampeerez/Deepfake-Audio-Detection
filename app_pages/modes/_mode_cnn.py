@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-modes/_mode_cnn.py, "CNN" mode of the Benchmark page: train the 2-D CNN live and
-visualise how it learns, per-epoch loss curves, LR scheduler, and convolutional
-activation maps.
+modes/_mode_cnn.py, "Deep Networks" mode of the Benchmark page: train deep neural networks live and
+visualise how they learn, per-epoch loss curves, LR scheduler, and activation
+maps.
 
 Training configuration lives in the MAIN area (bordered panel), dropdowns and
 sliders are awkward in a narrow sidebar, and the configuration IS the page's
@@ -51,25 +51,25 @@ extractor = get_extractor()
 device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dev_label = "CUDA GPU" if device.type == "cuda" else "CPU"
 
-st.title("CNN Learning")
+st.title("Deep Networks Learning")
 st.caption(
-    "Train the 2-D convolutional network on STFT-dB spectrograms and inspect "
-    "its learning dynamics and internal representations in real time."
+    "Train deep neural networks on STFT-dB spectrograms and inspect "
+    "their learning dynamics and internal representations in real time."
 )
 
 # ── Activation-map handoff from Detection Analysis ─────────────────────────── #
-# When the user clicks "See full maps in CNN Learning" on an uploaded clip, the
+# When the user clicks "See full maps in Deep Networks Learning" on an uploaded clip, the
 # per-block activations (already computed there) are stashed in session_state;
 # render the FULL feature-map grids for that clip and short-circuit the page.
 _handoff = st.session_state.get("cnn_handoff")
 if _handoff:
-    if st.button("← Back to CNN training", key="cnn_handoff_back"):
+    if st.button("← Back to Deep Networks training", key="cnn_handoff_back"):
         st.session_state.pop("cnn_handoff", None)
         st.rerun()
     st.markdown(
-        f"Full convolutional activation maps for your uploaded clip "
+        f"Full activation maps for your uploaded clip "
         f"**{_handoff.get('fname') or 'audio'}**, every feature map of every "
-        f"block, for each CNN that judged it in Detection Analysis."
+        f"block, for each neural network that judged it in Detection Analysis."
     )
     _items = _handoff.get("items", [])
     _names = [it["name"] for it in _items]
@@ -99,12 +99,12 @@ if _handoff:
     st.stop()
 
 # On the corpus-less web demo we DON'T bail out: the page renders like local but
-# training is off, you can still evaluate the pretrained CNNs on eval clips
+# training is off, you can still evaluate the pretrained neural networks on eval clips
 # streamed from Hugging Face (see eval_corpora_for).
 _web = not corpus_available()
 if _web:
     demo_corpus_notice(
-        "CNN, evaluation only in the web demo",
+        "Deep Networks: evaluation only in the web demo",
         "Training the network needs a GPU and the full ASVspoof corpus, so on the "
         "public cloud <b>training is disabled</b>. You can still <b>Evaluate</b> "
         "the pretrained deep models (ResNet + SE, 5-Block CNN, CRNN, …) on eval clips "
@@ -215,10 +215,10 @@ with st.container(border=True):
         _has_model_for_eval = "cnn_model" in st.session_state or bool(_hf_for_arch)
         with st.container(key="trainbtn_cnn"):
             train_btn = st.button(
-                "Train CNN", type="primary",
+                "Train Deep Networks", type="primary",
                 icon=":material/play_arrow:", width="stretch",
                 disabled=_busy or not running_on_gpu(),
-                help=None if running_on_gpu() else "GPU required for CNN training.",
+                help=None if running_on_gpu() else "GPU required for deep network training.",
             )
         eval_btn = st.button(
             "Evaluate", icon=":material/query_stats:", width="stretch",
@@ -468,7 +468,7 @@ if eval_btn:
     if _model is None:
         _entry = next((e for e in _hf_for_arch), None)
         if _entry is None:
-            st.error("No CNN model available. Train first or configure HF_BASE_URL.")
+            st.error("No deep network model available. Train first or configure HF_BASE_URL.")
             st.stop()
         _model, _ = load_pretrained_torch(_entry["file"], _entry["url"], _entry["name"])
         _arch_lbl = _entry["name"]
@@ -534,9 +534,9 @@ def _live_training_view(max_epochs):
 
 
 if st.session_state.get("cnn_error"):
-    st.error(f"CNN training failed: {st.session_state.pop('cnn_error')}")
+    st.error(f"Deep network training failed: {st.session_state.pop('cnn_error')}")
 if st.session_state.pop("cnn_cancelled", False):
-    st.info("CNN training cancelled.", icon=":material/cancel:")
+    st.info("Deep network training cancelled.", icon=":material/cancel:")
 
 # ===========================================================================
 # Unified panels, Architecture & Design choices are ALWAYS shown. The live
@@ -624,11 +624,11 @@ if "Training curves" in _tabmap:
                 st.caption("Flat = stable LR. Drops = ReduceLROnPlateau halved "
                            "the rate after a validation-loss plateau.")
 
-# ── Results, every CNN scored this session (both architectures, dev + eval) ─ #
+# ── Results, every deep network scored this session (both architectures, dev + eval) ─ #
 if "Results" in _tabmap:
     with _tabmap["Results"]:
         st.markdown(
-            "Every CNN scored this session, both architectures, on **dev** "
+            "Every deep network scored this session, both architectures, on **dev** "
             "(seen attacks A01-A06) and **eval** (unseen A07-A19). Models come "
             "from this page and from the Benchmark's full comparison."
         )
