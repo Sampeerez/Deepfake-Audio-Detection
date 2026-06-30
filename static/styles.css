@@ -1,6 +1,6 @@
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
-   KEYFRAMES — only continuous ambient motion; never entry animations
+   KEYFRAMES, only continuous ambient motion; never entry animations
    (those replay on every rerun and read as flicker).
    ═══════════════════════════════════════════════════════════════════════════ */
 @keyframes gradientShift {
@@ -21,7 +21,7 @@
 ::-webkit-scrollbar-thumb:hover { background:rgba(79,139,249,0.65); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   STREAMLIT HEADER — visually hidden so the sidebar reaches the very top, but
+   STREAMLIT HEADER, visually hidden so the sidebar reaches the very top, but
    NOT display:none: the collapsed-sidebar "expand" control lives inside the
    header, and removing the header removed the only way to re-open a closed
    sidebar. visibility:hidden + height:0 hides it and frees the space, while the
@@ -35,7 +35,7 @@
     background: transparent !important;
     box-shadow: none !important;
 }
-/* The thin top "decoration" gradient strip is purely cosmetic — hide it. (Do NOT
+/* The thin top "decoration" gradient strip is purely cosmetic, hide it. (Do NOT
    hide the toolbar: in this Streamlit build the collapsed-sidebar EXPAND control
    lives in that region, and display:none-ing it left no way to re-open the
    sidebar. The black strip that used to flash on navigation is handled instead by
@@ -46,7 +46,7 @@
 
 /* Invisible helper host for the dropdown auto-close script: the iframe must
    stay in the DOM (so its script runs) but must NOT occupy a slot in the main
-   flex flow — otherwise it adds one vertical-block gap at the top of every page
+   flex flow, otherwise it adds one vertical-block gap at the top of every page
    and makes the content overflow the viewport by a hair (a faint scroll on
    otherwise-short pages). position:absolute removes it from the flow entirely. */
 [class*="st-key-ddac_host"] {
@@ -80,7 +80,7 @@
 }
 [class*="st-key-seqh_host"] iframe { height: 0 !important; }
 
-/* Live-settings flags iframe (background mode / reduced motion) — keep it in the
+/* Live-settings flags iframe (background mode / reduced motion), keep it in the
    DOM so its script runs every rerun, but out of the layout flow. */
 [class*="st-key-swflags_host"] {
     position: absolute !important;
@@ -92,7 +92,7 @@
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN CONTENT
-   — sin animación de entrada: se re-dispararía en cada rerun y provoca el
+, sin animación de entrada: se re-dispararía en cada rerun y provoca el
      "flash" al navegar entre páginas o tocar cualquier widget.
    ═══════════════════════════════════════════════════════════════════════════ */
 .main .block-container,
@@ -103,10 +103,10 @@
 
 /* A page-local style block injected via st.markdown still occupies an element
    slot (plus a vertical-block gap), which pushes that page's title lower than
-   pages without one — so titles ended up at different heights. Collapse any
+   pages without one, so titles ended up at different heights. Collapse any
    element container whose only child is a style element; its rules still apply
    (a style element works regardless of an ancestor's display:none).
-   NOTE: never write the literal closing style tag inside this block — the HTML
+   NOTE: never write the literal closing style tag inside this block, the HTML
    parser would end the whole stylesheet there and dump the rest as text. */
 [data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] style),
 [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {
@@ -114,9 +114,9 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SIDEBAR — fixed, always visible, navigation-first.
+   SIDEBAR, fixed, always visible, navigation-first.
    (The previous hover auto-hide collapsed while interacting with dropdown
-   popovers — selectbox menus render outside the sidebar, hover was lost and
+   popovers, selectbox menus render outside the sidebar, hover was lost and
    the panel slid shut mid-selection. Root cause removed, not patched.)
    ═══════════════════════════════════════════════════════════════════════════ */
 section[data-testid="stSidebar"] {
@@ -160,7 +160,7 @@ section[data-testid="stSidebar"] > div:first-child {
     transform: translateY(3rem) !important;
 }
 
-/* Remove the sidebar resize/drag handle — the 8px-wide `cursor: col-resize`
+/* Remove the sidebar resize/drag handle, the 8px-wide `cursor: col-resize`
    strip on the sidebar's inner edge that lets you drag its width. It is a
    styled div with the emotion target class below (build-specific to this
    Streamlit version); hiding it also drops the draggable border affordance. */
@@ -332,7 +332,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
     transition: width 0.3s ease !important;
 }
 /* The progress label (e.g. "5/5 · CQCC … done") sat flush against the bar's left
-   edge — give it a little breathing room so it never touches the border. */
+   edge, give it a little breathing room so it never touches the border. */
 [data-testid="stProgress"] [data-testid="stMarkdownContainer"] p {
     padding-left: 0.65rem !important;
 }
@@ -362,7 +362,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
         #070F2B 0%, #0C2272 28%, #1548C0 55%, #0B7AB0 80%, #065A8A 100%);
     background-size: 300% 300%;
     animation: gradientShift 12s ease infinite;
-    padding: 1.9rem 3rem 1.8rem;          /* shorter hero — less wasted vertical space */
+    padding: 1.9rem 3rem 1.8rem;          /* shorter hero, less wasted vertical space */
     border-radius: 1.1rem;
     color: #E8EDF8;
     box-shadow: 0 16px 60px rgba(7,15,43,0.7),
@@ -438,7 +438,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   HERO WAVE — two audio sine-waves travelling across the WHOLE header, behind
+   HERO WAVE, two audio sine-waves travelling across the WHOLE header, behind
    the text (continuous scroll, no entry flicker).
    ═══════════════════════════════════════════════════════════════════════════ */
 @keyframes heroWaveScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
@@ -496,7 +496,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    PANEL CARDS
-   — equal height via min-height (NOT a global column-flex hack: stretching
+, equal height via min-height (NOT a global column-flex hack: stretching
      every column's first child distorted unrelated layouts and caused
      overlapping controls).
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -571,7 +571,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 .panel-card:hover li { opacity: 0.88; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   EMPTY STATE — sober glyph in a dashed ring instead of an emoji
+   EMPTY STATE, sober glyph in a dashed ring instead of an emoji
    ═══════════════════════════════════════════════════════════════════════════ */
 .empty-state {
     text-align: center;
@@ -596,7 +596,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PILLS & SEGMENTED CONTROL  — modern chip-style selectors.
+   PILLS & SEGMENTED CONTROL, modern chip-style selectors.
    Streamlit renders segmented-control buttons FLUSH against each other;
    chip styling (rounded + bordered segments) makes them overlap. Forcing a
    real flex gap on the group turns every option into a separate chip.
@@ -639,7 +639,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   BORDERED CONTAINERS  (st.container(border=True)) — glass panels
+   BORDERED CONTAINERS  (st.container(border=True)), glass panels
    ═══════════════════════════════════════════════════════════════════════════ */
 [data-testid="stVerticalBlockBorderWrapper"] > div > [data-testid="stVerticalBlock"] {
     gap: 0.65rem;
@@ -657,7 +657,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   INFO CARDS  — generic editorial card (CNN Learning, Run Experiment, …)
+   INFO CARDS, generic editorial card (CNN Learning, Run Experiment, …)
    ═══════════════════════════════════════════════════════════════════════════ */
 .info-card {
     background: linear-gradient(145deg,
@@ -704,7 +704,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   INFORMATIONAL CARDS — normal arrow cursor (not the text I-beam) over any
+   INFORMATIONAL CARDS, normal arrow cursor (not the text I-beam) over any
    non-interactive info surface. cursor is inherited, so children get it too;
    real links/buttons inside keep their own pointer cursor.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -718,7 +718,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 .hero-author a { cursor: pointer; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   REPRESENTATION CARDS — pretty grid for the Signal Explorer "what does each
+   REPRESENTATION CARDS, pretty grid for the Signal Explorer "what does each
    representation show?" expander.
    ═══════════════════════════════════════════════════════════════════════════ */
 .rep-grid {
@@ -756,7 +756,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PIPELINE STEPS  — Run Experiment header strip
+   PIPELINE STEPS, Run Experiment header strip
    ═══════════════════════════════════════════════════════════════════════════ */
 .pipe-row {
     display: grid;
@@ -820,7 +820,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   CONFIG CHIPS  — small key:value summary badges
+   CONFIG CHIPS, small key:value summary badges
    ═══════════════════════════════════════════════════════════════════════════ */
 .chip-row {
     display: flex;
@@ -842,7 +842,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 .cfg-chip b { color: #82B1FF; font-weight: 700; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SECTION LABEL  — small uppercase heading used above control groups
+   SECTION LABEL, small uppercase heading used above control groups
    ═══════════════════════════════════════════════════════════════════════════ */
 .section-label {
     font-size: 0.68rem;
@@ -854,7 +854,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   EDITORIAL SECTION HEADER — index number + title + fading rule
+   EDITORIAL SECTION HEADER, index number + title + fading rule
    ═══════════════════════════════════════════════════════════════════════════ */
 .sec-head {
     display: flex;
@@ -880,7 +880,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 .sec-head .sh-rule {
     /* Fill ALL the remaining width up to the content edge (long accent that
        adapts to the page). The sweep uses a percentage background-position, so
-       the highlight sits at the same FRACTION of every rule at any instant —
+       the highlight sits at the same FRACTION of every rule at any instant, 
        they stay coordinated even though each fills a slightly different width. */
     flex: 1 1 auto;
     min-width: 0;
@@ -895,7 +895,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PAGE LINK — ghost-button navigation cards (Home panel links)
+   PAGE LINK, ghost-button navigation cards (Home panel links)
    ═══════════════════════════════════════════════════════════════════════════ */
 [data-testid="stPageLink"] a {
     border: 1px solid rgba(79,139,249,0.3) !important;
@@ -913,7 +913,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 [data-testid="stPageLink"] a p { font-weight: 600 !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ALIGN-RIGHT UTILITY — wrap a widget in st.container(key="alignr_…").
+   ALIGN-RIGHT UTILITY, wrap a widget in st.container(key="alignr_…").
    Covers button groups, buttons and download buttons so right-edge
    alignment reads as intentional, not floating.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -926,7 +926,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DROPDOWN-ONLY SELECTBOXES — wrap in st.container(key="nosearch_…") to block
+   DROPDOWN-ONLY SELECTBOXES, wrap in st.container(key="nosearch_…") to block
    type-to-filter so the control behaves as a pure dropdown (still clickable).
    ═══════════════════════════════════════════════════════════════════════════ */
 [class*="st-key-nosearch"] [data-baseweb="select"] input {
@@ -938,7 +938,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   LABEL GAP — extra space between a segmented control's own label and its
+   LABEL GAP, extra space between a segmented control's own label and its
    buttons. Wrap the control in st.container(key="lblgap_…"). Only affects
    visible labels; collapsed-label controls render no stWidgetLabel.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -946,7 +946,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
     margin-bottom: 0.6rem !important;
 }
 
-/* COMPACT "Evaluation" group — "Train on" (fixed) + "Evaluate on" + "Score on"
+/* COMPACT "Evaluation" group, "Train on" (fixed) + "Evaluate on" + "Score on"
    laid out side by side in a fit-content blue frame (short, not full width). */
 [class*="st-key-evalgrp_"] {
     display: flex !important; flex-direction: row; flex-wrap: wrap;
@@ -984,7 +984,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   HERO REFINEMENTS — overline kicker, flush-top placement
+   HERO REFINEMENTS, overline kicker, flush-top placement
    ═══════════════════════════════════════════════════════════════════════════ */
 .hero-overline {
     font-size: 0.7rem;
@@ -997,7 +997,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 .hero-banner { margin-top: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   STAT STRIP — large editorial numerals under the hero
+   STAT STRIP, large editorial numerals under the hero
    ═══════════════════════════════════════════════════════════════════════════ */
 .stat-strip {
     display: grid;
@@ -1036,7 +1036,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   STATUS DOTS — sober availability indicators (sidebar + cards)
+   STATUS DOTS, sober availability indicators (sidebar + cards)
    ═══════════════════════════════════════════════════════════════════════════ */
 .dot {
     display: inline-block;
@@ -1084,7 +1084,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   MINI NOTE — fixed-height inline notice. Always rendered (info or warn
+   MINI NOTE, fixed-height inline notice. Always rendered (info or warn
    variant) so toggling options never resizes the surrounding panel.
    ═══════════════════════════════════════════════════════════════════════════ */
 .mini-note {
@@ -1108,7 +1108,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 .mini-note.warn::before { background: rgba(255,179,0,0.55); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   APP FOOTER — closed page ending: top rule, colophon, no trailing scroll
+   APP FOOTER, closed page ending: top rule, colophon, no trailing scroll
    ═══════════════════════════════════════════════════════════════════════════ */
 .app-footer {
     margin-top: 2.2rem;
@@ -1145,7 +1145,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   MOTION & DYNAMISM — cohesive, slow, CONTINUOUS ambient motion only (never
+   MOTION & DYNAMISM, cohesive, slow, CONTINUOUS ambient motion only (never
    entry animations: those replay on every rerun and read as flicker). Overrides
    a few earlier static rules to make the signal/audio theme feel alive.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1167,7 +1167,7 @@ html, body { background-color: #0E1117 !important; }
     pointer-events: none;
 }
 
-/* A bright highlight that TRAVELS along thin accent rules — clearly moving,
+/* A bright highlight that TRAVELS along thin accent rules, clearly moving,
    unlike a subtle hue shift on a 1-3px bar. */
 @keyframes sweepX { 0% { background-position: -45% 0; } 100% { background-position: 145% 0; } }
 .gradient-bar {
@@ -1214,7 +1214,7 @@ html, body { background-color: #0E1117 !important; }
 }
 .panel-card:hover::before { opacity: 1; }
 
-/* ── Global background-job banner — PINNED to the bottom of the sidebar ────── */
+/* ── Global background-job banner, PINNED to the bottom of the sidebar ────── */
 @keyframes obGlow { 0%,100% { box-shadow: 0 0 0 1px rgba(179,136,255,0.30),
                                           0 0 16px rgba(156,39,176,0.20); }
                     50%      { box-shadow: 0 0 0 1px rgba(179,136,255,0.6),
@@ -1280,7 +1280,42 @@ html, body { background-color: #0E1117 !important; }
 .op-banner .ob-note { font-size: 0.68rem; color: #8A78AE; margin-top: 0.5rem; line-height: 1.4; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   RESPONSIVE — tablet & phone. The hero title scales fluidly; dense custom grids
+   ACCESSIBILITY, keyboard focus + motion preferences.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* A clearly visible focus ring for keyboard users on every interactive control.
+   The heavy custom styling elsewhere strips native outlines, so re-assert one
+   here (only for :focus-visible, so it never shows on mouse click). */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+[role="option"]:focus-visible,
+[role="tab"]:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible,
+[data-baseweb="select"]:focus-within,
+[data-testid="stSidebarNavLink"]:focus-visible {
+    outline: 3px solid var(--saber, #4F8BF9) !important;
+    outline-offset: 2px !important;
+    border-radius: 0.4rem;
+}
+
+/* Honour the OS "reduce motion" preference: stop the ambient/decorative
+   animations for users who ask their system not to animate. (The Settings page
+   also offers a manual toggle; this covers people who never open Settings.) */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE, tablet & phone. The hero title scales fluidly; dense custom grids
    collapse; and the sidebar collapse control (hidden on desktop) comes back so
    the sidebar can be opened/closed on touch devices.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1290,7 +1325,7 @@ html, body { background-color: #0E1117 !important; }
     .stat-strip { grid-template-columns: repeat(2, 1fr); }
     .pipe-row   { grid-template-columns: 1fr; gap: 0.5rem; }
     .pipe-arrow { display: none; }
-    /* Tablets auto-collapse the sidebar — bring the open/close control back so it
+    /* Tablets auto-collapse the sidebar, bring the open/close control back so it
        is recoverable (it is hidden on the desktop always-open layout). */
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] { display: inline-flex !important; }
@@ -1313,8 +1348,24 @@ html, body { background-color: #0E1117 !important; }
     .corpus-card, .method-card { height: auto; }
     .hcw-step      { grid-template-columns: 44px 1fr; gap: 0.7rem; }
     section[data-testid="stSidebar"] { width: 15rem !important; }
+    /* The pinned background-job banner must match the narrower sidebar so it
+       never overflows past its right edge. */
+    [class*="st-key-opbanner"], [class*="st-key-opcta"] { width: 15rem !important; }
+    /* The uppercase sidebar header would overflow a 15rem rail; tighten it. */
+    [data-testid="stSidebarNav"]::before { font-size: 0.64rem; letter-spacing: 0.08em; }
     /* Re-enable the sidebar open/close affordance on small screens. */
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] { display: inline-flex !important; }
+}
+
+@media (max-width: 460px) {
+    /* On the smallest phones, single-column everything dense so nothing is
+       squeezed below a legible width. */
+    .stat-strip { grid-template-columns: 1fr; }
+    .hero-banner h1 { font-size: clamp(1.55rem, 8vw, 2rem); }
+    .hero-banner { padding: 1.1rem 1rem 1.2rem; }
+    [data-testid="stMetricValue"] { font-size: 1.15rem !important; }
+    /* Let footer halves stack instead of cramming onto one baseline. */
+    .app-footer { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
 }
 </style>

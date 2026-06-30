@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""src/ui/components.py — Reusable Streamlit UI components and controls.
+"""src/ui/components.py, Reusable Streamlit UI components and controls.
 
 Empty-state cards, badges, sidebar panels, the eval corpus/score pickers, demo
 notices and the background-job banner. Split out of src/ui_helpers.py and
@@ -26,7 +26,7 @@ def demo_corpus_notice(title: str = "Disabled in the web demo",
     body = body or (
         "This section runs on the full ASVspoof corpus, which is not bundled in "
         "the public CPU demo (it is several GB). Clone the repository and run "
-        "the app locally with the dataset — and a GPU for training — to use it."
+        "the app locally with the dataset, and a GPU for training, to use it."
         '<br><span style="opacity:0.65;font-style:italic;">'
         "“If an item does not appear in our records… it does not exist.”"
         "</span>"
@@ -53,7 +53,7 @@ def test_audio_cta(
         st.page_link("app_pages/3_Detection_Analysis.py",
                      label="Try the live multi-model analysis",
                      icon=":material/hearing:")
-    except Exception:  # noqa: BLE001 — page_link needs st.navigation context
+    except Exception:  # noqa: BLE001, page_link needs st.navigation context
         st.caption("Open **Detection Analysis → Test an audio** from the sidebar.")
 
 
@@ -118,7 +118,7 @@ def sidebar_panel(
 
 
 def mini_note(text: str, warn: bool = False) -> None:
-    """Fixed-height inline notice — never resizes the surrounding panel."""
+    """Fixed-height inline notice, never resizes the surrounding panel."""
     cls = "mini-note warn" if warn else "mini-note"
     st.markdown(f'<div class="{cls}"><span>{text}</span></div>',
                 unsafe_allow_html=True)
@@ -144,7 +144,7 @@ def eval_corpora_for(choice: str):
     or empty if that corpus is unavailable).
 
     On the corpus-less web demo the local splits are empty, so we fall back to a
-    small balanced eval set streamed from the public Hugging Face dataset — this
+    small balanced eval set streamed from the public Hugging Face dataset, this
     is what lets the benchmark modes evaluate the pretrained models on the cloud
     exactly as they would locally (only training is off)."""
     if choice == "2019 LA":
@@ -193,7 +193,7 @@ def eval_score_controls(
     # The two controls live in one flex-row, fit-content frame (CSS) so the
     # "Score on" sits right NEXT TO "Evaluate on" and the blue box stays short.
     with st.container(key=f"evalgrp_{prefix}"):
-        # Fixed "Train on" / "Trained on" — same segmented_control format as the
+        # Fixed "Train on" / "Trained on", same segmented_control format as the
         # other two. on_change prevents the user from deselecting the single option.
         st.segmented_control(
             train_label, ["2019 LA"],
@@ -205,7 +205,7 @@ def eval_score_controls(
 
         # "Score on" always renders the same 3 options so the box never shifts.
         # When the selected corpus has no dev split, Dev/Dev+Eval are visually
-        # disabled via injected CSS (pointer-events:none) — the style element is
+        # disabled via injected CSS (pointer-events:none), the style element is
         # collapsed to zero height by PAGE_CSS but its rules still apply globally.
         # Session state is also reset to "Eval" so no stale selection leaks through.
         if corpus != "2019 LA":
@@ -254,7 +254,7 @@ def op_status():
 
 def op_busy_notice() -> bool:
     """Return True while a background job runs (the running banner now lives in
-    the sidebar, so this no longer renders anything in the page body — pages
+    the sidebar, so this no longer renders anything in the page body, pages
     just use the return value to disable their run/train controls)."""
     return op_in_progress()
 
@@ -290,7 +290,7 @@ def _op_banner_render() -> None:
     pr  = _progress()
     pct = int(round(pr["frac"] * 100))
     sym = _OP_ICON_CNN if kind == "cnn" else _OP_ICON_FULL
-    # Called inside a `with st.sidebar:` block (see app.py) — a fragment may only
+    # Called inside a `with st.sidebar:` block (see app.py), a fragment may only
     # write to its own parent container, so we do NOT open st.sidebar here. The
     # whole banner is a click target (invisible overlay button) that jumps to the
     # page where the job runs.
@@ -331,7 +331,7 @@ def op_banner_fragment() -> None:
 
     The 2 s timer (run_every) is attached only in the running state: an idle app
     would otherwise keep a live timer that, after the rapid reruns of startup or
-    page navigation, fires against a container that no longer exists — logging
+    page navigation, fires against a container that no longer exists, logging
     'The fragment ... does not exist anymore' warnings on every rerun."""
     if op_in_progress():
         _op_banner_live()
@@ -342,8 +342,8 @@ def op_banner_fragment() -> None:
 def launch_full_comparison(classic_subset: int = 4000, include_cnn: bool = True) -> None:
     """Submit a full comparison with sensible defaults (2019 LA, dev + eval).
 
-    Used by the sidebar quick-launch button so the headline benchmark — the base
-    for everything else in the app — is one click away from any page."""
+    Used by the sidebar quick-launch button so the headline benchmark, the base
+    for everything else in the app, is one click away from any page."""
     from src.jobs import submit_benchmark
     ext = get_extractor()
     st.session_state["bench_future"] = submit_benchmark(

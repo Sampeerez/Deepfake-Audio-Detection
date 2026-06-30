@@ -11,7 +11,7 @@
   // is drawn, so on each page change a black bar flashes over the animated
   // background. A <style> injected ONCE into the PARENT document head persists
   // across every client-side navigation, so the header is transparent (and the
-  // toolbar/decoration/status gone) from the very first paint — no flash.
+  // toolbar/decoration/status gone) from the very first paint, no flash.
   if (!doc.getElementById('swChromeHide')) {
     var sc = doc.createElement('style');
     sc.id = 'swChromeHide';
@@ -19,7 +19,7 @@
       // Make the header AND every descendant transparent (the black bar that
       // flashed on navigation was a nested element's near-black background, not
       // the header's own). Do NOT collapse the header or display:none the toolbar
-      // here — the collapsed-sidebar expand control lives in that region, so
+      // here, the collapsed-sidebar expand control lives in that region, so
       // hiding it removed the only way to re-open the sidebar. Transparency alone
       // kills the black flash; PAGE_CSS still collapses the header to height:0.
       '[data-testid="stHeader"]{background:transparent!important;box-shadow:none!important;}' +
@@ -36,7 +36,7 @@
   // at the top-left after navigating. It's the Vega-Lite tooltip element, appended
   // to <body>: if you hover a bar (e.g. Detection Analysis' per-model chart) and
   // then change page client-side, the chart unmounts WITHOUT firing mouseout, so
-  // Vega never hides its tooltip — it stays visible at its last spot. Hide it as
+  // Vega never hides its tooltip, it stays visible at its last spot. Hide it as
   // soon as the cursor moves anywhere that is NOT over a chart (Vega recreates the
   // element on the next genuine hover, so real tooltips keep working). Also clear
   // it on any sidebar-nav click so it never survives the page change at all.
@@ -55,7 +55,7 @@
   }, true);
   doc.addEventListener('click', function () { hideVegaTip(); }, true);
   // MutationObserver: when the chart is removed from the DOM on page navigation
-  // (Streamlit unmounts it client-side), hide the tooltip immediately — no mouse
+  // (Streamlit unmounts it client-side), hide the tooltip immediately, no mouse
   // event needed. This catches keyboard navigation and programmatic page switches.
   // Toggle has-vega-chart on <body> so the CSS rule above can hide the
   // tooltip whenever no chart exists in the DOM. This is timing-proof: the
@@ -75,7 +75,7 @@
   _updVC();
   win.setInterval(_updVC, 1000);
 
-  // ── Ambient background canvas — modes: 'starwars' (default), 'network', 'off'.
+  // ── Ambient background canvas, modes: 'starwars' (default), 'network', 'off'.
   //    The render loop reads win.__swBg / win.__swTheme / win.__reduceMotion every
   //    frame, so the Settings page can switch it live without re-init. The Konami
   //    hyperspace jump overlays any mode.
@@ -144,7 +144,7 @@
       shootTimer = Date.now() + rnd(3000, 9000);
     }
 
-    // — Hyperspace (Konami) —
+    // Hyperspace (Konami)
     function drawHyper() {
       ctx.fillStyle = 'rgba(2,4,12,0.32)'; ctx.fillRect(0, 0, W, H);
       var cx = (LX + W) / 2, cy = H / 2;
@@ -160,7 +160,7 @@
       }
     }
 
-    // — Particle network (legacy option) —
+    // Particle network (legacy option)
     function drawNetwork() {
       for (var i = 0; i < N; i++) {
         var p = pts[i]; if (!still()) { p.x += p.vx; p.y += p.vy; }
@@ -181,7 +181,7 @@
       for (var i = 0; i < N; i++) { ctx.beginPath(); ctx.arc(pts[i].x, pts[i].y, 1.6, 0, Math.PI * 2); ctx.fill(); }
     }
 
-    // — Star Wars ambient (default) —
+    // Star Wars ambient (default)
     function drawStars() {
       var count = Math.min(stars.length, Math.floor(220 * intens()));
       for (var i = 0; i < count; i++) {

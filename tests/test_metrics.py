@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_metrics.py — EER and minDCF, the two pure-Python detection metrics.
+tests/test_metrics.py, EER and minDCF, the two pure-Python detection metrics.
 
 These are the scientific heart of the benchmark: every leaderboard number is
 produced here, so they get the most exhaustive coverage (perfect/random/

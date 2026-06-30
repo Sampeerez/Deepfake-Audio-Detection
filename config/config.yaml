@@ -105,7 +105,7 @@ experiment:
   usar_cache: true          # Caché de vectores DSP en disco (directorio cache/).
   n_workers_dsp: 4          # Hilos para extracción DSP paralela (1 = secuencial).
 
-# ASVspoof 2021 — solo split eval (sin train/dev oficial).
+# ASVspoof 2021, solo split eval (sin train/dev oficial).
 # La pista LA tiene condiciones de canal telefónico real.
 # La pista DF incluye deepfakes "en la naturaleza" (3 particiones).
 dataset_2021:

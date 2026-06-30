@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""src.ui — UI layer split out of the former monolithic src/ui_helpers.py.
+"""src.ui, UI layer split out of the former monolithic src/ui_helpers.py.
 
 Submodules: styles (CSS/theme), figures (matplotlib builders), components
 (reusable Streamlit widgets). All names remain importable from src.ui_helpers,

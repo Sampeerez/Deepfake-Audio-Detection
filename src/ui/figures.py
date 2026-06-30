@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""src/ui/figures.py — matplotlib figure builders and signal statistics.
+"""src/ui/figures.py, matplotlib figure builders and signal statistics.
 
 Split out of src/ui_helpers.py and re-exported there for backward compatibility.
 The active-theme palette globals (_FIG_*) and apply_mpl_theme live here together
@@ -91,7 +91,7 @@ def compute_signal_stats(y: np.ndarray, sr: int) -> Dict:
 
 
 # ===========================================================================
-# Plotting helpers — all return a plt.Figure for st.pyplot()
+# Plotting helpers, all return a plt.Figure for st.pyplot()
 # ===========================================================================
 
 def _fig_style(ax: plt.Axes) -> None:
@@ -172,7 +172,7 @@ def fig_cnn_input(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
     img = ax.imshow(matrix, aspect="auto", origin="lower", cmap="viridis")
     fig.colorbar(img, ax=ax, pad=0.01)
     ax.set_title(
-        f"CNN Input — z-scored STFT-dB  "
+        f"CNN Input, z-scored STFT-dB  "
         f"({extractor.freq_bins} freq bins × {extractor.time_frames} time frames)",
         fontsize=10, fontweight="bold",
     )
@@ -345,7 +345,7 @@ def fig_corpus_overview(
     ax.set_ylabel("Audio files", fontsize=9)
     ax.set_title("Class distribution by subset", fontsize=10, fontweight="bold")
     ax.spines[["top", "right"]].set_visible(False)
-    # Legend BELOW the axes — never overlaps the bars.
+    # Legend BELOW the axes, never overlaps the bars.
     ax.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.1),
               ncol=2, frameon=False, handlelength=1.2, columnspacing=1.4)
     ax.grid(axis="y", alpha=0.2, linewidth=0.5)

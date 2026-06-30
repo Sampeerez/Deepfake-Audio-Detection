@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""src/model_registry.py — Data & model layer.
+"""src/model_registry.py, Data & model layer.
 
 Config + cached FeatureExtractor, corpus/sample loading, the pretrained model
 REGISTRY, Hugging Face streaming/download, and the model loaders. Split out of
@@ -92,13 +92,13 @@ def corpus_available_2021_df() -> bool:
 
 
 def corpus_configured_2021_la() -> bool:
-    """Lightweight check (single stat call) — does NOT load audio index."""
+    """Lightweight check (single stat call), does NOT load audio index."""
     cfg = load_config().get("dataset_2021", {}).get("la", {})
     return os.path.isfile(cfg.get("keys", ""))
 
 
 def corpus_configured_2021_df() -> bool:
-    """Lightweight check (single stat call) — does NOT load audio index."""
+    """Lightweight check (single stat call), does NOT load audio index."""
     cfg = load_config().get("dataset_2021", {}).get("df", {})
     return os.path.isfile(cfg.get("keys", ""))
 
@@ -119,8 +119,8 @@ def corpus_available() -> bool:
 # ===========================================================================
 # On the free public cloud there is no GPU and the multi-GB ASVspoof corpus is
 # not on disk, so training / full-benchmark features cannot run. Instead the whole
-# pretrained zoo — the two CNNs and the classic LR / SVM / XGBoost over every DSP
-# front-end — is COMMITTED to the repo under models/ (the weights are small, a few
+# pretrained zoo, the two CNNs and the classic LR / SVM / XGBoost over every DSP
+# front-end, is COMMITTED to the repo under models/ (the weights are small, a few
 # MB total) and loaded directly from disk on CPU. Only the multi-GB DATASETS still
 # stream from Hugging Face (HF_EVAL_DATASETS); the model weights do NOT.
 
@@ -132,7 +132,7 @@ MODELS_DIR      = os.path.join(_REPO_ROOT, "models")
 CHECKPOINT_PATH = os.path.join(_REPO_ROOT, "asvspoof_model_checkpoint.pth")
 
 # ── Weight source ───────────────────────────────────────────────────────────
-# Models are loaded straight from the committed models/ folder — no runtime
+# Models are loaded straight from the committed models/ folder, no runtime
 # download. Leave HF_BASE_URL EMPTY to keep it that way. Only set it to a Hugging
 # Face "resolve/main" folder if you ever prefer to stream the weights instead of
 # committing them (then each model's URL is derived from this one base). The
@@ -160,7 +160,7 @@ _CLF_DEFS = [
     ("svm", "svm_lineal",          "SVM (RBF)"),
     ("xgb", "xgboost",             "XGBoost"),
 ]
-# (key suffix, FeatureExtractor option, label) — every DSP front-end.
+# (key suffix, FeatureExtractor option, label), every DSP front-end.
 _FEAT_DEFS = [
     ("rms",  "1", "RMS"),
     ("mfcc", "2", "MFCC"),
@@ -189,11 +189,11 @@ PRETRAINED_REGISTRY: List[Dict] = [
      "clf": None, "feat": None, "front": "STFT-dB spectrogram",
      "file": "crnn.pth", "url": _hf_url("crnn.pth")},
     # Self-supervised raw-waveform detector (fine-tuned wav2vec 2.0 base + linear
-    # head). "raw" kind: no DSP front-end, no spectrogram — it eats the 16 kHz
+    # head). "raw" kind: no DSP front-end, no spectrogram, it eats the 16 kHz
     # waveform directly. Inference-only (it is evaluated, never trained, by the
     # Full-comparison sweep). On the web demo it is too large to commit to GitHub
     # (≈469 MB), so it is fetched from a PUBLIC Hugging Face model repo on demand
-    # (hf_repo / hf_file) — no local heavy file, no HF_BASE_URL needed.
+    # (hf_repo / hf_file), no local heavy file, no HF_BASE_URL needed.
     {"key": "wav2vec2", "name": "wav2vec 2.0 (SSL)", "kind": "raw", "clf": None,
      "feat": None, "front": "Self-supervised raw-waveform",
      "file": "wav2vec2.pth", "url": _hf_url("wav2vec2.pth"),
@@ -227,7 +227,7 @@ def demo_mode() -> bool:
     the pretrained multi-model file analysis remains fully usable.
 
     Honours DEEPFAKE_FORCE_DEMO=1 transparently (the loaders report empty, so
-    corpus_available() is False) — handy to preview the cloud UI locally."""
+    corpus_available() is False), handy to preview the cloud UI locally."""
     return not corpus_available()
 
 
@@ -243,7 +243,7 @@ def _model_path(entry: Dict) -> str:
 
 def _hf_cached(repo: str, fname: str) -> bool:
     """True if the file from a Hugging Face repo is already in the local HF cache
-    (a cheap, offline-only probe — never hits the network)."""
+    (a cheap, offline-only probe, never hits the network)."""
     try:
         from huggingface_hub import hf_hub_download
         hf_hub_download(repo_id=repo, filename=fname, local_files_only=True)
@@ -270,7 +270,7 @@ def pretrained_available() -> bool:
 
 
 def model_downloaded(entry: Dict) -> bool:
-    """True when a model's weights are already cached locally — on disk, or (for an
+    """True when a model's weights are already cached locally, on disk, or (for an
     HF-sourced model like wav2vec2) in the Hugging Face cache."""
     if os.path.isfile(_model_path(entry)):
         return True
@@ -280,7 +280,7 @@ def model_downloaded(entry: Dict) -> bool:
 
 
 def models_trained() -> bool:
-    """True once EVERY registry model has been trained and saved to disk — used
+    """True once EVERY registry model has been trained and saved to disk, used
     to switch the Benchmark from 'train everything' to 'evaluate the saved zoo'."""
     return bool(PRETRAINED_REGISTRY) and all(
         model_downloaded(e) for e in PRETRAINED_REGISTRY)
@@ -352,8 +352,8 @@ def bundle_samples(corpus: str, samples: List[Tuple[str, int]],
 # On the corpus-less web demo the EVAL splits are far too large to commit, so we
 # pull a small, balanced sample on demand from public HF datasets (the dev/train
 # splits keep using the committed samples/ tree above). We use the lightweight
-# datasets-server /rows API — no `datasets` dependency and no multi-GB parquet
-# download — read each row's label + presigned audio URL, and cache a capped
+# datasets-server /rows API, no `datasets` dependency and no multi-GB parquet
+# download, read each row's label + presigned audio URL, and cache a capped
 # number of clips locally so browsing and scoring reuse them.
 HF_EVAL_DATASETS: Dict[str, Dict[str, str]] = {
     "2019 LA": {"id": "Bisher/ASVspoof_2019_LA",
@@ -382,7 +382,7 @@ def _hf_get_json(url: str) -> Dict:
     import json
     import urllib.request
     req = urllib.request.Request(url, headers=_hf_headers())
-    with urllib.request.urlopen(req, timeout=30) as r:   # noqa: S310 — fixed host
+    with urllib.request.urlopen(req, timeout=30) as r:   # noqa: S310, fixed host
         return json.load(r)
 
 
@@ -410,7 +410,7 @@ def _hf_scan_pages(base: str, offsets, ingest, done, max_workers: int = 8) -> No
             for fut in cf.as_completed(futs):
                 try:
                     ingest(fut.result())
-                except Exception:                        # noqa: BLE001 — skip bad page
+                except Exception:                        # noqa: BLE001, skip bad page
                     continue
 
 
@@ -424,7 +424,7 @@ def _hf_download(src_dst):
                 data = r.read()
             with open(dst, "wb") as fh:
                 fh.write(data)
-        except Exception:                                # noqa: BLE001 — skip bad clip
+        except Exception:                                # noqa: BLE001, skip bad clip
             return None
     return (dst, label)
 
@@ -451,7 +451,7 @@ def _hf_eval_impl(corpus: str, n_per_class: int) -> List[Tuple[str, int]]:
     collected: Dict[int, List[str]] = {LABEL_BONAFIDE: [], LABEL_SPOOF: []}
     try:
         first = _hf_get_json(base + "&offset=0&length=100")
-    except Exception:                                    # noqa: BLE001 — HF unreachable
+    except Exception:                                    # noqa: BLE001, HF unreachable
         return cached
     total = int(first.get("num_rows_total", 100))
     rng = random.Random(42)
@@ -507,7 +507,7 @@ def hf_eval_samples(corpus: str,
 
 
 # ── Browseable HF index (list MANY clips, download only the chosen one) ─────── #
-# hf_eval_samples downloads its whole balanced set up front — fine for scoring,
+# hf_eval_samples downloads its whole balanced set up front, fine for scoring,
 # but it means the Signal Explorer only ever shows ~50 clips per class and pays
 # the download cost immediately. For browsing we instead pull a large INDEX of
 # rows (label + presigned audio URL, NO audio) and fetch a single clip lazily
@@ -526,7 +526,7 @@ def _hf_listing_impl(corpus: str, max_per_class: int):
             f"&config={spec['config']}&split={spec['split']}")
     try:
         first = _hf_get_json(base + "&offset=0&length=100")
-    except Exception:                                    # noqa: BLE001 — HF unreachable
+    except Exception:                                    # noqa: BLE001, HF unreachable
         return []
     total = int(first.get("num_rows_total", 100))
     rng = random.Random(7)
@@ -605,7 +605,7 @@ def _download_if_missing(url: str, path: str, label: str) -> None:
         )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     import urllib.request
-    with st.spinner(f"Calibrating the kyber crystals — fetching {label} (first run only)…"):
+    with st.spinner(f"Calibrating the kyber crystals, fetching {label} (first run only)…"):
         urllib.request.urlretrieve(url, path)
 
 
@@ -619,7 +619,7 @@ def load_pretrained_torch(file: str, url: str, name: str):
 
     path = file if os.path.isabs(file) else os.path.join(MODELS_DIR, file)
     _download_if_missing(url, path, name)
-    with st.spinner(f"Consulting the Jedi Archives — loading {name} on CPU…"):
+    with st.spinner(f"Consulting the Jedi Archives, loading {name} on CPU…"):
         ckpt = torch.load(path, map_location=torch.device("cpu"))
         model = model_for_arch(ckpt.get("arch", "cnn"),
                                dropout=float(ckpt.get("dropout", 0.3)))
@@ -636,10 +636,10 @@ def load_pretrained_classic(file: str, url: str, name: str):
 
     path = os.path.join(MODELS_DIR, file)
     _download_if_missing(url, path, name)
-    with st.spinner(f"Consulting the Jedi Archives — loading {name}…"):
+    with st.spinner(f"Consulting the Jedi Archives, loading {name}…"):
         # The committed XGBoost .joblib were pickled with an older xgboost; the
         # newer runtime prints a cosmetic "save_model from that version" warning
-        # on unpickle. The model loads and scores identically — mute the noise.
+        # on unpickle. The model loads and scores identically, mute the noise.
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=".*save_model.*")
             return joblib.load(path)
@@ -652,7 +652,7 @@ def load_pretrained_raw(file: str, url: str, name: str,
 
     Weight resolution order: a local ``models/`` file (used on the GPU machine),
     then an explicit direct ``url``, then a PUBLIC Hugging Face repo (``hf_repo`` /
-    ``hf_file``) streamed via ``hf_hub_download`` — that last path is what makes the
+    ``hf_file``) streamed via ``hf_hub_download``, that last path is what makes the
     cloud demo self-contained without committing the 469 MB checkpoint to GitHub.
 
     The checkpoint stores the weights under ``model_state_dict`` (a training
@@ -669,12 +669,12 @@ def load_pretrained_raw(file: str, url: str, name: str,
             _download_if_missing(url, path, name)
         elif hf_repo:
             from huggingface_hub import hf_hub_download
-            with st.spinner(f"Calibrating the kyber crystals — fetching {name} "
+            with st.spinner(f"Calibrating the kyber crystals, fetching {name} "
                             "from Hugging Face (first run only)…"):
                 path = hf_hub_download(repo_id=hf_repo, filename=hf_file)
         else:
             _download_if_missing(url, path, name)     # raises the helpful error
-    with st.spinner(f"Consulting the Jedi Archives — loading {name} on CPU…"):
+    with st.spinner(f"Consulting the Jedi Archives, loading {name} on CPU…"):
         ckpt = torch.load(path, map_location=torch.device("cpu"))
         state = ckpt.get("model_state_dict", ckpt)
         model = Wav2Vec2Classifier()

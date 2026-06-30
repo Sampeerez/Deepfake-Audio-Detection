@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-src/pipeline.py — Experiment orchestration: feature extraction, classic
+src/pipeline.py, Experiment orchestration: feature extraction, classic
                   classifiers, and CNN training + evaluation.
 
 Public entry points (all used by the web app):
-    extract_feature_matrix(...) — vectorise a subset of audio with one extractor
-    run_classic_models(...)     — DSP features + sklearn/XGBoost classifiers
-    train_and_evaluate_cnn(...) — STFT-dB spectrogram + 2-D CNN (model + history)
+    extract_feature_matrix(...), vectorise a subset of audio with one extractor
+    run_classic_models(...), DSP features + sklearn/XGBoost classifiers
+    train_and_evaluate_cnn(...), STFT-dB spectrogram + 2-D CNN (model + history)
 
 The classic / CNN runners return a list of result dicts whose keys match the
 COL_* constants in src.reporting, which the GUI reads to build its table.
@@ -48,7 +48,7 @@ MODEL_OPTIONS: Dict[str, Tuple[str, ...]] = {
     "3": ("xgboost",),
     "4": ("logistic_regression", "svm_lineal", "xgboost"),
     # The CNN is a separate pipeline branch (train_and_evaluate_cnn), driven by
-    # the CNN Learning page — it is not one of these classic-model options.
+    # the CNN Learning page, it is not one of these classic-model options.
 }
 
 # Human-readable display names for classic classifiers.
@@ -176,14 +176,14 @@ def extract_feature_matrix(
 
 
 def _metrics_result_row(scores, labels, *, features_label: str, model_label: str,
-                        train_time="—", feat_time="—", infer_time="—", corpus=None
+                        train_time=", ", feat_time=", ", infer_time=", ", corpus=None
                         ) -> Dict[str, str]:
     """Compute accuracy / EER / minDCF from raw scores+labels and assemble the
-    shared COL_* result row — the single source of truth for the row schema used
+    shared COL_* result row, the single source of truth for the row schema used
     by the inference scorers below.
 
     ``train_time`` / ``feat_time`` / ``infer_time`` accept a preformatted string
-    (e.g. "—") or a number to format. ``feat_time`` is the per-audio cost of
+    (e.g. ", ") or a number to format. ``feat_time`` is the per-audio cost of
     turning a raw clip into the model's input (DSP vector / STFT spectrogram);
     combined with ``infer_time`` (the model forward) it gives the end-to-end
     per-clip latency. ``corpus`` adds the optional 'Corpus' key only when given."""
@@ -230,7 +230,7 @@ def run_classic_models(
     stay distinct in the leaderboard instead of colliding on the same eval row).
 
     model_sink: optional callback invoked as ``model_sink(name, fitted_model)``
-    right after each classifier is fit — used by the Full-comparison export to
+    right after each classifier is fit, used by the Full-comparison export to
     persist the trained models to disk (e.g. joblib) without re-fitting.
     """
     # Normalise to a list of (corpus_label, X, y).
@@ -279,13 +279,13 @@ def run_classic_models(
             COL_MIN_DCF:    f"{min_dcf:.4f}",
             COL_THRESHOLD:  f"{threshold:.4f}",
             COL_TRAIN_TIME: f"{train_time:.2f}",
-            # DSP front-end cost per audio — same for every classifier of this
+            # DSP front-end cost per audio, same for every classifier of this
             # front-end, so it doubles as the front-end's extraction latency.
             COL_FEAT_TIME:  f"{ms_dsp_dev:.3f}",
             COL_INFER_TIME: f"{ms_infer:.3f}",
         })
 
-        # Optional evaluation on one or more held-out eval corpora (no refit —
+        # Optional evaluation on one or more held-out eval corpora (no refit, 
         # the model is already trained, we only predict on each set).
         for corpus_label, x_ev, y_ev in eval_sets:
             if x_ev is None or y_ev is None:
@@ -305,9 +305,9 @@ def run_classic_models(
                 COL_ACCURACY:   f"{acc_ev:.4f}",
                 COL_EER:        f"{100 * eer_ev:.2f}",
                 COL_MIN_DCF:    f"{dcf_ev:.4f}",
-                COL_TRAIN_TIME: "—",
-                COL_FEAT_TIME:  "—",
-                COL_INFER_TIME: "—",
+                COL_TRAIN_TIME: ", ",
+                COL_FEAT_TIME:  ", ",
+                COL_INFER_TIME: ", ",
                 "Corpus":       corpus_label,
             })
 
@@ -480,12 +480,12 @@ def _train_cnn(
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=max(1, patience // 2)
     )
-    # Mixed precision on GPU (~1.5–2× faster, no meaningful accuracy change). The
+    # Mixed precision on GPU (~1.5 to 2× faster, no meaningful accuracy change). The
     # autograd/scaler API moved from torch.cuda.amp to torch.amp in torch 2.x.
     #
     # PREFER bfloat16 when the GPU supports it: bf16 shares fp32's 8-bit exponent,
     # so the activations of a deep net (ResNet+SE) cannot overflow to inf/NaN the
-    # way fp16 does. That overflow was the silent killer — it made the validation
+    # way fp16 does. That overflow was the silent killer, it made the validation
     # loss non-finite every epoch, so the best checkpoint never updated and the
     # loop returned the *random initialisation* (≈50% EER). bf16 needs no loss
     # scaling, so the GradScaler is only enabled on the fp16 fallback path.
@@ -568,7 +568,7 @@ def _train_cnn(
         if epoch_callback is not None:
             epoch_callback(record)
 
-        # Only a FINITE, improving val loss is allowed to checkpoint — a NaN/inf
+        # Only a FINITE, improving val loss is allowed to checkpoint, a NaN/inf
         # loss must never count as "best", or the model that gets restored is the
         # random initialisation.
         if math.isfinite(val_loss) and val_loss < best_val_loss - 1e-4:
@@ -594,7 +594,7 @@ def _train_cnn(
         torch.cuda.synchronize()
     # Restore the best finite checkpoint. If NO epoch ever improved (e.g. training
     # diverged), keep the LAST trained weights rather than overwriting them with
-    # the random init — the caller still gets a real, scoreable model.
+    # the random init, the caller still gets a real, scoreable model.
     if ever_saved:
         model.load_state_dict(best_state_dict)
     else:
@@ -637,7 +637,7 @@ def _measure_spectrogram_ms(
     n_probe: int = 200,
 ) -> float:
     """Per-audio cost (ms) of turning a raw clip into the CNN's STFT spectrogram
-    — decode + transform — measured on a capped probe set with the disk cache
+, decode + transform, measured on a capped probe set with the disk cache
     BYPASSED, so it reflects a cold, fresh-clip latency (what 'Test an audio'
     pays) rather than a warm cache hit. Returns 0.0 if there is nothing to probe."""
     probe = samples[:max(int(n_probe), 1)]
@@ -680,7 +680,7 @@ def train_and_evaluate_cnn(
         val_samples:   Optional early-stopping / model-selection set. When given,
                        the validation loss that drives early stopping and the LR
                        scheduler is computed on THIS set (e.g. an unseen-attack
-                       holdout) instead of ``dev_samples`` — dev is then only
+                       holdout) instead of ``dev_samples``, dev is then only
                        scored for reporting. Falls back to dev when None.
 
     Returns:
@@ -703,7 +703,7 @@ def train_and_evaluate_cnn(
 
     # Cache tag encoding the spectrogram config: the BASE spectrogram of each
     # file is computed ONCE, cached to disk and reused every epoch / arch / run.
-    # This is the key speed-up — the STFT recompute was the per-epoch bottleneck.
+    # This is the key speed-up, the STFT recompute was the per-epoch bottleneck.
     _spec_tag = (f"{int(extractor.sample_rate)}_{int(extractor.n_fft)}_"
                  f"{int(extractor.hop_length)}_"
                  f"{int(extractor.freq_bins)}x{int(extractor.time_frames)}")
@@ -773,7 +773,7 @@ def train_and_evaluate_cnn(
                 "state_dict":  model.state_dict(),
             }, checkpoint_path)
             print(f"[CNN] Saved checkpoint → {checkpoint_path}")
-        except Exception as exc:                    # noqa: BLE001 — non-fatal
+        except Exception as exc:                    # noqa: BLE001, non-fatal
             print(f"[CNN] Could not save checkpoint: {exc}")
 
     device_tag = "CUDA" if device.type == "cuda" else "CPU"
@@ -796,13 +796,13 @@ def train_and_evaluate_cnn(
             COL_EER:        f"{100 * eer:.2f}",
             COL_MIN_DCF:    f"{min_dcf:.4f}",
             COL_THRESHOLD:  f"{threshold:.4f}",
-            COL_TRAIN_TIME: f"{train_time:.2f}" if not suffix else "—",
-            COL_FEAT_TIME:  f"{feat_ms:.3f}" if not suffix else "—",
+            COL_TRAIN_TIME: f"{train_time:.2f}" if not suffix else ", ",
+            COL_FEAT_TIME:  f"{feat_ms:.3f}" if not suffix else ", ",
             COL_INFER_TIME: f"{ms:.3f}",
             "Corpus":       corpus,
         }
 
-    # Cold spectrogram-extraction latency (decode + STFT) on a capped dev probe —
+    # Cold spectrogram-extraction latency (decode + STFT) on a capped dev probe, 
     # the front-end cost a fresh clip pays before the forward pass.
     feat_ms = _measure_spectrogram_ms(dev_samples, extractor)
     scores_dev, labels_dev, ms = _evaluate_cnn(model, loader_dev, device)

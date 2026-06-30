@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-modes/_mode_cnn.py — "CNN" mode of the Benchmark page: train the 2-D CNN live and
-visualise how it learns — per-epoch loss curves, LR scheduler, and convolutional
+modes/_mode_cnn.py, "CNN" mode of the Benchmark page: train the 2-D CNN live and
+visualise how it learns, per-epoch loss curves, LR scheduler, and convolutional
 activation maps.
 
-Training configuration lives in the MAIN area (bordered panel) — dropdowns and
+Training configuration lives in the MAIN area (bordered panel), dropdowns and
 sliders are awkward in a narrow sidebar, and the configuration IS the page's
 primary content before a model exists. The sidebar carries navigation +
 environment status only.
@@ -68,7 +68,7 @@ if _handoff:
         st.rerun()
     st.markdown(
         f"Full convolutional activation maps for your uploaded clip "
-        f"**{_handoff.get('fname') or 'audio'}** — every feature map of every "
+        f"**{_handoff.get('fname') or 'audio'}**, every feature map of every "
         f"block, for each CNN that judged it in Detection Analysis."
     )
     _items = _handoff.get("items", [])
@@ -83,7 +83,7 @@ if _handoff:
         _col = SPOOF_COLOR if _item["p"] >= 0.5 else BONAFIDE_COLOR
         _pred = "spoof" if _item["p"] >= 0.5 else "bonafide"
         st.markdown(
-            f"### {_item['name']} — <span style='color:{_col};font-weight:700;'>"
+            f"### {_item['name']}, <span style='color:{_col};font-weight:700;'>"
             f"p(spoof) = {_item['p']:.3f} ({_pred} predicted)</span>",
             unsafe_allow_html=True,
         )
@@ -92,27 +92,27 @@ if _handoff:
             st.pyplot(
                 fig_activation_grid(
                     _act[0].numpy(),
-                    f"Conv Block {_i} — {_nch} feature maps {tuple(_act.shape[1:])}"),
+                    f"Conv Block {_i}, {_nch} feature maps {tuple(_act.shape[1:])}"),
                 clear_figure=True,
             )
         st.divider()
     st.stop()
 
 # On the corpus-less web demo we DON'T bail out: the page renders like local but
-# training is off — you can still evaluate the pretrained CNNs on eval clips
+# training is off, you can still evaluate the pretrained CNNs on eval clips
 # streamed from Hugging Face (see eval_corpora_for).
 _web = not corpus_available()
 if _web:
     demo_corpus_notice(
-        "CNN — evaluation only in the web demo",
+        "CNN, evaluation only in the web demo",
         "Training the network needs a GPU and the full ASVspoof corpus, so on the "
         "public cloud <b>training is disabled</b>. You can still <b>Evaluate</b> "
         "the pretrained deep models (ResNet + SE, 5-Block CNN, CRNN, …) on eval clips "
-        "streamed from Hugging Face — the same view you get locally.",
+        "streamed from Hugging Face, the same view you get locally.",
     )
 
 # ===========================================================================
-# Training configuration — main-area panel
+# Training configuration, main-area panel
 # ===========================================================================
 
 ARCH_CNN    = "5-Block CNN"
@@ -236,7 +236,7 @@ if clear_btn:
     st.rerun()
 
 # ===========================================================================
-# Architecture & design panels — defined as reusable renderers so they stay
+# Architecture & design panels, defined as reusable renderers so they stay
 # visible ALWAYS (before training AND after, alongside the result tabs).
 # ===========================================================================
 
@@ -252,7 +252,7 @@ def _render_architecture(arch_key):
                     "Four **residual blocks** with **Squeeze-and-Excitation "
                     "channel attention**. Residual connections prevent gradient "
                     "vanishing; SE gates re-weight each frequency channel by its "
-                    "discriminative importance — critical for generalising to "
+                    "discriminative importance, critical for generalising to "
                     "unseen TTS/VC attacks (ASVspoof 2021+)."
                 )
                 if arch_key == "resnext":
@@ -269,7 +269,7 @@ def _render_architecture(arch_key):
                     "patterns; instead of pooling the time axis away, the per-frame "
                     "feature vectors feed a **bidirectional GRU** that models their "
                     "**temporal** evolution (forward + backward context) before the "
-                    "final logit — capturing how artefacts unfold over time."
+                    "final logit, capturing how artefacts unfold over time."
                 )
             else:
                 st.markdown("##### 5-Block CNN"
@@ -364,7 +364,7 @@ def _render_design(arch_key):
                 _choice_card(
                     "SE channel attention",
                     "A small MLP gates each frequency channel by its global "
-                    "importance — the network suppresses codec roll-off and noise "
+                    "importance, the network suppresses codec roll-off and noise "
                     "bands while amplifying band-specific synthesis artefacts. Key "
                     "for 2021+ attacks.",
                     tag="ResNet",
@@ -418,7 +418,7 @@ def _render_design(arch_key):
             _choice_card(
                 "Best-checkpoint restore",
                 "Weights from the epoch with the lowest validation loss are "
-                "restored at the end — early stopping never returns a degraded model.",
+                "restored at the end, early stopping never returns a degraded model.",
             )
             _choice_card(
                 "ReduceLROnPlateau",
@@ -446,7 +446,7 @@ if train_btn:
         "arch":                    arch_key,
     })
 
-    # Train ONLY — no eval corpus scoring (use Evaluate button for that).
+    # Train ONLY, no eval corpus scoring (use Evaluate button for that).
     # The background worker still uses dev_samples for val loss / early stopping,
     # but we mark train_only so app.py skips adding rows to cnn_runs.
     st.session_state["cnn_train_only"] = True
@@ -499,7 +499,7 @@ if eval_btn:
         st.session_state["cnn_results"] = _new_rows
     st.rerun()
 
-# ── Live training view — a self-refreshing fragment that redraws the loss curve
+# ── Live training view, a self-refreshing fragment that redraws the loss curve
 #    from the background worker's epoch records every 2 s (only this block reruns,
 #    not the whole app). The running MESSAGE lives in the sidebar banner. ─────── #
 @st.fragment(run_every=2.0)
@@ -539,7 +539,7 @@ if st.session_state.pop("cnn_cancelled", False):
     st.info("CNN training cancelled.", icon=":material/cancel:")
 
 # ===========================================================================
-# Unified panels — Architecture & Design choices are ALWAYS shown. The live
+# Unified panels, Architecture & Design choices are ALWAYS shown. The live
 # training curve and the results appear as ADDITIONAL tabs (they never push the
 # overview down): switch tabs freely while a model trains in the background,
 # watch the curve in "Training curves", and the final graphs stay there after.
@@ -550,7 +550,7 @@ _training  = _cnn_fut is not None and not _cnn_fut.done()
 _has_model = "cnn_history" in st.session_state
 _cnn_runs  = st.session_state.get("cnn_runs", [])
 
-# Stable order at all times — "Training curves" is always the 3rd tab (the panel
+# Stable order at all times, "Training curves" is always the 3rd tab (the panel
 # order never reshuffles). When a training has just been launched we redirect to
 # it with a tiny script (st.tabs has no programmatic selection), but we do NOT
 # move it to the front.
@@ -592,7 +592,7 @@ with _tabmap["Architecture"]:
 with _tabmap["Design choices"]:
     _render_design(arch_key)
 
-# ── Training curves — live while training, fixed (non-zoomable) afterwards ─── #
+# ── Training curves, live while training, fixed (non-zoomable) afterwards ─── #
 if "Training curves" in _tabmap:
     with _tabmap["Training curves"]:
         if _training:
@@ -601,7 +601,7 @@ if "Training curves" in _tabmap:
             _hist = st.session_state["cnn_history"]
             cc1, cc2 = st.columns([2, 1])
             with cc1:
-                st.markdown("**Loss curves — train vs. validation**")
+                st.markdown("**Loss curves, train vs. validation**")
                 _ldf = (pd.DataFrame(_hist)
                         .melt(id_vars="epoch", value_vars=["train_loss", "val_loss"],
                               var_name="curve", value_name="loss"))
@@ -624,12 +624,12 @@ if "Training curves" in _tabmap:
                 st.caption("Flat = stable LR. Drops = ReduceLROnPlateau halved "
                            "the rate after a validation-loss plateau.")
 
-# ── Results — every CNN scored this session (both architectures, dev + eval) ─ #
+# ── Results, every CNN scored this session (both architectures, dev + eval) ─ #
 if "Results" in _tabmap:
     with _tabmap["Results"]:
         st.markdown(
-            "Every CNN scored this session — both architectures, on **dev** "
-            "(seen attacks A01–A06) and **eval** (unseen A07–A19). Models come "
+            "Every CNN scored this session, both architectures, on **dev** "
+            "(seen attacks A01-A06) and **eval** (unseen A07-A19). Models come "
             "from this page and from the Benchmark's full comparison."
         )
         _rrows = []
@@ -659,7 +659,7 @@ if "Results" in _tabmap:
         st.caption("Ranked by minDCF (primary metric), EER as tiebreaker. After "
                    "a full comparison both CNNs appear here, dev and eval.")
 
-# ── Activation maps (dev sample) — only when a model was trained this session ─ #
+# ── Activation maps (dev sample), only when a model was trained this session ─ #
 if "Activation maps" in _tabmap:
     model = st.session_state["cnn_model"]
     dev   = st.session_state["cnn_dev"]
@@ -710,7 +710,7 @@ if "Activation maps" in _tabmap:
                 st.pyplot(
                     fig_activation_grid(
                         act[0].numpy(),
-                        f"Conv Block {i} — {n_ch} feature maps (shape {tuple(act.shape[1:])})",
+                        f"Conv Block {i}, {n_ch} feature maps (shape {tuple(act.shape[1:])})",
                     ),
                     clear_figure=True,
                 )
@@ -726,12 +726,12 @@ with st.sidebar:
         _last = _res[-1] if _res else {}
         _rows += [
             ("Status",   "Trained"),
-            ("Arch",     st.session_state.get("cnn_arch_trained", "—")),
-            ("Corpus",   st.session_state.get("cnn_train_corpus", "—")),
+            ("Arch",     st.session_state.get("cnn_arch_trained", ", ")),
+            ("Corpus",   st.session_state.get("cnn_train_corpus", ", ")),
             ("Epochs",   str(len(_hist))),
             ("Best val", f"{min(r['val_loss'] for r in _hist):.4f}"),
-            ("minDCF dev", f'{_last.get(COL_MIN_DCF, "—")}'),
-            ("EER dev",  f'{_last.get(COL_EER, "—")} %'),
+            ("minDCF dev", f'{_last.get(COL_MIN_DCF, ", ")}'),
+            ("EER dev",  f'{_last.get(COL_EER, ", ")} %'),
         ]
     else:
         _rows += [("Status", "Not trained yet")]

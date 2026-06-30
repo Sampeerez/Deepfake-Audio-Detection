@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app_pages/5_Settings.py — Appearance & accessibility control panel.
+app_pages/5_Settings.py, Appearance & accessibility control panel.
 
 Persistence note: Streamlit discards a widget's state once its page stops
 rendering, so binding settings straight to widget keys made them reset when you
@@ -71,7 +71,7 @@ st.session_state.setdefault("sw_ts_ctl", st.session_state.get("sw_text_scale", "
 # ── Page-local styling (themed so it swaps cleanly on the Light Side) ──────────
 st.markdown(themed("""
 <style>
-/* Section headers — NOT a glowing saber rule (too saturated on this dense page).
+/* Section headers, NOT a glowing saber rule (too saturated on this dense page).
    Instead a compact saber-coloured number chip with a soft glow: eye-catching but
    far less invasive, and it still tracks the chosen lightsaber colour. */
 .set-sec { display: flex; align-items: center; gap: 0.65rem; margin: 1.5rem 0 0.15rem; }
@@ -86,7 +86,7 @@ st.markdown(themed("""
 }
 .set-sub2 { font-size: 0.82rem; opacity: 0.6; margin: 0 0 0.7rem 2.4rem; }
 
-/* Live lightsaber preview — a full blade + a properly modelled metal hilt that
+/* Live lightsaber preview, a full blade + a properly modelled metal hilt that
    updates to whatever colour you pick. */
 .saber-demo {
     position: relative; height: 9px; border-radius: 5px;
@@ -173,7 +173,7 @@ with _c2:
                  "Sith blade on the Dark Side, a blue Jedi blade on the Light Side.",
         )
         st.markdown('<div class="saber-demo"></div>'
-                    '<div class="saber-hint">Live preview — this is your blade.</div>',
+                    '<div class="saber-hint">Live preview, this is your blade.</div>',
                     unsafe_allow_html=True)
 
 

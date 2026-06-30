@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_features.py — DSP front-ends (FeatureExtractor).
+tests/test_features.py, DSP front-ends (FeatureExtractor).
 
 Validates the output contract of every extractor: exact dimensionality, finite
 values, the fusion concatenation, the strict CNN-spectrogram shape and its
@@ -13,7 +13,7 @@ import soundfile as sf
 
 
 # ---------------------------------------------------------------------------
-# 1-D descriptors — shape + finiteness
+# 1-D descriptors, shape + finiteness
 # ---------------------------------------------------------------------------
 
 def test_rms_shape(extractor, signal_1s):
@@ -121,7 +121,7 @@ def test_spectrogram_pads_short_signal(extractor):
 
 
 # ---------------------------------------------------------------------------
-# load_audio — decode + padding contract
+# load_audio, decode + padding contract
 # ---------------------------------------------------------------------------
 
 def test_load_audio_pads_short_signal(extractor, tmp_path):

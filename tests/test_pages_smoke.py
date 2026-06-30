@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_pages_smoke.py — Headless smoke test for every Streamlit page.
+tests/test_pages_smoke.py, Headless smoke test for every Streamlit page.
 
 Uses Streamlit's AppTest to actually execute each page script in a simulated
 runtime and asserts it renders without raising. Runs in the corpus-less
@@ -29,7 +29,7 @@ PAGES = [
 ]
 
 # The three Benchmark modes (dispatched via runpy from 2_Benchmark.py). Smoke-run
-# directly so the suite also covers the mode files — including the Full-comparison
+# directly so the suite also covers the mode files, including the Full-comparison
 # leaderboard table/chart, which renders from the committed leaderboard.json.
 MODES = [
     "app_pages/modes/_mode_classic.py",

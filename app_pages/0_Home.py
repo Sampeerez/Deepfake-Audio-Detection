@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app_pages/0_Home.py — Landing page: editorial hero, a compact stat strip and
+app_pages/0_Home.py, Landing page: editorial hero, a compact stat strip and
 the navigation cards to the three tools. The dense data/methodology detail
 lives on the Methodology page so this landing stays light and inviting.
 set_page_config and PAGE_CSS are applied in app.py.
@@ -68,7 +68,7 @@ st.markdown(themed("""
     box-shadow: 0 4px 10px rgba(79,139,249,0.18);
 }
 
-/* ── Navigation tiles — the WHOLE tile is clickable (invisible button over it,
+/* ── Navigation tiles, the WHOLE tile is clickable (invisible button over it,
    driving st.switch_page) ────────────────────────────────────────────────── */
 .nav-tile {
     display: flex; flex-direction: column;
@@ -112,7 +112,7 @@ st.markdown(themed("""
 /* Invisible full-tile click target. The button lives in the LAST element
    container of the tile; that container is the button's positioning context,
    so we must lift THAT container (not just the button) out of flow and stretch
-   it over the whole card — otherwise only the little strip beneath the card is
+   it over the whole card, otherwise only the little strip beneath the card is
    clickable. */
 [class*="st-key-navt_"] { position: relative; }
 [class*="st-key-navt_"] [data-testid="stElementContainer"]:last-child {
@@ -149,9 +149,9 @@ try:
     device_str = torch.cuda.get_device_name(0) if cuda_ok else "CPU (no GPU)"
     cuda_badge = "CUDA" if cuda_ok else "CPU"
 except Exception:
-    torch_ver, device_str, cuda_badge, cuda_ok = "N/A", "PyTorch not installed", "—", False
+    torch_ver, device_str, cuda_badge, cuda_ok = "N/A", "PyTorch not installed", ", ", False
 
-# ── Hero — flush at the very top ────────────────────────────────────────── #
+# ── Hero, flush at the very top ────────────────────────────────────────── #
 st.markdown("""
 <div class="hero-banner">
     <div class="hero-overline">TFG · Ingeniería Informática · Universidad de La Laguna</div>
@@ -162,7 +162,7 @@ st.markdown("""
         front-ends with traditional classifiers, deep nets on STFT spectrograms
         (<strong>5-Block CNN</strong>, <strong>ResNet/ResNeXt + SE</strong>,
         <strong>CRNN</strong>) and a self-supervised <strong>wav2vec 2.0</strong>
-        transformer on the raw waveform — all measured with the standard EER and
+        transformer on the raw waveform, all measured with the standard EER and
         minDCF metrics.
     </p>
     <div class="hero-author">
@@ -178,7 +178,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Audio equaliser strip — animated "spectrum" bars replacing the old glowing
+# ── Audio equaliser strip, animated "spectrum" bars replacing the old glowing
 #    accent line under the hero. A travelling wave (per-bar phase delay) makes it
 #    read as live audio. ────────────────────────────────────────────────────── #
 _N_BARS = 96
@@ -232,7 +232,7 @@ with st.container(key="eqramp_host"):
     height=1,
 )
 
-# ── Stat strip — editorial numerals (full official corpus sizes) ────────── #
+# ── Stat strip, editorial numerals (full official corpus sizes) ────────── #
 st.markdown(
     '<div class="stat-strip">'
     '<div class="stat-cell"><div class="st-num">25,380</div>'
@@ -250,7 +250,7 @@ st.markdown(
 
 st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 
-# ── Explore — the whole tile is a real clickable link ───────────────────── #
+# ── Explore, the whole tile is a real clickable link ───────────────────── #
 _ICON_SE = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
             'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
             '<path d="M3 12h2l2-6 3 14 3-11 2 5h6"/></svg>')
@@ -292,22 +292,22 @@ def _nav_tile(col, key, cls, icon, title, desc, page, extra=""):
 
 t1, t2, t3 = st.columns(3, gap="medium")
 _nav_tile(t1, "se", "", _ICON_SE, "Signal Explorer",
-          "See &amp; compare audio at the feature level — waveform, STFT, "
+          "See &amp; compare audio at the feature level, waveform, STFT, "
           "MFCC, LFCC, CQCC.", "app_pages/1_Signal_Explorer.py")
 _nav_tile(t2, "bench", "", _ICON_BENCH, "Benchmark",
-          "Classic models, the CNN, or run everything at once — ranked by "
+          "Classic models, the CNN, or run everything at once, ranked by "
           "minDCF &middot; EER.", "app_pages/2_Benchmark.py")
 _nav_tile(t3, "det", "", _ICON_DET, "Detection Analysis",
-          "ROC &amp; DET curves and the decision threshold — or drop your own "
+          "ROC &amp; DET curves and the decision threshold, or drop your own "
           "clip for a live verdict.", "app_pages/3_Detection_Analysis.py")
 
 st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
 (m_col,) = st.columns(1)
 _nav_tile(m_col, "met", "nt-ref nt-wide", _ICON_MET, "Methodology",
-          "Corpora, methods &amp; metrics — the full picture behind the "
+          "Corpora, methods &amp; metrics, the full picture behind the "
           "benchmark.", "app_pages/4_Methodology.py")
 
-# ── Tech stack + footer (closed ending — no scroll past this point) ─────── #
+# ── Tech stack + footer (closed ending, no scroll past this point) ─────── #
 st.markdown("""
 <div class="tech-stack" style="margin-top:1.2rem;">
 <span class="tech-pill">Python 3.12</span>
@@ -331,7 +331,7 @@ app_footer(
     "Anti-spoofing binario (bonafide vs. spoof)",
 )
 
-# ── Public-demo notice — in the SIDEBAR (only on the corpus-less deployment) ─ #
+# ── Public-demo notice, in the SIDEBAR (only on the corpus-less deployment) ─ #
 if demo_mode():
     with st.sidebar:
         sidebar_panel(

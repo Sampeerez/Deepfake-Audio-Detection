@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-src/jobs.py — Background execution for the long "full comparison" benchmark.
+src/jobs.py, Background execution for the long "full comparison" benchmark.
 
 Why a background thread:
-  * the UI stays responsive — you can browse other pages while it runs (the
+  * the UI stays responsive, you can browse other pages while it runs (the
     thread is not tied to Streamlit's per-script execution, so navigating away
     does not kill it);
   * the classic models (CPU: sklearn / XGBoost) and the CNN (GPU: PyTorch) run
@@ -171,7 +171,7 @@ def _tag_split(results: List[Dict], base_split: str) -> List[Dict]:
 # As the full sweep runs locally it also PERSISTS the registry models (the two
 # CNNs as .pth, the XGBoost × DSP detectors as .joblib) and records their
 # dev/eval EER & minDCF, so the leaderboard the cloud demo serves is produced
-# straight from the UI — no external console script needed.
+# straight from the UI, no external console script needed.
 _leaderboard: Dict[str, Dict] = {}
 
 # Distinctive token in each classifier's COL_MODEL display name, for picking its
@@ -190,7 +190,7 @@ def _registry():
 
 
 def _train_protocol_path() -> str:
-    """Absolute path of the ASVspoof 2019 LA *train* protocol — the source of the
+    """Absolute path of the ASVspoof 2019 LA *train* protocol, the source of the
     attack labels used to build the unseen-attack validation split."""
     from src.model_registry import load_config
     c    = load_config()
@@ -232,7 +232,7 @@ def _write_leaderboard(rows: Optional[List[Dict]] = None) -> None:
 
     `models` is merged with any existing entries (so a partial classic-only /
     CNN-only run keeps the rest). `rows` is the FULL set of per-model × split/corpus
-    result rows — the web demo renders them into the SAME filterable table as local;
+    result rows, the web demo renders them into the SAME filterable table as local;
     it is REPLACED when a fresh (non-empty) set is given, left untouched otherwise."""
     if not _leaderboard and not rows:
         return
@@ -274,7 +274,7 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
             _stream("classic", label="Cancelled")
             break
         _step(f"Classic · {feat_labels[fk]}")
-        _stream("classic", label=f"{feat_labels[fk]} — extracting…")
+        _stream("classic", label=f"{feat_labels[fk]}, extracting…")
         x_tr, y_tr, _  = extract_feature_matrix(train, ext, fk, "train", n_workers=4, use_cache=True)
         x_pr, y_pr, ms = extract_feature_matrix(primary, ext, fk, pname, n_workers=4, use_cache=True)
         # Extract features for each chosen eval corpus and score them all.
@@ -292,7 +292,7 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
             if p:
                 try:
                     joblib.dump(model, p)
-                except Exception as exc:                     # noqa: BLE001 — non-fatal
+                except Exception as exc:                     # noqa: BLE001, non-fatal
                     _stream("classic", label=f"save failed: {exc}")
         res = run_classic_models(MODEL_OPTIONS["4"], x_tr, y_tr, x_pr, y_pr,
                                  feat_labels[fk], ms, seed, eval_sets=eval_sets,
@@ -324,7 +324,7 @@ _CNN_ARCHS = ["cnn", "cnn_se", "resnet", "resnext", "crnn"]
 
 
 def _push_float(acc: List[float], val) -> None:
-    """Append val to acc as a float, ignoring '—'/missing/unparseable entries."""
+    """Append val to acc as a float, ignoring ', '/missing/unparseable entries."""
     try:
         acc.append(float(val))
     except (TypeError, ValueError):
@@ -334,7 +334,7 @@ def _push_float(acc: List[float], val) -> None:
 def _aggregate_seed_rows(seed_results: List[List[Dict]], n_seeds: int) -> List[Dict]:
     """Collapse N per-seed result-row lists into ONE list of MEAN rows.
 
-    Rows are matched across seeds by (is_eval, corpus) — i.e. the dev row and
+    Rows are matched across seeds by (is_eval, corpus), i.e. the dev row and
     each eval-corpus row are averaged across seeds. EER / minDCF / accuracy and
     the timing columns become their cross-seed means, and 'EER std' / 'minDCF
     std' / 'Seeds' are added so the leaderboard can report variance. Row order
@@ -387,7 +387,7 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
     """Train every CNN architecture and score it on dev + each eval corpus.
 
     When ``seeds`` has more than one entry each architecture is trained ONCE PER
-    SEED and the per-seed metrics are averaged (mean ± std) — a single run on a
+    SEED and the per-seed metrics are averaged (mean ± std), a single run on a
     saturated dev set can't tell the architectures apart, so repeating over
     seeds is what makes the ranking trustworthy. ``val_samples`` (an unseen-attack
     holdout) drives early stopping so model selection rewards generalisation.
@@ -429,7 +429,7 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
             # Fresh live chart per seed so the curves always show the current run.
             with _lock:
                 _cnn_epochs.clear()
-            _stream("cnn", label=f"{name} — seed {si + 1}/{n_seeds} starting…")
+            _stream("cnn", label=f"{name}, seed {si + 1}/{n_seeds} starting…")
             pp = dict(p); pp["semilla"] = sd
 
             def _cb(rec, _a=name, _si=si):
@@ -501,7 +501,7 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
 
 def _raw_sweep(ext, primary, eval_corpora, pname, base_params, raw_specs):
     """Inference-only stage for the raw-waveform models (wav2vec 2.0): NEVER
-    trained — just load each saved checkpoint and score the dev split + every eval
+    trained, just load each saved checkpoint and score the dev split + every eval
     corpus, recording its dev/eval EER & minDCF into the leaderboard. Runs after
     the CNN sweep so it has the GPU to itself. Rows are tagged like CNN rows so the
     in-page leaderboard and leaderboard.json consume them unchanged."""
@@ -517,14 +517,14 @@ def _raw_sweep(ext, primary, eval_corpora, pname, base_params, raw_specs):
             _stream("cnn", label="Cancelled")
             break
         _step(f"{name} (evaluating)")
-        _stream("cnn", label=f"{name} — loading…")
+        _stream("cnn", label=f"{name}, loading…")
         try:
             ckpt  = torch.load(path, map_location="cpu")
             state = ckpt.get("model_state_dict", ckpt)
             model = Wav2Vec2Classifier()
             model.load_state_dict(state)
             model.eval()
-        except Exception as exc:                          # noqa: BLE001 — non-fatal
+        except Exception as exc:                          # noqa: BLE001, non-fatal
             _stream("cnn", label=f"{name} load failed: {exc}", inc=1)
             _step(f"{name} failed", inc=1)
             continue
@@ -628,7 +628,7 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
         eval_corpora = eval_corpora or []
         # Eval corpora can be enormous (2021 DF eval ≈ 600k trials), so when an
         # explicit eval_subset is given it caps EVERY eval corpus (both streams)
-        # to a stratified, representative sample — the training sets keep their
+        # to a stratified, representative sample, the training sets keep their
         # own (typically larger / full) subset. 0 ⇒ reuse each stream's subset.
         c_ev_n = eval_subset if eval_subset else classic_subset
         n_ev_n = eval_subset if eval_subset else cnn_subset
@@ -709,7 +709,7 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
         if _cancel.is_set():
             _stream("classic", label="Cancelled")
             break
-        _stream("classic", label=f"{feat_labels[fk]} — loading saved models…")
+        _stream("classic", label=f"{feat_labels[fk]}, loading saved models…")
 
         fitted: Dict[str, object] = {}
         for e in reg:
@@ -724,7 +724,7 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
                 pass
 
         if not fitted:
-            _stream("classic", label=f"{feat_labels[fk]} — no saved models", inc=1)
+            _stream("classic", label=f"{feat_labels[fk]}, no saved models", inc=1)
             _step(f"Classic · {feat_labels[fk]} skipped", inc=1)
             continue
 
@@ -733,10 +733,10 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
                 continue
             s = (stratified_subsample(samples, classic_subset, seed + 2)
                  if classic_subset else samples)
-            _stream("classic", label=f"{feat_labels[fk]} — features for {lbl}…")
+            _stream("classic", label=f"{feat_labels[fk]}, features for {lbl}…")
             x_ev, y_ev, _ = extract_feature_matrix(
                 s, ext, fk, f"eval[{lbl}]", n_workers=4, use_cache=True)
-            _stream("classic", label=f"{feat_labels[fk]} — scoring on {lbl}…")
+            _stream("classic", label=f"{feat_labels[fk]}, scoring on {lbl}…")
             rows = score_fitted_classic(fitted, x_ev, y_ev, feat_labels[fk],
                                         corpus_label=lbl)
             classic_rows.extend(_tag_split(rows, "dev"))
@@ -755,11 +755,11 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
         path       = os.path.join(models_dir, e["file"])
 
         if not os.path.isfile(path):
-            _stream("cnn", label=f"{arch_label} — no saved model", inc=1)
+            _stream("cnn", label=f"{arch_label}, no saved model", inc=1)
             _step(f"CNN · {arch_label} skipped", inc=1)
             continue
 
-        _stream("cnn", label=f"{arch_label} — loading…")
+        _stream("cnn", label=f"{arch_label}, loading…")
         try:
             ckpt = torch.load(path, map_location=torch.device("cpu"))
             model = model_for_arch(
@@ -768,14 +768,14 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
             model.load_state_dict(ckpt["state_dict"])
             model.to("cpu").eval()
         except Exception as exc:
-            _stream("cnn", label=f"{arch_label} — load failed: {exc}", inc=1)
+            _stream("cnn", label=f"{arch_label}, load failed: {exc}", inc=1)
             _step(f"CNN · {arch_label} failed", inc=1)
             continue
 
         for lbl, samples in eval_corpora:
             if not samples:
                 continue
-            _stream("cnn", label=f"{arch_label} — evaluating on {lbl}…")
+            _stream("cnn", label=f"{arch_label}, evaluating on {lbl}…")
             rows = evaluate_cnn_on_set(model, samples, ext, dict(base_params),
                                        corpus_label=lbl, arch_label=arch_label)
             cnn_rows.extend(_tag_split(rows, "dev"))
@@ -789,5 +789,5 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
 
 def submit_eval_benchmark(**kwargs) -> "_cf.Future":
     """Evaluate every saved registry model on eval_corpora; returns a Future of
-    (classic_rows, cnn_rows).  No training — models must already be on disk."""
+    (classic_rows, cnn_rows).  No training, models must already be on disk."""
     return _pool.submit(_run_eval_only, **kwargs)

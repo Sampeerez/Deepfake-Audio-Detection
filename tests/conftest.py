@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-tests/conftest.py — Shared fixtures for the whole test suite.
+tests/conftest.py, Shared fixtures for the whole test suite.
 
 Everything here is synthetic: not a single test needs the multi-GB ASVspoof
 corpus or a GPU, so the suite runs anywhere (including CI) in seconds.
@@ -43,7 +43,7 @@ def extractor():
 
 @pytest.fixture
 def signal_1s():
-    """440 Hz sine wave, 1 second at 16 kHz — a clean, deterministic tone."""
+    """440 Hz sine wave, 1 second at 16 kHz, a clean, deterministic tone."""
     t = np.arange(SAMPLE_RATE) / SAMPLE_RATE
     return (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
 
@@ -57,7 +57,7 @@ def white_noise():
 
 @pytest.fixture
 def silence():
-    """1 second of absolute silence — the degenerate edge case."""
+    """1 second of absolute silence, the degenerate edge case."""
     return np.zeros(SAMPLE_RATE, dtype=np.float32)
 
 

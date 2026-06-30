@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""src/leaderboard.py — Load the committed leaderboard.json metrics.
+"""src/leaderboard.py, Load the committed leaderboard.json metrics.
 
 Pure file/JSON logic split out of src/ui_helpers.py and re-exported there for
 backward compatibility.
@@ -17,7 +17,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # real EER/minDCF leaderboard without the corpus. Maps model key ->
 # {"eer_dev", "mindcf_dev", "eer_eval", "mindcf_eval"}.
 LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "leaderboard.json")
-# Previous filename — still read as a fallback so an un-regenerated repo keeps
+# Previous filename, still read as a fallback so an un-regenerated repo keeps
 # showing its committed metrics after the rename.
 _LEGACY_LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "demo_leaderboard.json")
 
@@ -58,7 +58,7 @@ def load_leaderboard_models() -> Dict[str, Dict]:
 
 def load_leaderboard_rows() -> List[Dict]:
     """Every leaderboard ROW (one per model × split/corpus) exactly as produced by a
-    local Full comparison — so the web demo can render the IDENTICAL filterable
+    local Full comparison, so the web demo can render the IDENTICAL filterable
     table/chart, not just a condensed summary."""
     return load_leaderboard().get("rows", [])
 

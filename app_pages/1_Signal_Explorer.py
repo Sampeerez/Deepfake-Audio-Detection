@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app_pages/1_Signal_Explorer.py — Visualise and compare audio signals at the
+app_pages/1_Signal_Explorer.py, Visualise and compare audio signals at the
 feature level: waveform, STFT-dB, CNN input, MFCC, LFCC, CQCC.
 
 State model
@@ -41,7 +41,7 @@ from src.ui_helpers import (  # noqa: E402
 extractor = get_extractor()
 
 # Push the upload "Clear" button flush against the right edge (compact, not full
-# width) — overrides the generic right-align helper that stretches widgets.
+# width), overrides the generic right-align helper that stretches widgets.
 st.markdown(
     "<style>"
     "[class*='st-key-alignr_clear']{display:flex;justify-content:flex-end;}"
@@ -60,18 +60,18 @@ SLOT_DOT_COLORS = [BONAFIDE_COLOR, SPOOF_COLOR, "#AB47BC"]
 
 # view name → one-line description
 VIEW_META = {
-    "Waveform":  "Time-domain amplitude — envelope, silences, clipping",
-    "STFT": "Full spectrogram — synthesis artefacts across all bands",
+    "Waveform":  "Time-domain amplitude, envelope, silences, clipping",
+    "STFT": "Full spectrogram, synthesis artefacts across all bands",
     "CNN Input": "z-scored STFT-dB, exactly as the CNN sees it (128×300)",
-    "MFCC":      "Mel-scale cepstrum — perceptual spectral envelope",
-    "LFCC":      "Linear-frequency cepstrum — strong anti-spoofing baseline",
-    "CQCC":      "Constant-Q cepstrum — fine log-frequency resolution",
+    "MFCC":      "Mel-scale cepstrum, perceptual spectral envelope",
+    "LFCC":      "Linear-frequency cepstrum, strong anti-spoofing baseline",
+    "CQCC":      "Constant-Q cepstrum, fine log-frequency resolution",
 }
 ALL_VIEWS = list(VIEW_META.keys())
 
 _CORPUS_OPTIONS = ["2019 LA", "2021 LA", "2021 DF"]
 _CORPUS_INFO = {
-    "2019 LA": "Official corpus — train / dev / eval splits",
+    "2019 LA": "Official corpus, train / dev / eval splits",
     "2021 LA": "Eval-only split · 181 k files · telephone codecs",
     "2021 DF": "Eval-only split · ≈459 k files · in-the-wild deepfakes",
 }
@@ -155,7 +155,7 @@ def _set_slot_data(prefix: str, data: dict) -> None:
 
 
 def _move_source(i: int, delta: int) -> None:
-    """Swap source i with its neighbour — reorder the signals horizontally."""
+    """Swap source i with its neighbour, reorder the signals horizontally."""
     j = i + delta
     n = int(st.session_state.get("se_n", 1))
     if 0 <= j < n:
@@ -203,7 +203,7 @@ def _load_corpus_signal(path: str):
         return _cached_corpus_audio(path)
     except AudioLoadError as exc:
         st.warning(
-            f"**Cannot decode** `{os.path.basename(path)}` — "
+            f"**Cannot decode** `{os.path.basename(path)}`, "
             "this file has non-standard FLAC encoding that libsndfile cannot read.  "
             "Press **Random** to try another sample.  \n"
             f"*Details: {exc}*"
@@ -213,7 +213,7 @@ def _load_corpus_signal(path: str):
 
 def _audio_suffix(name, raw: bytes) -> str:
     """Best temp-file suffix for an upload: trust the filename extension first,
-    then sniff the container magic bytes — this is what lets librosa's audioread
+    then sniff the container magic bytes, this is what lets librosa's audioread
     fallback pick the right decoder for mp3/ogg/m4a as well as wav/flac."""
     if name and "." in name:
         ext = "." + name.rsplit(".", 1)[1].lower()
@@ -234,7 +234,7 @@ def _audio_suffix(name, raw: bytes) -> str:
 
 def _decode_with_ffmpeg(raw: bytes, sr: int) -> np.ndarray:
     """Decode arbitrary audio bytes to mono float32 via the ffmpeg binary bundled
-    by ``imageio-ffmpeg`` — needs NO system ffmpeg, so it works on hosts where
+    by ``imageio-ffmpeg``, needs NO system ffmpeg, so it works on hosts where
     soundfile's libsndfile chokes on a FLAC and audioread has no backend."""
     import subprocess
     import imageio_ffmpeg
@@ -318,7 +318,7 @@ def _corpus_picker(key_prefix: str, n: int = 1):
         bundle_samples(corpus, samples, subset)   # cache a few clips for the web demo
     else:
         # No live corpus index (web demo). EVAL browses a LARGE lazy index from the
-        # public Hugging Face dataset — list MANY clips (label + url, no audio) and
+        # public Hugging Face dataset, list MANY clips (label + url, no audio) and
         # download only the one you pick (fast). Fall back to the small eager HF
         # sample, then the committed bundled clips, if HF is unavailable.
         if subset == "eval":
@@ -331,7 +331,7 @@ def _corpus_picker(key_prefix: str, n: int = 1):
             samples = bundled_samples(corpus, subset)
 
     if not samples and not _listing:
-        mini_note(f"No {corpus} samples bundled yet — switch to Upload, or run "
+        mini_note(f"No {corpus} samples bundled yet, switch to Upload, or run "
                   "locally with the dataset to populate them.")
         return None, None, None
 
@@ -358,7 +358,7 @@ def _corpus_picker(key_prefix: str, n: int = 1):
     if not isinstance(stored, int) or (stored != _PLACEHOLDER and stored >= len(pool_shown)):
         st.session_state[state_key] = _PLACEHOLDER
 
-    # Narrower file column when panels are squeezed (2–3 sources) so the
+    # Narrower file column when panels are squeezed (2 to 3 sources) so the
     # Clear/Random buttons keep their labels instead of being clipped.
     _ratios = [1.7, 1.05, 1.2] if n >= 3 else \
               ([2.4, 1.05, 1.1] if n == 2 else [3.0, 1.05, 1.05])
@@ -371,18 +371,18 @@ def _corpus_picker(key_prefix: str, n: int = 1):
                   on_click=lambda k=state_key: st.session_state.update({k: _PLACEHOLDER}))
     with col_rand:
         st.markdown('<div style="height:1.75rem;"></div>', unsafe_allow_html=True)
-        # Setting state BEFORE the selectbox below renders — no extra rerun.
+        # Setting state BEFORE the selectbox below renders, no extra rerun.
         if st.button("Random", key=f"{key_prefix}_rand", icon=":material/casino:",
                      help="Pick a random sample", width="stretch"):
             st.session_state[state_key] = random.randint(0, len(pool_shown) - 1)
     with col_file:
         options = [_PLACEHOLDER] + list(range(len(pool_shown)))
         _shown_note = (f"{pool_total:,} files available"
-                       + (" — showing the first 500" if pool_total > 500 else ""))
+                       + (", showing the first 500" if pool_total > 500 else ""))
         sel_idx = st.selectbox(
             "Audio file",
             options,
-            format_func=lambda i: "— select a file —" if i == _PLACEHOLDER else names[i],
+            format_func=lambda i: ", select a file, " if i == _PLACEHOLDER else names[i],
             key=state_key,
             help=_shown_note,
         )
@@ -396,7 +396,7 @@ def _corpus_picker(key_prefix: str, n: int = 1):
         with st.spinner("Fetching the clip from the Archives…"):
             path = hf_fetch_clip(corpus, src, fname, lab)
         if not path:
-            st.warning("Could not fetch this clip — pick another or press Random.")
+            st.warning("Could not fetch this clip, pick another or press Random.")
             return None, None, None
         return _load_corpus_signal(path), cls, path
 
@@ -420,7 +420,7 @@ def _upload_picker(key_prefix: str):
         #   1) the plain session keys (the decoded file),
         #   2) the file_uploader widget itself (else it re-populates 1 next run),
         #   3) the cross-page memory dict `_se_memory` (else _restore() at the top
-        #      of the next run re-seeds 1 from it — this was why Clear "did nothing").
+        #      of the next run re-seeds 1 from it, this was why Clear "did nothing").
         st.session_state.pop(name_key, None)
         st.session_state.pop(bytes_key, None)
         st.session_state.pop(upload_key, None)
@@ -453,8 +453,8 @@ def _upload_picker(key_prefix: str):
 
     try:
         return _decode_upload(name, blob), "uploaded", name
-    except Exception as _ex:                              # noqa: BLE001 — surface to UI
-        st.error(f"Could not decode **{name}** — {_ex}")
+    except Exception as _ex:                              # noqa: BLE001, surface to UI
+        st.error(f"Could not decode **{name}**, {_ex}")
         return None, None, None
 
 
@@ -519,7 +519,7 @@ def _view_png(view: str, source_id: str, label: str, y: np.ndarray) -> bytes:
 def _render_views(y: np.ndarray, label: str, views: list, source_id: str) -> None:
     """Render each selected visualisation for one audio signal."""
     for view in views:
-        with st.spinner(f"Projecting the hologram — {view}…"):
+        with st.spinner(f"Projecting the hologram, {view}…"):
             st.image(_view_png(view, source_id, str(label), y), width="stretch")
 
 
@@ -550,7 +550,7 @@ def _audio_header(label: str, source: str) -> None:
 
 
 def _views_picker() -> list:
-    """Representation pills — single key, single location for both modes."""
+    """Representation pills, single key, single location for both modes."""
     st.markdown('<div class="section-label" style="margin-bottom:.7rem;">'
                 'Representations</div>', unsafe_allow_html=True)
     views = st.pills(
@@ -574,7 +574,7 @@ _persist_state()
 st.title("Signal Explorer")
 st.caption(
     "Waveform and spectral representations of audio from the ASVspoof "
-    "corpora — analyse one file, or add up to three sources to compare them "
+    "corpora, analyse one file, or add up to three sources to compare them "
     "side by side."
 )
 
@@ -648,7 +648,7 @@ with st.container(key="srccols"):
             lbls.append(lbl)
             srcs.append(src)
 
-# ── JS height equalizer — runs on every render so the Upload panel matches the
+# ── JS height equalizer, runs on every render so the Upload panel matches the
 #    Corpus panel height immediately without requiring a page navigation.
 #    Uses setTimeout chains (not setInterval) to avoid accumulation across reruns.
 with st.container(key="seqh_host"):
@@ -672,7 +672,7 @@ with st.container(key="seqh_host"):
         height=1,
     )
 
-# ── Add source — removal & reordering now live on each source's toolbar ───── #
+# ── Add source, removal & reordering now live on each source's toolbar ───── #
 st.button(
     "Add audio source", icon=":material/add:", type="primary",
     width="stretch", on_click=_add_source, disabled=n_sources >= MAX_SLOTS,
@@ -687,7 +687,7 @@ st.divider()
 if not any(s is not None for s in sigs):
     show_empty_state(
         "No audio selected",
-        "Pick a corpus file above — or upload your own — then choose the "
+        "Pick a corpus file above, or upload your own, then choose the "
         "representations to explore. Press Random for an instant sample, or "
         "Add audio source to compare up to three signals side by side.",
     )
@@ -704,7 +704,7 @@ else:
                     st.divider()
                     _render_views(sigs[i], lbls[i], views, str(srcs[i]))
             else:
-                st.info(f"Source {i + 1} — pick a file above.",
+                st.info(f"Source {i + 1}, pick a file above.",
                         icon=":material/graphic_eq:")
     if not views:
         st.info("Select one or more representations above to visualise the signals.")
@@ -714,7 +714,7 @@ else:
 
 def _slot_row(label: str, source_id, cls) -> tuple:
     if source_id is None:
-        return (label, "—")
+        return (label, ", ")
     name = os.path.basename(str(source_id))
     tag  = "spoof" if cls and "spoof" in str(cls) else \
            "bonafide" if cls and "bonafide" in str(cls) else "upload"
@@ -726,7 +726,7 @@ with st.sidebar:
     for i in range(n_sources):
         label = "File" if n_sources == 1 else f"Source {i + 1}"
         rows.append(_slot_row(label, srcs[i], lbls[i]))
-    rows.append(("Views", ", ".join(views) if views else "—"))
+    rows.append(("Views", ", ".join(views) if views else ", "))
     sidebar_panel("Session", rows)
 
 # Persist selections so they survive leaving and re-entering the page.

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-src/models.py — Classifiers: classic ML models and a 2-D CNN.
+src/models.py, Classifiers: classic ML models and a 2-D CNN.
 
 Two detector families, both with probabilistic output so that EER and
 minDCF can be computed on continuous scores:
@@ -53,7 +53,7 @@ def get_classic_model(
     """
     if model_name == "logistic_regression":
         # Logistic Regression models log(p/(1-p)) as a linear combination
-        # of the features — the canonical probabilistic linear classifier.
+        # of the features, the canonical probabilistic linear classifier.
         # Production details:
         #  * StandardScaler up-front: lbfgs gradient descent converges
         #    poorly when features live on very different scales
@@ -81,7 +81,7 @@ def get_classic_model(
         # it robust in high dimensions with moderate data.
         #  * kernel='rbf' (gamma='scale'): an implicit, infinite-dimensional
         #    feature mapping that can separate classes a linear boundary
-        #    cannot — more expressive for the DSP cepstral features, at a
+        #    cannot, more expressive for the DSP cepstral features, at a
         #    higher (≈ O(n²)) training cost, so keep the subset moderate.
         #  * CalibratedClassifierCV(..., ensemble=False): Platt external
         #    calibration replacing the deprecated probability=True.  Fits a
@@ -119,7 +119,7 @@ def get_classic_model(
         #  * Trees split by thresholds: scale-invariant, no StandardScaler
         #    needed.
         # Imported lazily: xgboost loads a heavy native lib (~1-2 s), and the
-        # web app only needs it when an XGBoost run is actually launched — not
+        # web app only needs it when an XGBoost run is actually launched, not
         # every time the page imports this module.
         from xgboost import XGBClassifier
         return XGBClassifier(
@@ -302,7 +302,7 @@ class _SEBlock(nn.Module):
     Global average-pools each channel map to a scalar, passes the vector
     through a small bottleneck MLP, and uses the output as a per-channel
     multiplicative gate.  The network learns *which frequency bands* are
-    most discriminative for a given attack type — critical for generalising
+    most discriminative for a given attack type, critical for generalising
     to unseen TTS/VC systems where artefacts appear in different spectral
     regions.
     """
@@ -412,7 +412,7 @@ class ResidualSECNN(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Args: x — (batch, 1, freq_bins, time_frames). Returns raw logits (batch,)."""
+        """Args: x, (batch, 1, freq_bins, time_frames). Returns raw logits (batch,)."""
         for block in self.blocks:
             x = block(x)
         x = self.adaptive_pool(x)
@@ -420,7 +420,7 @@ class ResidualSECNN(nn.Module):
 
     @torch.no_grad()
     def forward_with_activations(self, x: torch.Tensor):
-        """Same GUI interface — one activation tensor per residual block."""
+        """Same GUI interface, one activation tensor per residual block."""
         activations = []
         for block in self.blocks:
             x = block(x)
@@ -497,14 +497,14 @@ class CRNN_Model(nn.Module):
         return feat.permute(0, 3, 1, 2).reshape(b, t, c * f)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Args: x — (batch, 1, freq_bins, time_frames). Returns raw logits (batch,)."""
+        """Args: x, (batch, 1, freq_bins, time_frames). Returns raw logits (batch,)."""
         seq = self._sequence(self.conv_extractor(x))
         out, _ = self.rnn(seq)               # (B, T, 2*hidden)
         return self.classifier(out.mean(dim=1)).squeeze(1)
 
     @torch.no_grad()
     def forward_with_activations(self, x: torch.Tensor):
-        """Same GUI interface — one activation tensor per convolutional block."""
+        """Same GUI interface, one activation tensor per convolutional block."""
         activations = []
         out = x
         for block in self.conv_extractor:
@@ -517,7 +517,7 @@ class CRNN_Model(nn.Module):
 
 
 # ===========================================================================
-# Architecture registry — single source of truth for arch-key → model class
+# Architecture registry, single source of truth for arch-key → model class
 # ===========================================================================
 
 _ARCH_MODELS = {
@@ -555,12 +555,12 @@ class Wav2Vec2Classifier(nn.Module):
     spectrogram CNNs): a fine-tuned HuggingFace ``Wav2Vec2Model`` (base, 12
     transformer layers, hidden 768, ``feat_extract_norm="group"``) whose
     time-pooled hidden states feed a 2-class linear head (index 0 = bonafide,
-    index 1 = spoof — the class order baked into the released checkpoint).
+    index 1 = spoof, the class order baked into the released checkpoint).
 
     The backbone is built from the DEFAULT ``Wav2Vec2Config`` (which equals
     wav2vec2-base) so no internet access or pretrained download is needed: the
     fine-tuned weights are loaded straight from our own ``.pth``. ``transformers``
-    is imported lazily so the rest of the app still imports when it is absent —
+    is imported lazily so the rest of the app still imports when it is absent, 
     the pretrained-model loader catches the ImportError and just skips this model.
     """
 
@@ -580,7 +580,7 @@ class Wav2Vec2Classifier(nn.Module):
         self.classifier = nn.Linear(768, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Args: x — (batch, samples) raw 16 kHz waveform. Returns (batch, 2) logits.
+        """Args: x, (batch, samples) raw 16 kHz waveform. Returns (batch, 2) logits.
 
         The waveform is per-utterance standardised (zero mean / unit variance),
         matching ``Wav2Vec2FeatureExtractor(do_normalize=True)``; the time axis of
@@ -592,7 +592,7 @@ class Wav2Vec2Classifier(nn.Module):
 
     @torch.no_grad()
     def prob_spoof(self, x: torch.Tensor) -> torch.Tensor:
-        """p(spoof) in [0, 1] for each clip — temperature-calibrated softmax over the
+        """p(spoof) in [0, 1] for each clip, temperature-calibrated softmax over the
         2 logits, spoof column. Temperature is monotonic, so rankings (and therefore
-        EER / minDCF) are identical to the raw model — only the confidence softens."""
+        EER / minDCF) are identical to the raw model, only the confidence softens."""
         return torch.softmax(self.forward(x) / self.TEMPERATURE, dim=-1)[:, 1]

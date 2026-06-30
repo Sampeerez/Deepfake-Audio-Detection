@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-src/data_loader.py — Data access layer for the ASVspoof 2019 LA corpus.
+src/data_loader.py, Data access layer for the ASVspoof 2019 LA corpus.
 
 Single responsibility: translate the official ASVspoof protocol files into
 Python structures usable by the rest of the system, and expose a PyTorch
 Dataset fully decoupled from feature extraction (injected as a callback).
 
-Official protocol format — 5 space-separated columns per line:
+Official protocol format, 5 space-separated columns per line:
 
     SPEAKER_ID  AUDIO_FILE  -  ATTACK_SYSTEM  KEY
     LA_0079     LA_T_1138215   -  -               bonafide
@@ -41,7 +41,7 @@ def _spec_augment(
     """SpecAugment: randomly zero out time and frequency strips.
 
     Park et al. (2019) showed that masking contiguous frames/bins during
-    training acts as strong regularisation for spectrogram-based models —
+    training acts as strong regularisation for spectrogram-based models, 
     the network must learn to ignore any single region and aggregate evidence
     globally.  Parameters are conservative (< 15% of each axis) to preserve
     enough signal for convergence on small subsets.
@@ -200,7 +200,7 @@ def split_unseen_attacks(
 
     The held-out attacks are removed from training entirely, so early stopping /
     model selection on ``val`` measures generalisation to attacks the network
-    never optimised against — a much stronger signal than the same-attack dev
+    never optimised against, a much stronger signal than the same-attack dev
     set. ``attack_ids`` comes from :func:`read_attack_ids`.
 
     Returns ``(train_samples, val_samples)``; if no sample matches a held-out
@@ -242,8 +242,8 @@ def parse_protocol_2021(
 
     Two-pass design for efficiency with large corpora (181 k LA / 459 k DF):
       1. Read the metadata file once into a dict {audio_id → label}.
-      2. Scan each ``{audio_dir}/flac/`` directory with os.scandir() — a single
-         syscall per directory — and look up each filename in the dict (O(1)).
+      2. Scan each ``{audio_dir}/flac/`` directory with os.scandir(), a single
+         syscall per directory, and look up each filename in the dict (O(1)).
 
     This avoids the O(n_metadata × n_dirs) os.path.isfile() calls that
     would be needed if we iterated over metadata rows and searched the
@@ -267,7 +267,7 @@ def parse_protocol_2021(
             f"Check 'dataset_2021' paths in config.yaml."
         )
 
-    # Pass 1 — build label lookup.
+    # Pass 1, build label lookup.
     label_map: Dict[str, int] = {}
     with open(metadata_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -281,7 +281,7 @@ def parse_protocol_2021(
             elif key == "spoof":
                 label_map[audio_id] = LABEL_SPOOF
 
-    # Pass 2 — scan flac/ subdirectories; O(1) dict lookup per file.
+    # Pass 2, scan flac/ subdirectories; O(1) dict lookup per file.
     samples:  List[Tuple[str, int]] = []
     no_label = 0
 
@@ -363,7 +363,7 @@ class ASVspoofTorchDataset(Dataset):
     is computed.  It receives an extraction *callback* (normally
     ``FeatureExtractor.get_spectrogram_matrix``) that maps a 1-D waveform
     to the 2-D matrix consumed by the CNN.  Swapping STFT for Mel or a
-    wavelet scalogram requires only injecting a different callback — no
+    wavelet scalogram requires only injecting a different callback, no
     changes here (dependency inversion).
 
     Lazy loading avoids materialising tens of thousands of spectrograms in
@@ -395,7 +395,7 @@ class ASVspoofTorchDataset(Dataset):
             cache_tag:           If given, the BASE spectrogram (pre-augment) of
                                  each file is cached to disk as
                                  ``{cache_dir}/spectrograms/{stem}_{cache_tag}.npy``
-                                 and reused on later epochs / runs — this removes
+                                 and reused on later epochs / runs, this removes
                                  the per-epoch STFT recompute, the main CNN
                                  bottleneck. The tag must encode the spectrogram
                                  config so it self-invalidates when it changes.
@@ -430,7 +430,7 @@ class ASVspoofTorchDataset(Dataset):
         try:
             signal, _ = librosa.load(path, sr=self.sample_rate, mono=True)
         except Exception:
-            print(f"[WARNING] Could not decode '{path}' — substituting silence.")
+            print(f"[WARNING] Could not decode '{path}', substituting silence.")
             signal = np.zeros(self.sample_rate * 3, dtype=np.float32)
 
         base = np.asarray(self.extraction_callback(signal), dtype=np.float32)
@@ -486,7 +486,7 @@ class ASVspoofRawWaveDataset(Dataset):
         try:
             signal, _ = librosa.load(path, sr=self.sample_rate, mono=True)
         except Exception:
-            print(f"[WARNING] Could not decode '{path}' — substituting silence.")
+            print(f"[WARNING] Could not decode '{path}', substituting silence.")
             signal = np.zeros(self.max_samples, dtype=np.float32)
         signal = np.asarray(signal, dtype=np.float32)
         if len(signal) >= self.max_samples:          # centre-independent head crop

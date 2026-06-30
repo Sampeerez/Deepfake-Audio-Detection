@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_models.py — The three detector families.
+tests/test_models.py, The three detector families.
 
   A) Classic sklearn/xgboost estimators from the ``get_classic_model`` factory.
   B) The deep spectrogram models (CNN_5Block ±SE, ResNet_SE, ResNeXt_SE, CRNN).
-  C) The self-supervised raw-waveform detector (Wav2Vec2Classifier) — skipped
+  C) The self-supervised raw-waveform detector (Wav2Vec2Classifier), skipped
      automatically if ``transformers`` is not installed.
 
 Deep models are exercised on CPU with random weights: we assert the forward
@@ -132,7 +132,7 @@ def test_wav2vec2_forward_and_prob():
     """Wav2Vec2Classifier: (B,2) logits and a p(spoof) in [0,1] from raw audio.
 
     Skipped when ``transformers`` is unavailable. Uses random weights and a
-    short clip — we test the forward contract, not detection quality.
+    short clip, we test the forward contract, not detection quality.
     """
     pytest.importorskip("transformers")
     from src.models import Wav2Vec2Classifier

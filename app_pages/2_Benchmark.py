@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app_pages/2_Benchmark.py — Benchmark launcher.
+app_pages/2_Benchmark.py, Benchmark launcher.
 
 A small "home" screen that explains the three ways to compare detectors; you
 pick one (card → opens that mode) and can go ← Back any time. Each mode is the
@@ -40,7 +40,7 @@ _OPTIONS = [
     ("cnn", "CNN", _ICON_CNN,
      "Train the 2-D CNN / ResNet + SE and inspect how it learns."),
     ("full", "Full comparison", _ICON_FULL,
-     "Run every extractor, classifier and the CNN at once — the ranked, "
+     "Run every extractor, classifier and the CNN at once, the ranked, "
      "scientific comparison."),
 ]
 
@@ -69,7 +69,7 @@ st.markdown(themed("""
 .mode-card .mc-title { font-size: 1.1rem; font-weight: 750; color: #82B1FF; margin-bottom: 0.4rem; }
 .mode-card .mc-desc  { font-size: 0.84rem; opacity: 0.72; line-height: 1.55; }
 
-/* ── "How the comparison works" — vertical numbered timeline ──────────────── */
+/* ── "How the comparison works", vertical numbered timeline ──────────────── */
 @keyframes hcwIn { from { opacity: 0; transform: translateY(14px); }
                    to   { opacity: 1; transform: translateY(0); } }
 /* Original hover effect: a diagonal light sweeps across the whole card. */
@@ -138,7 +138,7 @@ choice = st.session_state.get("bench_choice")
 
 if choice not in _MODES:
     st.title("Benchmark")
-    st.caption("Three ways to compare deepfake detectors — pick one to start. "
+    st.caption("Three ways to compare deepfake detectors, pick one to start. "
                "You can go back to switch any time.")
     cols = st.columns(3, gap="medium")
     for col, (key, label, icon, desc) in zip(cols, _OPTIONS):
@@ -184,15 +184,15 @@ if choice not in _MODES:
             "2", "Train · classifier",
             "Learn to separate bonafide speech from deepfakes",
             "A classic model fits the DSP features, or a convolutional network "
-            "learns directly from the spectrogram — both run in parallel "
+            "learns directly from the spectrogram, both run in parallel "
             "(CPU ∥ GPU) during a full comparison.",
             ["Logistic Reg.", "SVM (RBF)", "XGBoost", "5-Block CNN", "ResNet + SE", "CRNN"],
         )
         + _hcw_step(
             "3", "Score · metrics",
             "Measure detection quality on seen and unseen attacks",
-            "Each model is scored on the dev split (attacks A01–A06, seen in "
-            "training) and the eval split (A07–A19, completely unseen) — the "
+            "Each model is scored on the dev split (attacks A01-A06, seen in "
+            "training) and the eval split (A07-A19, completely unseen), the "
             "real test of generalisation.",
             ["minDCF", "EER", "dev split", "eval split"],
         ),

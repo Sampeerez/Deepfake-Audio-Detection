@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_pipeline.py — End-to-end pipeline glue on synthetic audio.
+tests/test_pipeline.py, End-to-end pipeline glue on synthetic audio.
 
 Covers the orchestration layer that turns audio files into leaderboard rows:
 feature-matrix extraction, classic train/eval, scoring pre-fitted estimators,
@@ -104,14 +104,14 @@ def test_score_fitted_classic():
 
 
 # ---------------------------------------------------------------------------
-# evaluate_cnn_on_set — inference-only CNN scorer
+# evaluate_cnn_on_set, inference-only CNN scorer
 # ---------------------------------------------------------------------------
 
 def test_evaluate_cnn_on_set(extractor, labelled_samples, tmp_path, monkeypatch):
     # Redirect the spectrogram cache into tmp so the test leaves no artefacts.
     monkeypatch.setattr("src.pipeline.CACHE_DIR", str(tmp_path / "cache"))
     samples = labelled_samples(n=6)
-    model = CNN_5Block().eval()                 # random weights — shape test only
+    model = CNN_5Block().eval()                 # random weights, shape test only
     rows = evaluate_cnn_on_set(model, samples, extractor,
                                params={"num_workers": 0, "batch_size": 4},
                                corpus_label="unit", arch_label="5-Block CNN")
@@ -121,7 +121,7 @@ def test_evaluate_cnn_on_set(extractor, labelled_samples, tmp_path, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# evaluate_raw_on_set — inference-only raw-waveform scorer
+# evaluate_raw_on_set, inference-only raw-waveform scorer
 # ---------------------------------------------------------------------------
 
 class _DummyRaw(nn.Module):
@@ -145,7 +145,7 @@ def test_evaluate_raw_on_set(labelled_samples):
 
 
 # ---------------------------------------------------------------------------
-# _aggregate_seed_rows — cross-seed mean ± std for the multi-seed CNN sweep
+# _aggregate_seed_rows, cross-seed mean ± std for the multi-seed CNN sweep
 # ---------------------------------------------------------------------------
 
 def test_aggregate_seed_rows_means_and_std():

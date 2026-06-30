@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app_pages/4_Methodology.py — Reference page: the corpora and data context, plus
+app_pages/4_Methodology.py, Reference page: the corpora and data context, plus
 the full benchmark methodology (DSP front-ends, classifiers, CNN, metrics).
 
 Kept off the Home page so the landing stays light; this is where the detail
@@ -160,14 +160,14 @@ else:
 
 st.title("Methodology")
 st.caption(
-    "How the benchmark works — the corpora and their class balance, the DSP "
+    "How the benchmark works, the corpora and their class balance, the DSP "
     "front-ends and classifiers, the CNN architectures, the self-supervised "
     "wav2vec 2.0 transformer, and the detection metrics."
 )
 
 # ── 01 · Data & corpora ──────────────────────────────────────────────────── #
 section_header("01", "Data & Corpora",
-               "Three corpora with increasing difficulty — from the official "
+               "Three corpora with increasing difficulty, from the official "
                "2019 benchmark to in-the-wild 2021 deepfakes.")
 
 if corpus_ok:
@@ -178,7 +178,7 @@ if corpus_ok:
         f'<div class="cc-sub"><span class="cc-badge-ok">● Available</span><br>'
         f'Train: <strong>{n_tr:,}</strong> &middot; {n_bon_tr:,} bonafide / {n_spo_tr:,} spoof<br>'
         f'Dev: <strong>{n_dev:,}</strong> &middot; {n_bon_dv:,} bonafide / {n_spo_dv:,} spoof<br>'
-        f'Imbalance 1:{round(n_spo_tr/max(n_bon_tr,1),0):.0f} &mdash; EER &amp; minDCF recommended'
+        f'Imbalance 1:{round(n_spo_tr/max(n_bon_tr,1),0):.0f} &middot; EER &amp; minDCF recommended'
         f'</div></div>'
     )
 else:
@@ -194,24 +194,24 @@ _la21b = '<span class="cc-badge-ok">● Configured</span>' if la21_ok else '<spa
 _df21b = '<span class="cc-badge-ok">● Configured</span>' if df21_ok else '<span class="cc-badge-err">● Not configured</span>'
 
 _corpus_grid = (
-    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:.4rem 0 .5rem;">'
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem;margin:.4rem 0 .5rem;">'
     + _card19
     + f'<div class="corpus-card"><div class="cc-label">Advanced evaluation</div>'
     f'<div class="cc-value">ASVspoof 2021 LA</div>'
     f'<div class="cc-sub">{_la21b}<br>181,566 eval files &middot; telephone channel<br>'
-    f'No official train split &mdash; 80/20 internal split used<br>'
+    f'No official train split &middot; 80/20 internal split used<br>'
     f'Different acoustic conditions from 2019</div></div>'
     + f'<div class="corpus-card"><div class="cc-label">Deepfakes in-the-wild</div>'
     f'<div class="cc-value">ASVspoof 2021 DF</div>'
     f'<div class="cc-sub">{_df21b}<br>458,871 eval files &middot; 3 partitions<br>'
-    f'Modern TTS/VC attacks (2020&ndash;2021)<br>'
+    f'Modern TTS/VC attacks (2020 to 2021)<br>'
     f'Most challenging corpus in the benchmark</div></div>'
     + '</div>'
 )
 st.markdown(_corpus_grid, unsafe_allow_html=True)
 
 if corpus_ok and train_s:
-    with st.expander("Class distribution — ASVspoof 2019 LA", expanded=False):
+    with st.expander("Class distribution, ASVspoof 2019 LA", expanded=False):
         ratio_tr = round(n_spo_tr / max(n_bon_tr, 1), 1)
         ratio_dv = round(n_spo_dv / max(n_bon_dv, 1), 1)
 
@@ -243,7 +243,7 @@ if corpus_ok and train_s:
             st.markdown(
                 f'<p class="dist-note">A roughly <b>1 : {ratio_tr:.0f}</b> '
                 'bonafide-to-spoof imbalance makes <b>raw accuracy misleading</b> '
-                '— a trivial all-spoof classifier already scores ~90%. This is '
+                ', a trivial all-spoof classifier already scores ~90%. This is '
                 'why <b>EER</b> and <b>minDCF</b> are the primary metrics: both '
                 'weigh false alarms and misses fairly.</p>',
                 unsafe_allow_html=True,
@@ -263,53 +263,53 @@ section_header("02", "Pipeline & Methods",
 st.markdown(
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1rem;margin:.4rem 0;">'
     '<div class="method-card"><div class="mc-num">I</div><h5>DSP Front-ends</h5><ul>'
-    '<li><strong>RMS</strong> — frame-level temporal energy</li>'
-    '<li><strong>MFCC</strong> — spectral envelope (Mel scale)</li>'
-    '<li><strong>LFCC</strong> — linear-frequency cepstrum</li>'
-    '<li><strong>DWT</strong> — multi-resolution wavelet energy (db4)</li>'
-    '<li><strong>CQCC</strong> — Constant-Q cepstral coefficients</li>'
+    '<li><strong>RMS</strong>, frame-level temporal energy</li>'
+    '<li><strong>MFCC</strong>, spectral envelope (Mel scale)</li>'
+    '<li><strong>LFCC</strong>, linear-frequency cepstrum</li>'
+    '<li><strong>DWT</strong>, multi-resolution wavelet energy (db4)</li>'
+    '<li><strong>CQCC</strong>, Constant-Q cepstral coefficients</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">II</div><h5>Classical Classifiers</h5><ul>'
-    '<li><strong>LR</strong> — Logistic Regression (baseline)</li>'
-    '<li><strong>SVM</strong> — RBF kernel, probability-calibrated</li>'
-    '<li><strong>XGBoost</strong> — gradient boosting on tabular features</li>'
+    '<li><strong>LR</strong>, Logistic Regression (baseline)</li>'
+    '<li><strong>SVM</strong>, RBF kernel, probability-calibrated</li>'
+    '<li><strong>XGBoost</strong>, gradient boosting on tabular features</li>'
     '<li>Stratified subsampling (bonafide/spoof ratio preserved)</li>'
     '<li>Feature cache for fast re-runs</li>'
     '<li>Export results table to CSV</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">III</div><h5>Deep Learning (spectrogram)</h5><ul>'
-    '<li><strong>5-Block CNN</strong> — 5&times; Conv&rarr;BN&rarr;ReLU&rarr;MaxPool (optional SE)</li>'
-    '<li><strong>ResNet + SE</strong> — residual + Squeeze-and-Excitation</li>'
-    '<li><strong>ResNeXt + SE</strong> — grouped convolutions (cardinality); best &amp; '
+    '<li><strong>5-Block CNN</strong>, 5&times; Conv&rarr;BN&rarr;ReLU&rarr;MaxPool (optional SE)</li>'
+    '<li><strong>ResNet + SE</strong>, residual + Squeeze-and-Excitation</li>'
+    '<li><strong>ResNeXt + SE</strong>, grouped convolutions (cardinality); best &amp; '
     'most stable deep net, spectrogram member of the Test-an-audio fusion (0.35)</li>'
-    '<li><strong>CRNN</strong> — conv extractor + bidirectional GRU (time axis)</li>'
+    '<li><strong>CRNN</strong>, conv extractor + bidirectional GRU (time axis)</li>'
     '<li><strong>SpecAugment</strong> &middot; BCEWithLogitsLoss + pos_weight</li>'
     '<li>Best-checkpoint restore &middot; ReduceLROnPlateau</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">IV</div><h5>Self-Supervised (Transformer)</h5><ul>'
-    '<li><strong>wav2vec 2.0</strong> — 12-layer transformer encoder (base, hidden 768)</li>'
+    '<li><strong>wav2vec 2.0</strong>, 12-layer transformer encoder (base, hidden 768)</li>'
     '<li>Self-supervised pretraining + fine-tuned spoof head</li>'
-    '<li>Raw 16&nbsp;kHz waveform — no DSP, no spectrogram</li>'
+    '<li>Raw 16&nbsp;kHz waveform, no DSP, no spectrogram</li>'
     '<li>Mean-pooled embedding &rarr; linear 2-class head</li>'
     '<li>Temperature-calibrated softmax (T=2) tames overconfidence</li>'
     '<li>Inference-only; <strong>lead</strong> member of the Test-an-audio fusion (0.65)</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">V</div><h5>Evaluation Metrics</h5><ul>'
-    '<li><strong>EER</strong> — point where FAR = FRR</li>'
-    '<li><strong>minDCF</strong> — NIST min cost (C<sub>miss</sub>=1, C<sub>fa</sub>=10)</li>'
-    '<li><strong>Accuracy</strong> — informative, not primary</li>'
+    '<li><strong>EER</strong>, point where FAR = FRR</li>'
+    '<li><strong>minDCF</strong>, NIST min cost (C<sub>miss</sub>=1, C<sub>fa</sub>=10)</li>'
+    '<li><strong>Accuracy</strong>, informative, not primary</li>'
     '<li>Score distribution histogram</li>'
     '<li>Inference latency per audio</li>'
     '<li>Post-training eval on 2021 LA / DF</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">VI</div><h5>Benchmark rigour</h5><ul>'
-    '<li><strong>Multi-seed</strong> — each CNN is trained over several seeds; the '
+    '<li><strong>Multi-seed</strong>, each CNN is trained over several seeds; the '
     'leaderboard reports the <em>mean</em> (a single saturated-dev run can&rsquo;t '
     'rank the architectures)</li>'
-    '<li><strong>Unseen-attack validation</strong> — A05/A06 held out of training to '
+    '<li><strong>Unseen-attack validation</strong>, A05/A06 held out of training to '
     'drive early stopping, so model selection rewards generalisation, not memorisation</li>'
     '<li>The <em>best-seed</em> checkpoint (lowest unseen-attack val loss) is the one saved</li>'
-    '<li><strong>Efficiency</strong> — training time + per-clip latency '
+    '<li><strong>Efficiency</strong>, training time + per-clip latency '
     '(feature extraction + inference), averaged across every corpus</li>'
     '</ul></div>'
     '</div>',
@@ -320,28 +320,28 @@ st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 
 # ── 03 · Spoofing attacks ────────────────────────────────────────────────── #
 section_header("03", "Spoofing attacks (logical access)",
-               "How the fakes are made — and why the eval set is so much harder "
+               "How the fakes are made, and why the eval set is so much harder "
                "than dev.")
 st.markdown(
-    '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin:.4rem 0;">'
-    '<div class="method-card"><div class="mc-num">A01–A06</div>'
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:.4rem 0;">'
+    '<div class="method-card"><div class="mc-num">A01-A06</div>'
     '<h5>Known attacks · train + dev (&ldquo;seen&rdquo;)</h5><ul>'
-    '<li><strong>2 voice-conversion (VC)</strong> systems — one neural-network-based, '
+    '<li><strong>2 voice-conversion (VC)</strong> systems, one neural-network-based, '
     'one spectral-/transfer-function-based</li>'
-    '<li><strong>4 text-to-speech (TTS)</strong> systems — waveform concatenation, and '
-    'neural parametric synthesis with a source&ndash;filter vocoder or a '
+    '<li><strong>4 text-to-speech (TTS)</strong> systems, waveform concatenation, and '
+    'neural parametric synthesis with a source-filter vocoder or a '
     '<strong>WaveNet</strong> vocoder</li>'
     '<li>The <em>same six</em> algorithms appear in both training and development, so a '
     'model can learn them directly</li>'
     '</ul></div>'
-    '<div class="method-card"><div class="mc-num">A07–A19</div>'
+    '<div class="method-card"><div class="mc-num">A07-A19</div>'
     '<h5>Unknown attacks · eval only (&ldquo;unseen&rdquo;)</h5><ul>'
     '<li><strong>13 attacks</strong>: 2 reused known + <strong>11 brand-new</strong> '
-    '(2 VC, 6 TTS, 3 hybrid TTS&ndash;VC)</li>'
-    '<li>Waveform generation never seen in training: classical vocoding, Griffin&ndash;Lim, '
+    '(2 VC, 6 TTS, 3 hybrid TTS-VC)</li>'
+    '<li>Waveform generation never seen in training: classical vocoding, Griffin-Lim, '
     '<strong>GANs</strong>, neural waveform models, concatenation, waveform &amp; spectral '
     'filtering</li>'
-    '<li>Designed to be <em>different</em> from A01&ndash;A06 — the genuine generalisation '
+    '<li>Designed to be <em>different</em> from A01-A06, the genuine generalisation '
     'test</li>'
     '</ul></div>'
     '</div>',
@@ -353,15 +353,15 @@ st.markdown(
     '<span class="ic-tag">generalisation</span></div>'
     '<p class="ic-body">The logical-access data is built from the <strong>VCTK</strong> '
     'corpus (107 speakers), with <strong>no speaker overlap</strong> across train / dev / '
-    'eval and utterances of ~1&ndash;2&nbsp;s. Because train and dev share attacks '
-    'A01&ndash;A06 but eval swaps in 11 unseen systems (A07&ndash;A19), a detector that '
+    'eval and utterances of ~1 to 2&nbsp;s. Because train and dev share attacks '
+    'A01-A06 but eval swaps in 11 unseen systems (A07-A19), a detector that '
     'merely memorises the six known attacks collapses on eval. This is exactly what the '
     '<em>Evaluate on</em> selector exposes across the benchmark: dev = seen, eval = '
     'unseen, 2021&nbsp;LA/DF = unseen + new channel/compression. Because dev shares those '
     'attacks it <em>saturates</em> (deep nets hit ~0&nbsp;% dev EER), so the Full-comparison '
     'sweep holds out <strong>A05/A06</strong> from CNN training as an <em>unseen-attack</em> '
     'validation set: early stopping then watches generalisation rather than memorisation, '
-    'while the eval sets (A07&ndash;A19 / 2021) stay untouched for honest reporting.</p></div>',
+    'while the eval sets (A07-A19 / 2021) stay untouched for honest reporting.</p></div>',
     unsafe_allow_html=True,
 )
 
@@ -372,10 +372,10 @@ section_header("04", "Evaluation protocol",
                "Exactly how ASVspoof scores a countermeasure (ASVspoof 2019 "
                "evaluation plan).")
 st.markdown(
-    '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin:.4rem 0;">'
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem;margin:.4rem 0;">'
     '<div class="method-card"><div class="mc-num">§</div><h5>The task &amp; scores</h5><ul>'
     '<li>Two-class: <strong>bonafide</strong> (accept) vs <strong>spoof</strong> (reject)</li>'
-    '<li>One real-valued score per file — <strong>high = bonafide, low = spoof</strong> '
+    '<li>One real-valued score per file, <strong>high = bonafide, low = spoof</strong> '
     '(log-likelihood-ratio convention)</li>'
     '<li>Hard binary decisions are <em>not</em> allowed; thresholds are set by the metric</li>'
     '<li>Scores are <strong>pooled</strong> across all trials; LA and PA are scored '
@@ -385,7 +385,7 @@ st.markdown(
     '<h5>Equal Error Rate · secondary</h5><ul>'
     '<li>Threshold s where the miss rate equals the false-alarm rate: '
     'P<sub>miss</sub>(s) = P<sub>fa</sub>(s)</li>'
-    '<li>Application-independent &amp; threshold-free — the headline metric this app '
+    '<li>Application-independent &amp; threshold-free, the headline metric this app '
     'reports</li>'
     '<li>Retained from ASVspoof 2015/2017 for backwards comparison</li>'
     '</ul></div>'
@@ -415,7 +415,7 @@ st.markdown(
     '<span class="ic-tag">scope</span></div>'
     '<p class="ic-body">ASVspoof ships no ASV scores with the public data, so this TFG '
     'reports the <strong>EER</strong> plus a <strong>simplified minDCF</strong> '
-    '(C<sub>miss</sub>=1, C<sub>fa</sub>=10, P<sub>tar</sub>=0.05) — the stand-alone '
+    '(C<sub>miss</sub>=1, C<sub>fa</sub>=10, P<sub>tar</sub>=0.05), the stand-alone '
     'countermeasure cost, not the full tandem t-DCF. For 2021, <strong>LA</strong> adds '
     'telephone codec &amp; transmission variability and <strong>DF</strong> adds lossy '
     'compression / &ldquo;in-the-wild&rdquo; audio; both are eval-only and scored by EER, '

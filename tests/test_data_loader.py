@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_data_loader.py — Protocol parsing, stratified subsampling and the
+tests/test_data_loader.py, Protocol parsing, stratified subsampling and the
 two PyTorch Datasets.
 
 All corpus structure is reproduced synthetically inside tmp_path (real FLAC/WAV
@@ -72,7 +72,7 @@ def test_parse_protocol_missing_file(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# split_unseen_attacks — unseen-attack validation split for early stopping
+# split_unseen_attacks, unseen-attack validation split for early stopping
 # ---------------------------------------------------------------------------
 
 def test_split_unseen_attacks_holds_out_attacks():

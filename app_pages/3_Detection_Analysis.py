@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-app_pages/3_Detection_Analysis.py — Two complementary views:
+app_pages/3_Detection_Analysis.py, Two complementary views:
 
-  • "Test an audio" — drop your own .flac / .wav and have EVERY pretrained model
-    (wav2vec 2.0, the deep spectrogram nets — 5-Block CNN ±SE, ResNet+SE,
-    ResNeXt+SE, CRNN — and the classic ML × DSP detectors) score it in
+  • "Test an audio", drop your own .flac / .wav and have EVERY pretrained model
+    (wav2vec 2.0, the deep spectrogram nets, 5-Block CNN ±SE, ResNet+SE,
+    ResNeXt+SE, CRNN, and the classic ML × DSP detectors) score it in
     parallel on CPU: a live, side-by-side comparison with a consensus verdict.
     This is the star of the public web demo (no corpus required).
-  • "Analyse on a split" — WHY a detector scores the EER / minDCF it does: score
+  • "Analyse on a split", WHY a detector scores the EER / minDCF it does: score
     distributions, ROC and DET curves and an interactive decision threshold
     (needs the local ASVspoof corpus).
 
@@ -47,7 +47,7 @@ from src.ui_helpers import (  # noqa: E402
 )
 
 FEATURE_LABELS = FeatureExtractor.OPTION_NAMES
-# Front-ends offered in the split analysis — the five trained ones (RMS, MFCC,
+# Front-ends offered in the split analysis, the five trained ones (RMS, MFCC,
 # LFCC, DWT, CQCC). "Full Fusion" (option "5") is intentionally left out: it is not
 # part of the model zoo / leaderboard.
 FEATURE_ORDER  = ["1", "2", "3", "4", "6"]
@@ -77,7 +77,7 @@ st.markdown("""
 # spectrogram nets the grouped-convolution ResNeXt+SE is the strongest AND the
 # most stable across seeds (best dev minDCF 0.24, EER std 0.04). The classic DSP
 # detectors collapse out of domain (minDCF ≈ 1.0), so they are NOT trusted for the
-# verdict — they stay visible in the full panel below. The verdict therefore fuses
+# verdict, they stay visible in the full panel below. The verdict therefore fuses
 # just those two complementary views: raw-waveform SSL + the best spectrogram CNN.
 # Weights are renormalised at fusion time, and any member that fails to load is
 # skipped (so the verdict degrades gracefully to whatever loaded).
@@ -113,7 +113,7 @@ pre_models = available_pretrained_models()
 
 st.title("Detection Analysis")
 st.markdown(
-    "Drop a clip to score it across every model in parallel — "
+    "Drop a clip to score it across every model in parallel, "
     "or pick a detector and explore how it separates bonafide from spoof on a corpus split."
 )
 
@@ -148,7 +148,7 @@ def _classic_model(feat_key, clf_name, subset, seed=42):
 
 
 def _score_classic_trained_on_samples(feat_key, clf_name, samples, tag):
-    """Score a locally-trained classic model on an explicit (path, label) list —
+    """Score a locally-trained classic model on an explicit (path, label) list, 
     lets the local split tab pick a corpus (2019/2021) instead of a dev/eval
     split. The model is still trained on the local 2019 train split via the
     cached _classic_model()."""
@@ -319,7 +319,7 @@ def _render_split_results():
             f"&nbsp;<span style='color:{SPOOF_COLOR};font-weight:700;'>● Spoof</span>",
             unsafe_allow_html=True)
         # Two single-colour layers (one per class) so each bar is anchored to a
-        # zero baseline and they OVERLAY (translucent) instead of stacking — a
+        # zero baseline and they OVERLAY (translucent) instead of stacking, a
         # colour-encoded bar with stack=None loses its 0-baseline and renders as
         # thin floating dashes, which is what broke before.
         def _hbar(_d, _c):
@@ -466,7 +466,7 @@ def _open_in_signal_explorer(blob: bytes, fname: str) -> None:
 
 def _load_all_models(entries):
     """Load every pretrained model AT ONCE (parallel threads) instead of one by
-    one — the first-run Hugging Face downloads then overlap, which is the slow
+    one, the first-run Hugging Face downloads then overlap, which is the slow
     part. Each worker thread inherits the Streamlit script context so the cached
     loaders behave exactly as on the main thread. Returns (loaded, failed)."""
     import threading
@@ -486,7 +486,7 @@ def _load_all_models(entries):
             e = futs[fut]
             try:
                 loaded[e["key"]] = fut.result()
-            except Exception as exc:                 # noqa: BLE001 — report, continue
+            except Exception as exc:                 # noqa: BLE001, report, continue
                 failed.append((e["name"], str(exc)))
     return loaded, failed
 
@@ -559,28 +559,33 @@ def _render_test_results(rows, signal, blob, fname):
     _members = fusion["members"]
     fused_p  = fusion["fused"]
     v_color  = SPOOF_COLOR if fusion["verdict"] == "SPOOF" else BONAFIDE_COLOR
-    v_text   = ("SPOOF — deepfake" if fusion["verdict"] == "SPOOF"
-                else "BONAFIDE — real speech")
+    v_text   = ("SPOOF · deepfake" if fusion["verdict"] == "SPOOF"
+                else "BONAFIDE · real speech")
 
-    _contrib = " &nbsp;·&nbsp; ".join(
-        f"<b style='color:#C9D7F5;'>{m['name']}</b>"
-        f"<span style='color:#7C88A3;'> (p={m['p']:.2f}, "
-        f"{m['wnorm']*100:.0f}%)</span>"
-        for m in _members)
+    # Verdict panel (left) + fusion members as chips (right)
+    def _member_chip(m):
+        p_val = m['p']
+        m_name = m['name']
+        c = SPOOF_COLOR if p_val >= 0.5 else BONAFIDE_COLOR
+        return (f"<div style='border:1px solid {c}55;border-left:3px solid {c};"
+                f"border-radius:0.6rem;padding:0.5rem 0.7rem;background:{c}14;'>"
+                f"<div style='font-size:0.75rem;font-weight:700;color:#C9D7F5;'>"
+                f"{m_name}</div>"
+                f"<div style='font-size:0.8rem;color:#9EA8C0;margin-top:0.2rem;'>"
+                f"p={p_val:.2f}</div></div>")
+    _member_chips = "".join(_member_chip(m) for m in _members)
     st.markdown(
-        f"<div style='text-align:center;margin:0.6rem auto 0.3rem;"
-        f"max-width:620px;padding:1rem 1.3rem;border-radius:0.9rem;"
-        f"border:1px solid {v_color}59;"
-        f"box-shadow:0 0 20px {v_color}55, inset 0 0 24px {v_color}1f;'>"
-        f"<span style='display:block;font-size:0.66rem;font-weight:800;"
-        f"letter-spacing:0.16em;text-transform:uppercase;color:#9EA8C0;"
-        f"margin-bottom:0.15rem;'>Final verdict — weighted fusion</span>"
-        f"<span style='font-size:1.8rem;font-weight:700;color:{v_color};"
-        f"text-shadow:0 0 14px {v_color}aa;'>{v_text}</span><br>"
-        f"<span style='color:#9EA8C0;font-size:0.9rem;'>"
-        f"fused p(spoof) = <b style='color:#C9D7F5;'>{fused_p:.3f}</b></span>"
-        f"<div style='color:#8A95AE;font-size:0.8rem;margin-top:0.4rem;'>"
-        f"{_contrib}</div></div>",
+        f"<div style='display:flex;gap:1.6rem;align-items:flex-start;margin:0.6rem auto 1.2rem;max-width:900px;'>"
+        f"<div style='flex:0 0 auto;padding:1rem 1.3rem;border-radius:0.9rem;border:1px solid {v_color}59;"
+        f"box-shadow:0 0 20px {v_color}55, inset 0 0 24px {v_color}1f;text-align:center;'>"
+        f"<span style='display:block;font-size:0.66rem;font-weight:800;letter-spacing:0.14em;"
+        f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.15rem;'>Final verdict</span>"
+        f"<span style='font-size:1.6rem;font-weight:700;color:{v_color};text-shadow:0 0 14px {v_color}aa;'>"
+        f"{v_text}</span><br>"
+        f"<span style='color:#9EA8C0;font-size:0.85rem;margin-top:0.3rem;display:block;'>"
+        f"p(spoof) = <b style='color:#C9D7F5;'>{fused_p:.3f}</b></span></div>"
+        f"<div style='flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.5rem;'>"
+        f"{_member_chips}</div></div>",
         unsafe_allow_html=True,
     )
     _cons = ("majority flags spoof" if n_spoof * 2 > n_total
@@ -588,7 +593,7 @@ def _render_test_results(rows, signal, blob, fname):
                    else "the panel is split"))
     st.markdown(
         f"<div style='text-align:center;color:#8A95AE;font-size:0.85rem;"
-        f"margin:1.6rem auto 1.6rem;'>Panel of {n_total} models — {_cons}: "
+        f"margin:1.6rem auto 1.6rem;'>Panel of {n_total} models, {_cons}: "
         f"<b>{n_spoof}/{n_total}</b> flag spoof &nbsp;·&nbsp; "
         f"mean p(spoof) = {mean_p:.3f}</div>",
         unsafe_allow_html=True,
@@ -646,19 +651,23 @@ def _render_test_results(rows, signal, blob, fname):
         )
     with gcol2:
         st.markdown("**Probability per model**")
-        bar = (alt.Chart(df).mark_bar().encode(
+        # Add a sort index to match the table order (top to bottom = highest to lowest p(spoof))
+        df_chart = df.copy()
+        df_chart["_sort_idx"] = range(len(df_chart))
+        bar = (alt.Chart(df_chart).mark_bar().encode(
                     x=alt.X("p(spoof):Q", scale=alt.Scale(domain=[0, 1]),
                             title="p(spoof)"),
-                    y=alt.Y("Model:N", sort="-x", title=None),
+                    y=alt.Y("Model:N", sort=alt.SortField("_sort_idx", order="ascending"),
+                            title=None),
                     color=alt.Color("Verdict:N", legend=None,
                                     scale=alt.Scale(domain=["BONAFIDE", "SPOOF"],
                                                     range=[BONAFIDE_COLOR, SPOOF_COLOR])),
                     tooltip=["Model", "Front-end", "p(spoof)", "threshold", "Verdict"])
-               .properties(height=max(150, 42 * len(df))))
-        # Each model's OWN threshold, as a yellow tick on its bar (no single line —
-        # every model now decides at a different cut).
-        ticks = (alt.Chart(df).mark_tick(color="#FFD54F", thickness=2, size=22)
-                 .encode(x="threshold:Q", y=alt.Y("Model:N", sort="-x")))
+               .properties(height=max(150, 42 * len(df_chart))))
+        # Each model's OWN threshold, as a yellow tick on its bar
+        ticks = (alt.Chart(df_chart).mark_tick(color="#FFD54F", thickness=2, size=22)
+                 .encode(x="threshold:Q",
+                        y=alt.Y("Model:N", sort=alt.SortField("_sort_idx", order="ascending"))))
         st.altair_chart(bar + ticks, width="stretch")
         st.caption("Yellow tick = each model's own decision threshold (dev EER "
                    "operating point).")
@@ -682,7 +691,7 @@ def _render_test_results(rows, signal, blob, fname):
         st.pyplot(fig_cnn_input(signal, extractor), clear_figure=True,
                   bbox_inches=None)
 
-    # Canonical display order: 5-Block CNN, +SE, ResNet+SE, ResNeXt+SE, CRNN — so
+    # Canonical display order: 5-Block CNN, +SE, ResNet+SE, ResNeXt+SE, CRNN, so
     # the 2-per-row grid here AND the dropdown in CNN Learning both read row 1
     # (cnn, cnn+se) · row 2 (resnet, resnext) · row 3 (crnn).
     _MAP_ORDER = {"cnn5": 0, "cnn5_se": 1, "resnet": 2, "resnext": 3, "crnn": 4}
@@ -722,7 +731,7 @@ def _render_test_results(rows, signal, blob, fname):
 
 
 # ===========================================================================
-# Tabs — the multi-model "Test an audio" leads on BOTH the web demo and locally,
+# Tabs, the multi-model "Test an audio" leads on BOTH the web demo and locally,
 # so the layout is identical everywhere (Test an audio first, split second).
 # ===========================================================================
 tab_test, tab_analyse = st.tabs(["Test an audio", "Analyse on a split"])
@@ -733,7 +742,7 @@ source = feat_key = clf_disp = None
 
 
 # ===========================================================================
-# Multi-model file analysis — works fully on CPU, no corpus needed
+# Multi-model file analysis, works fully on CPU, no corpus needed
 # ===========================================================================
 with tab_test:
   if not pre_models:
@@ -747,16 +756,16 @@ with tab_test:
   else:
     st.markdown(
         f"Your clip is scored by **all {len(pre_models)} pretrained models** at "
-        "once — the self-supervised **wav2vec 2.0** transformer on the raw "
+        "once, the self-supervised **wav2vec 2.0** transformer on the raw "
         "waveform, the deep spectrogram nets (5-Block CNN ±SE, ResNet+SE, "
         "ResNeXt+SE, CRNN) and the classic detectors (LR / SVM / XGBoost) on "
         "their DSP front-ends. Each model decides at **its own best threshold** "
         "(the dev EER operating point), not a flat 0.5. The **final verdict** is a "
-        "weighted late-fusion of the two most reliable cross-domain detectors — "
+        "weighted late-fusion of the two most reliable cross-domain detectors, "
         "**wav2vec 2.0** (0.65) and the best spectrogram net, **ResNeXt+SE** (0.35); "
         "the full panel of every model is shown below."
     )
-    # Per-model decision thresholds — each model's dev EER operating point, recorded
+    # Per-model decision thresholds, each model's dev EER operating point, recorded
     # in leaderboard.json by the full sweep (0.5 fallback when not present yet).
     _board = load_leaderboard_models() or {}
     thresholds = {k: float(m["thr_dev"]) for k, m in _board.items()
@@ -803,13 +812,13 @@ with tab_test:
         )
     else:
         if uploaded is None and _fname:
-            st.caption(f"Loaded: **{_fname}** — click Analyze to score, or Clear to discard.")
+            st.caption(f"Loaded: **{_fname}**, click Analyze to score, or Clear to discard.")
 
         # Load signal (needed for both analysis and display). Errors surface here.
         try:
             signal = _load_signal(io.BytesIO(_blob), name=_fname)
         except Exception as _ex:
-            st.error(f"Could not decode the audio file — {_ex}")
+            st.error(f"Could not decode the audio file, {_ex}")
             st.stop()
 
         if do_analyze:
@@ -819,7 +828,7 @@ with tab_test:
                 st.warning(f"{_name} unavailable: {_err}")
             entries_ok = [e for e in pre_models if e["key"] in loaded]
             if not entries_ok:
-                st.error("No model could be loaded — check the download URLs.")
+                st.error("No model could be loaded, check the download URLs.")
                 st.stop()
             with st.spinner("Running it past the astromech (scoring every model)…"):
                 rows = _analyse_all_models(signal, entries_ok, loaded, thresholds)
@@ -917,7 +926,7 @@ with tab_analyse:
             samples = (stratified_subsample(_resolved[0][1], 2 * int(nper), 42)
                        if _resolved else [])
             if not samples:
-                st.warning(f"No {corpus} eval clips available locally — pick "
+                st.warning(f"No {corpus} eval clips available locally, pick "
                            "another corpus or download that eval set.")
             else:
                 _tag = f"da_local_{corpus}"
@@ -952,7 +961,7 @@ with tab_analyse:
 
   elif pre_models:
     # Web demo: score a PRETRAINED registry model on eval clips streamed from the
-    # public Hugging Face datasets (no corpus, no training — cross-dataset eval).
+    # public Hugging Face datasets (no corpus, no training, cross-dataset eval).
     classic_entries = [e for e in pre_models if e["kind"] == "classic"]
     cnn_entries     = [e for e in pre_models if e["kind"] == "cnn"]
     ssl_entries     = [e for e in pre_models if e["kind"] == "raw"]
@@ -1021,7 +1030,7 @@ with tab_analyse:
         with st.spinner(f"Pulling {corpus} records from the Archives and scoring…"):
             samples = hf_eval_samples(corpus, int(nper))
             if not samples:
-                st.warning("Could not fetch eval clips from Hugging Face — "
+                st.warning("Could not fetch eval clips from Hugging Face, "
                            "try again or pick another corpus.")
             else:
                 if source == "Classic models":

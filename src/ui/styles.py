@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""src/ui/styles.py — CSS, the Light/Dark Side theme and HTML-wrapping helpers.
+"""src/ui/styles.py, CSS, the Light/Dark Side theme and HTML-wrapping helpers.
 
 Split out of the former monolithic src/ui_helpers.py and re-exported there for
 backward compatibility, so existing `from src.ui_helpers import ...` call sites
@@ -13,9 +13,9 @@ from typing import Tuple
 import streamlit as st
 
 # ── Colour palette ────────────────────────────────────────────────────────── #
-BONAFIDE_COLOR = "#42A5F5"   # blue  — real voice  (lighter for dark bg)
-SPOOF_COLOR    = "#EF5350"   # red   — deepfake
-NEUTRAL_COLOR  = "#78909C"   # slate — unknown / upload
+BONAFIDE_COLOR = "#42A5F5"   # blue, real voice  (lighter for dark bg)
+SPOOF_COLOR    = "#EF5350"   # red, deepfake
+NEUTRAL_COLOR  = "#78909C"   # slate, unknown / upload
 # ── Shared CSS injected at the top of every page ──────────────────────────── #
 # Page stylesheet externalised to static/styles.css (IDE highlighting + browser
 # caching); loaded once at import. _light_swap() still rewrites its colour
@@ -24,9 +24,9 @@ PAGE_CSS = (Path(__file__).resolve().parents[2] / "static" / "styles.css").read_
 
 
 # ===========================================================================
-# Theme — Light Side / Dark Side
+# Theme, Light Side / Dark Side
 # ===========================================================================
-# The app ships a fully-styled Dark Side (the default — examiners see exactly the
+# The app ships a fully-styled Dark Side (the default, examiners see exactly the
 # original look). The Light Side is an accessibility light theme generated from
 # the SAME stylesheet at build time: the dark colour literals are swapped for
 # light ones via _LIGHT_MAP, so the dark path stays byte-identical and there is a
@@ -47,7 +47,7 @@ def theme_mode() -> str:
 _LIGHT_MAP = {
     # ── solid page / cell surfaces ──────────────────────────────────────────
     # A deeper blue-grey canvas (the previous near-white made cards and accents
-    # vanish — too low-contrast). Cards stay white, so they now read as elevated.
+    # vanish, too low-contrast). Cards stay white, so they now read as elevated.
     "#0E1117": "#D5DEEE",          # page background (html, body)
     "#0D1426": "#FFFFFF",          # stat-cell
     "#111A33": "#E4EBF7",          # stat-cell hover
@@ -111,7 +111,7 @@ def _light_swap(css: str) -> str:
 
 # Lightsaber accent: the one decorative colour, exposed as a CSS variable so the
 # blade styling (below) and the verdict glow can read it. The user picks a blade
-# colour in Settings (session key 'sw_saber'); "Auto" follows the side — a red
+# colour in Settings (session key 'sw_saber'); "Auto" follows the side, a red
 # Sith blade on the Dark Side, a blue Jedi blade on the Light Side.
 _SABER_NAMED = {
     "Blue":   ("#2C82FF", "44,130,255"),
@@ -166,7 +166,7 @@ _SABER_CSS = """
                saberShimmer 5s linear infinite !important;
     overflow: visible !important;
 }
-/* ── Lightsaber HILT — a properly modelled metal handle on the title blades ──
+/* ── Lightsaber HILT, a properly modelled metal handle on the title blades ──
    A short cylinder (top-lit shine), a few machined grip rings, a glowing emitter
    ring where the blade ignites, and a rounded pommel. Shared by the section-title
    rule and the free-standing accent bar so every title blade has a real hilt. */
@@ -365,7 +365,7 @@ li[role="option"][aria-selected="true"], [role="option"][aria-selected="true"] {
 [data-testid="stBaseButton-segmented_controlActive"] * {
     color: #FFFFFF !important;
 }
-/* Hero banner stays a deep-blue colored banner on BOTH sides — restore its light
+/* Hero banner stays a deep-blue colored banner on BOTH sides, restore its light
    text (placed last so it beats the generic dark-text rule above). */
 .hero-banner, .hero-banner h1, .hero-banner p, .hero-overline, .hero-meta,
 .hero-author .ha-name, .hero-author a { color: #EAF1FF !important; }

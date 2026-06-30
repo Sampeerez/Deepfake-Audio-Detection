@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-src/features.py — Digital Signal Processing (DSP) front-ends.
+src/features.py, Digital Signal Processing (DSP) front-ends.
 
 Implements the full battery of feature extractors for the anti-spoofing
 benchmark.  Each method takes a discrete time-domain signal ``y`` (ADC
@@ -197,7 +197,7 @@ class FeatureExtractor:
         ).astype(np.float32)
 
     # ------------------------------------------------------------------ #
-    # 1) RMS — temporal domain
+    # 1) RMS, temporal domain
     # ------------------------------------------------------------------ #
     def extract_rms(self, y: np.ndarray) -> np.ndarray:
         """Mean and variance of the per-frame Root Mean Square energy.
@@ -215,7 +215,7 @@ class FeatureExtractor:
         return self._mean_and_variance(rms)
 
     # ------------------------------------------------------------------ #
-    # 2) MFCC — perceptual cepstrum on the Mel scale
+    # 2) MFCC, perceptual cepstrum on the Mel scale
     # ------------------------------------------------------------------ #
     def extract_mfcc(self, y: np.ndarray) -> np.ndarray:
         """Mean and variance of the MFCCs (via librosa).
@@ -256,7 +256,7 @@ class FeatureExtractor:
         return self._mean_and_variance(mfcc)
 
     # ------------------------------------------------------------------ #
-    # 3) LFCC — LINEAR cepstrum, implemented analytically
+    # 3) LFCC, LINEAR cepstrum, implemented analytically
     # ------------------------------------------------------------------ #
     def _build_linear_filterbank(self) -> np.ndarray:
         """Build triangular filters UNIFORMLY spaced in Hz (0 → Nyquist).
@@ -296,11 +296,11 @@ class FeatureExtractor:
         Rationale over MFCC: the cepstral skeleton is preserved (log + DCT,
         with its de-convolving and decorrelating effect) but with a UNIFORM
         frequency-resolution filter bank.  This keeps the high-frequency
-        band intact — where TTS/VC generative models introduce quantisation
+        band intact, where TTS/VC generative models introduce quantisation
         noise, band cuts, and spurious harmonic grids that betray the
         deepfake.
         """
-        # 1–2) Power spectrum: |STFT|² frame by frame.
+        # 1 to 2) Power spectrum: |STFT|² frame by frame.
         power = self._stft_magnitude(y) ** 2
 
         # 3) Integrate energy per linear band (matrix product: each bank
@@ -314,20 +314,20 @@ class FeatureExtractor:
 
         # 5) Orthonormal DCT-II over the filter-bank axis: decorrelates
         #    inter-band energy, returns real coefficients, and compacts
-        #    information into the leading terms (truncated to n_lfcc —
+        #    information into the leading terms (truncated to n_lfcc, 
         #    the "liftering" that retains the spectral envelope).
         cepstrum = dct(log_energy, type=2, axis=0, norm="ortho")[: self.n_lfcc]
 
         return self._mean_and_variance(cepstrum)
 
     # ------------------------------------------------------------------ #
-    # 4) DWT — multi-resolution wavelet analysis
+    # 4) DWT, multi-resolution wavelet analysis
     # ------------------------------------------------------------------ #
     def extract_wavelet_energy(self, y: np.ndarray) -> np.ndarray:
         """Mean and variance of the DWT coefficient energy (Daubechies-4).
 
         MATHEMATICAL MOTIVATION: the STFT suffers the time-frequency
-        uncertainty principle — once the window (n_fft) is fixed, temporal
+        uncertainty principle, once the window (n_fft) is fixed, temporal
         and frequency resolution are simultaneously locked for ALL bands.
         Wavelets overcome this with MULTI-RESOLUTION analysis: instead of
         infinite sinusoids, the signal is correlated with scaled and shifted
@@ -365,7 +365,7 @@ class FeatureExtractor:
         )
 
     # ------------------------------------------------------------------ #
-    # 5) CQCC — Constant-Q Cepstral Coefficients
+    # 5) CQCC, Constant-Q Cepstral Coefficients
     # ------------------------------------------------------------------ #
     def extract_cqcc(self, y: np.ndarray) -> np.ndarray:
         """Analytical CQCC: CQT -> log-energy -> DCT -> aggregation.
@@ -425,7 +425,7 @@ class FeatureExtractor:
         else:
             raise ValueError(
                 f"Feature choice '{feature_choice}' is not valid "
-                f"(expected '1'–'6')."
+                f"(expected '1'-'6')."
             )
 
         # Final numeric sanitisation: no NaN/inf should reach the classifier
@@ -450,7 +450,7 @@ class FeatureExtractor:
         3) Frequency axis: the exact Nyquist bin (513) is discarded and the
            remaining 512 bins are compressed to ``freq_bins`` by block
            averaging groups of 4.  Unlike truncation, this averaging
-           PRESERVES the full 0–8 kHz bandwidth (the high band that betrays
+           PRESERVES the full 0 to 8 kHz bandwidth (the high band that betrays
            vocoders) at the cost of fine frequency resolution.
         4) Time axis: truncated to ``time_frames`` or padded with the dB
            floor (equivalent to padding with silence, not spurious energy).

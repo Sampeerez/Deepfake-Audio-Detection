@@ -22,13 +22,13 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Thesis](https://img.shields.io/badge/Thesis-PDF_(soon)-8A2BE2)](#)
 
-<sub><b>Final Degree Project (TFG)</b> &nbsp;·&nbsp; Computer Engineering — <i>Ingeniería Informática</i></sub>
+<sub><b>Final Degree Project (TFG)</b> &nbsp;·&nbsp; Computer Engineering, <i>Ingeniería Informática</i></sub>
 <br/>
 <sub>Samuel Pérez López &nbsp;·&nbsp; Universidad de La Laguna</sub>
 
 <br/><br/>
 
-<img src="assets/home.png" alt="Deepfake Audio Detection — Home" width="90%"/>
+<img src="assets/home.png" alt="Deepfake Audio Detection, Home" width="90%"/>
 
 </div>
 
@@ -36,7 +36,7 @@
 
 <div align="center">
 
-### Three generations of anti-spoofing in one web app — no command line, no setup.
+### Three generations of anti-spoofing in one web app, no command line, no setup.
 
 </div>
 
@@ -58,7 +58,7 @@ flowchart LR
 
 ## Results that matter
 
-Best of each family on the **ASVspoof 2019 LA eval** set — lower is better:
+Best of each family on the **ASVspoof 2019 LA eval** set, lower is better:
 
 | # | Model | Type | Front-end | EER&nbsp;(%) | minDCF |
 |:---:|---|---|---|:---:|:---:|
@@ -72,7 +72,7 @@ Best of each family on the **ASVspoof 2019 LA eval** set — lower is better:
 > ~0.2% EER of each other, but **ResNeXt+SE** is picked as the best deep net for
 > the reason that matters: it has the lowest cross-domain mean EER (**18.8%** over
 > 2019+2021) **and** is by far the most stable across seeds (EER std 0.04 vs ~7.5
-> for the plain ResNet/5-Block/CRNN — its grouped convolutions act as a
+> for the plain ResNet/5-Block/CRNN; its grouped convolutions act as a
 > regulariser). Full per-model, per-corpus metrics live in
 > [`leaderboard.json`](leaderboard.json).
 >
@@ -81,7 +81,7 @@ Best of each family on the **ASVspoof 2019 LA eval** set — lower is better:
 
 ### Generalization to unseen conditions
 
-The real test is **2021**, never seen in training — telephone codecs (LA) and
+The real test is **2021**, never seen in training: telephone codecs (LA) and
 deepfakes *in the wild* (DF). EER (%) per corpus, lower is better:
 
 | Model | 2019 LA | 2021 LA | 2021 DF |
@@ -89,8 +89,8 @@ deepfakes *in the wild* (DF). EER (%) per corpus, lower is better:
 | **wav2vec 2.0 (SSL)** | **4.96** | **13.04** | **13.51** |
 | ResNeXt+SE CNN (best deep) | 11.40 | 20.02 | 25.09 |
 
-> Under domain shift the spectrogram nets still **degrade sharply** — even the
-> best, ResNeXt+SE, rises to **20–25%** EER on 2021 — while the self-supervised
+> Under domain shift the spectrogram nets still **degrade sharply**. Even the
+> best, ResNeXt+SE, rises to **20 to 25%** EER on 2021, while the self-supervised
 > model **stays near 13%**, roughly half the error of the best deep net. This
 > robustness to unseen attacks and channels is the core argument of the project.
 
@@ -98,7 +98,7 @@ deepfakes *in the wild* (DF). EER (%) per corpus, lower is better:
 reliable cross-domain detectors**. The benchmark is unambiguous: wav2vec 2.0 is
 the only model with a useful out-of-domain minDCF, and ResNeXt+SE is the strongest
 and most stable spectrogram net, so the verdict trusts just those two
-complementary views — raw-waveform SSL + the best spectrogram CNN. The classic DSP
+complementary views: raw-waveform SSL plus the best spectrogram CNN. The classic DSP
 detectors collapse out of domain (minDCF ≈ 1.0) and stay visible in the panel but
 are **not** trusted for the verdict:
 
@@ -107,7 +107,7 @@ verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 ```
 
 <div align="center">
-<img src="assets/test_an_audio.png" alt="Test an audio — weighted-fusion verdict" width="90%"/>
+<img src="assets/test_an_audio.png" alt="Test an audio, weighted-fusion verdict" width="90%"/>
 </div>
 
 ---
@@ -120,8 +120,8 @@ verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 |---|---|
 | **Home** | The project at a glance: corpora, methodology, key metrics. |
 | **Signal Explorer** | Visualize waveform + every spectral view (STFT-dB, CNN input, MFCC, LFCC, CQCC), or pit a **real voice against a deepfake** side by side. |
-| **Benchmark** | Three modes — **Classic** (DSP × classifier), **CNN** (train live, loss curves per epoch) and **Full comparison** (all 21 models, leaderboard). |
-| **Detection Analysis** | **Test an audio** — drop a clip, every model scores it in parallel, weighted-fusion verdict. **Analyse on a split** — *why* a detector gets its EER: score distributions, ROC/DET curves, interactive threshold. |
+| **Benchmark** | Three modes: **Classic** (DSP × classifier), **CNN** (train live, loss curves per epoch) and **Full comparison** (all 21 models, leaderboard). |
+| **Detection Analysis** | **Test an audio**: drop a clip, every model scores it in parallel, weighted-fusion verdict. **Analyse on a split**: *why* a detector gets its EER, with score distributions, ROC/DET curves, interactive threshold. |
 | **Methodology** | The full reference: corpora, DSP front-ends, classifiers, architectures, metrics. |
 | **Settings** | **Light / Dark Side** theme, animated background, accessibility, and a few easter eggs. |
 
@@ -129,7 +129,7 @@ verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 
 ---
 
-## The detector zoo — 21 models, 3 families
+## The detector zoo: 21 models, 3 families
 
 <table>
 <tr>
@@ -148,12 +148,12 @@ verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 <td width="33%" valign="top">
 
 ### Deep nets
-On STFT-dB spectrograms — **5 models**
+On STFT-dB spectrograms, **5 models**
 
-`5-Block CNN` — *±Squeeze-and-Excitation*
-`ResNet + SE` — *4 residual blocks, channel attention*
-`ResNeXt + SE` — *grouped convolutions (cardinality)*
-`CRNN` — *conv extractor + bidirectional GRU (time axis)*
+`5-Block CNN`, *±Squeeze-and-Excitation*
+`ResNet + SE`, *4 residual blocks, channel attention*
+`ResNeXt + SE`, *grouped convolutions (cardinality)*
+`CRNN`, *conv extractor + bidirectional GRU (time axis)*
 
 </td>
 <td width="33%" valign="top">
@@ -161,14 +161,14 @@ On STFT-dB spectrograms — **5 models**
 ### Self-supervised
 Raw 16 kHz waveform
 
-`wav2vec 2.0` — *HF base, 12 layers, fine-tuned + linear head, T=2.0, inference-only*
+`wav2vec 2.0`, *HF base, 12 layers, fine-tuned + linear head, T=2.0, inference-only*
 
 </td>
 </tr>
 </table>
 
 <details>
-<summary><b>DSP front-ends — what each one captures</b></summary>
+<summary><b>DSP front-ends: what each one captures</b></summary>
 
 <br/>
 
@@ -207,7 +207,7 @@ streamlit run app.py        # opens http://localhost:8501
 
 ## Tests & CI
 
-**88 tests, ~15 s, 100% synthetic data** — no corpus, no GPU, runs anywhere.
+**88 tests, ~15 s, 100% synthetic data**, no corpus, no GPU, runs anywhere.
 
 ```bash
 pytest                             # full suite
@@ -226,12 +226,12 @@ pytest tests/test_metrics.py -v    # one module, verbose
 | `test_models.py` | Classic factory (calibrated probs, reproducibility) + forward pass of CNN, ResNet+SE, wav2vec 2.0. |
 | `test_data_loader.py` | 2019/2021 protocol parsing, stratified subsampling, both PyTorch `Dataset`s. |
 | `test_pipeline.py` | Feature-matrix extraction, classic train/eval, CNN & raw-waveform inference scorers. |
-| `test_pages_smoke.py` | Headless render of every page + benchmark mode (Streamlit `AppTest`) — catches UI/import regressions. |
+| `test_pages_smoke.py` | Headless render of every page + benchmark mode (Streamlit `AppTest`), catches UI/import regressions. |
 
 </details>
 
 Every push and PR to `main` runs the suite on **Python 3.11 & 3.12** via
-[GitHub Actions](.github/workflows/ci.yml) — status shown in the CI badge above.
+[GitHub Actions](.github/workflows/ci.yml), status shown in the CI badge above.
 
 ---
 
@@ -248,7 +248,7 @@ Every push and PR to `main` runs the suite on **Python 3.11 & 3.12** via
 </div>
 
 > Audio is **16 kHz / 16-bit PCM** (Nyquist = 8 kHz). The corpora are multi-GB and
-> **not shipped** with the repo — without them the app still runs fully on the
+> **not shipped** with the repo; without them the app still runs fully on the
 > bundled `samples/` clips and HF-streamed eval splits (exactly how the cloud demo
 > works). To run locally on real data, extract ASVspoof 2019 LA into
 > `data/ASVspoof2019/LA/` (2021 paths in [`config/config.yaml`](config/config.yaml)).
@@ -299,19 +299,19 @@ Deepfake-Audio-Detection/
 </details>
 
 <details>
-<summary><b>Model weights — why wav2vec 2.0 comes from Hugging Face</b></summary>
+<summary><b>Model weights: why wav2vec 2.0 comes from Hugging Face</b></summary>
 
 <br/>
 
 The **model zoo is versioned in the repo** (`models/`): the 15 classic `.joblib`
 estimators (a few KB each) plus the five deep nets (`cnn5.pth`, `cnn5_se.pth`,
-`resnet.pth`, `resnext.pth`, `crnn.pth`) — loaded instantly, no download.
+`resnet.pth`, `resnext.pth`, `crnn.pth`), loaded instantly, no download.
 
 The **only exception** is the **wav2vec 2.0** checkpoint (~469 MB), which exceeds
 GitHub's 100 MB hard limit:
 
-- **Locally** — read from `models/wav2vec2.pth`.
-- **In the cloud** — fetched on first run from a public HF repo
+- **Locally**, read from `models/wav2vec2.pth`.
+- **In the cloud**, fetched on first run from a public HF repo
   (`Sara1708/deepfake-audio-wav2vec2 -> stage2_best.pt`).
 
 This exception is encoded in [`.gitignore`](.gitignore); every other model is committed.
@@ -323,7 +323,7 @@ This exception is encoded in [`.gitignore`](.gitignore); every other model is co
 
 <br/>
 
-All physical signal parameters live in [`config/config.yaml`](config/config.yaml) —
+All physical signal parameters live in [`config/config.yaml`](config/config.yaml);
 the code never hard-codes magic numbers.
 
 | Parameter | Value | Meaning |
@@ -341,7 +341,7 @@ the code never hard-codes magic numbers.
 (context only, misleading under the ~1:9 class imbalance).
 
 **Efficiency metrics:** the Full comparison's **Efficiency** tab also reports, per
-model, the **training time (s)**, the **feature-extraction latency** (ms/clip — the
+model, the **training time (s)**, the **feature-extraction latency** (ms/clip, the
 DSP front-end for classic models, the STFT spectrogram for the CNNs, measured cold
 with the cache bypassed) and the **inference latency** (ms/clip, the model forward
 pass), plus their sum as the end-to-end **per-clip latency**. Accuracy and the
@@ -350,20 +350,20 @@ easy 2019 dev split), so the cost-vs-accuracy scatter reflects overall behaviour
 leaderboard headlines two picks: the **best model** (lowest mean minDCF across all
 corpora) and the **most efficient** (best accuracy×speed trade-off). These let you
 weigh cost against accuracy ("how much does each model *pay off*"). They are persisted
-to [`leaderboard.json`](leaderboard.json) and shown identically in the web demo —
+to [`leaderboard.json`](leaderboard.json) and shown identically in the web demo, 
 **but they are wall-clock times measured on the machine that ran the training**
 (its CPU/GPU, disk and dataloader settings), so treat them as *relative* comparisons
 within a single run, not portable absolute benchmarks. The web demo never re-times;
 it just displays the values recorded when the sweep was last run and committed.
 
 **Benchmark rigour (Full comparison):** because dev shares its attacks with train,
-the spectrogram nets saturate it (~0 % dev EER) and a single run can't rank them — so
+the spectrogram nets saturate it (~0 % dev EER) and a single run can't rank them, so
 each CNN is trained over **several seeds** (`cnn_multiseed.seeds`, default 3) and the
 leaderboard reports the **mean** across seeds. Early stopping watches an
 **unseen-attack validation split** (`holdout_attacks`, default A05/A06 held out of
 training) instead of the saturated dev set, so model selection rewards generalisation;
 the saved checkpoint is the **best seed** (lowest unseen-attack validation loss). The
-eval sets (A07–A19, 2021 LA/DF) are never touched by training or selection.
+eval sets (A07-A19, 2021 LA/DF) are never touched by training or selection.
 
 </details>
 
@@ -378,24 +378,24 @@ eval sets (A07–A19, 2021 LA/DF) are never touched by training or selection.
 
 **Key academic references**
 
-- K. Schäfer & M. Steinebach. *MFCC vs. LFCC for Audio Deepfake Detection: The Role of Delta Features and Input Length.* ACM Workshop on Information Hiding and Multimedia Security (IH&MMSec), 2023, pp. 576–581.
+- K. Schäfer & M. Steinebach. *MFCC vs. LFCC for Audio Deepfake Detection: The Role of Delta Features and Input Length.* ACM Workshop on Information Hiding and Multimedia Security (IH&MMSec), 2023, pp. 576 to 581.
 - A. Baevski, H. Zhou, A. Mohamed & M. Auli. *wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations.* NeurIPS, 2020.
 - M. Todisco et al. *ASVspoof 2019: Future Horizons in Spoofed and Fake Audio Detection.* Interspeech, 2019.
 - J. Yamagishi et al. *ASVspoof 2021: Accelerating Progress in Spoofed and Deepfake Speech Detection.* ASVspoof Workshop, 2021.
-- T. Kinnunen et al. *t-DCF: a Detection Cost Function for the Tandem Assessment of Spoofing Countermeasures and ASV.* Speaker Odyssey, 2018 — [talk](https://umotion.univ-lemans.fr/video/3641-odyssey-2018-t-dcf-a-detection-cost-function-for-the-tandem-assessment-of-spoofing-countermeasures-and-automatic-speaker-verification/).
+- T. Kinnunen et al. *t-DCF: a Detection Cost Function for the Tandem Assessment of Spoofing Countermeasures and ASV.* Speaker Odyssey, 2018, [talk](https://umotion.univ-lemans.fr/video/3641-odyssey-2018-t-dcf-a-detection-cost-function-for-the-tandem-assessment-of-spoofing-countermeasures-and-automatic-speaker-verification/).
 - J. Hu, L. Shen & G. Sun. *Squeeze-and-Excitation Networks.* CVPR, 2018. *(channel attention in ResNet + SE)*
 - D. S. Park et al. *SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition.* Interspeech, 2019.
 
 **Datasets & benchmark**
 
-- ASVspoof challenge — corpora 2019 LA and 2021 LA / DF — [asvspoof.org](https://www.asvspoof.org/).
+- ASVspoof challenge, corpora 2019 LA and 2021 LA / DF, [asvspoof.org](https://www.asvspoof.org/).
 
 **Learning resources**
 
-- Valerio Velardo — *The Sound of AI* (audio deep learning & DSP) — [playlist](https://www.youtube.com/playlist?list=PLwATfeyAMNqIee7cH3q1bh4QJFAaeNv0).
-- Carlos Santana — *DotCSV* — [channel](https://www.youtube.com/@DotCSV).
-- *3Blue1Brown* — Neural Networks series — [playlist](https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi).
-- *StatQuest* — [channel](https://www.youtube.com/@statquest) · *Explaining AI* — [channel](https://www.youtube.com/@Explaining-AI) · *Linkfy Dev* — [channel](https://www.youtube.com/@Linkfydev) · *PyNinja* — [channel](https://www.youtube.com/@pyninja).
+- Valerio Velardo, *The Sound of AI* (audio deep learning & DSP), [playlist](https://www.youtube.com/playlist?list=PLwATfeyAMNqIee7cH3q1bh4QJFAaeNv0).
+- Carlos Santana, *DotCSV*, [channel](https://www.youtube.com/@DotCSV).
+- *3Blue1Brown*, Neural Networks series, [playlist](https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi).
+- *StatQuest*, [channel](https://www.youtube.com/@statquest) · *Explaining AI*, [channel](https://www.youtube.com/@Explaining-AI) · *Linkfy Dev*, [channel](https://www.youtube.com/@Linkfydev) · *PyNinja*, [channel](https://www.youtube.com/@pyninja).
 
 </details>
 
@@ -429,7 +429,7 @@ eval sets (A07–A19, 2021 LA/DF) are never touched by training or selection.
 
 <sub><b>Samuel Pérez López</b> &nbsp;·&nbsp; Universidad de La Laguna</sub>
 <br/>
-<sub><b>Final Degree Project (TFG)</b> &nbsp;·&nbsp; Computer Engineering — <i>Ingeniería Informática</i> &nbsp;·&nbsp; Licensed under <a href="LICENSE">MIT</a></sub>
+<sub><b>Final Degree Project (TFG)</b> &nbsp;·&nbsp; Computer Engineering, <i>Ingeniería Informática</i> &nbsp;·&nbsp; Licensed under <a href="LICENSE">MIT</a></sub>
 
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:6366F1,50:4F8BF9,100:22D3EE&height=140&section=footer&text=Thanks%20for%20scrolling&fontSize=22&fontColor=ffffff&animation=twinkling&fontAlignY=68" width="100%"/>
 

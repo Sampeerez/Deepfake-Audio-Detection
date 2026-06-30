@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-src/metrics.py — Detection metrics: EER and minDCF.
+src/metrics.py, Detection metrics: EER and minDCF.
 
 Pure-Python implementations with no external libraries, ensuring full
 academic transparency: every arithmetic step is explicit and auditable.
@@ -149,7 +149,7 @@ def calculate_eer_and_min_dcf(scores: Sequence[float],
                               c_miss: float = 1.0,
                               c_fa: float = 10.0) -> Tuple[float, float, float]:
     """Compute EER (with its threshold) and normalised minDCF in a SINGLE sort
-    and SINGLE sweep — both metrics evaluate the exact same discrete thresholds
+    and SINGLE sweep, both metrics evaluate the exact same discrete thresholds
     (one per observed score), so sorting twice is wasteful when, as in the
     benchmark result rows, both are needed for the same scores.
 

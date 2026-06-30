@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-modes/_mode_classic.py — "Classic models" mode of the Benchmark page: configure
+modes/_mode_classic.py, "Classic models" mode of the Benchmark page: configure
 and launch one DSP-extractor × classifier experiment (the CNN has its own mode).
 
 Configuration lives in the MAIN area (a bordered panel), not the sidebar:
@@ -57,7 +57,7 @@ st.markdown(themed("""
     border-radius: 0.8rem;
     padding: 0.8rem 1.15rem;
     margin: 0.2rem 0 0.9rem;
-    /* Continuous soft glow — draws the eye to the headline result. */
+    /* Continuous soft glow, draws the eye to the headline result. */
     animation: bannerGlow 3.5s ease-in-out infinite;
 }
 .best-banner .bb-tag {
@@ -87,16 +87,16 @@ st.caption(
 )
 
 # On the corpus-less web demo we DON'T bail out anymore: the page renders exactly
-# like local, but training is disabled — you can still evaluate every pretrained
+# like local, but training is disabled, you can still evaluate every pretrained
 # model on eval clips streamed from Hugging Face (see eval_corpora_for).
 _web = not corpus_available()
 if _web:
     demo_corpus_notice(
-        "Classic models — evaluation only in the web demo",
+        "Classic models, evaluation only in the web demo",
         "Re-fitting the DSP × classifier models needs the full ASVspoof corpus "
         "(several GB), so on the public cloud <b>training is disabled</b>. You can "
         "still <b>Evaluate</b> every pretrained model on eval clips streamed from "
-        "Hugging Face — the same view you get locally.",
+        "Hugging Face, the same view you get locally.",
     )
 
 config    = load_config()
@@ -111,11 +111,11 @@ MODEL_LABELS = {
 }
 
 FEATURE_BLURBS = {
-    "1": "Frame-level energy envelope — the simplest temporal baseline.",
+    "1": "Frame-level energy envelope, the simplest temporal baseline.",
     "2": "Mel-scale cepstrum: the classic speech front-end, tuned to human hearing.",
-    "3": "Linear-frequency cepstrum — keeps high-band detail where TTS artefacts live.",
-    "4": "Multi-resolution wavelet energies (db4) — transient and band-energy cues.",
-    "6": "Constant-Q cepstrum — log-spaced bins, the strongest classic anti-spoofing front-end.",
+    "3": "Linear-frequency cepstrum, keeps high-band detail where TTS artefacts live.",
+    "4": "Multi-resolution wavelet energies (db4), transient and band-energy cues.",
+    "6": "Constant-Q cepstrum, log-spaced bins, the strongest classic anti-spoofing front-end.",
 }
 
 FEATURE_ORDER = ["1", "2", "3", "4", "6"]
@@ -128,9 +128,9 @@ MODEL_BLURBS = {
 
 SPLIT_DEV, SPLIT_EVAL, SPLIT_BOTH = "Dev", "Eval", "Dev + Eval"
 SPLIT_HELP = {
-    SPLIT_DEV:  "Score on the dev split — same attacks (A01–A06) as training.",
-    SPLIT_EVAL: "Score on the eval split — 13 unseen attacks (A07–A19): the generalisation test.",
-    SPLIT_BOTH: "Score on dev and eval — adds an extra eval row per model.",
+    SPLIT_DEV:  "Score on the dev split, same attacks (A01-A06) as training.",
+    SPLIT_EVAL: "Score on the eval split, 13 unseen attacks (A07-A19): the generalisation test.",
+    SPLIT_BOTH: "Score on dev and eval, adds an extra eval row per model.",
 }
 
 # Right column tweaks: the Evaluate/Score box fills the full column width (its
@@ -216,7 +216,7 @@ with st.container(border=True):
             run_btn = st.button("Train models", type="primary",
                                 icon=":material/play_arrow:", width="stretch",
                                 disabled=_busy or _web,
-                                help="Training is disabled in the web demo — "
+                                help="Training is disabled in the web demo, "
                                      "evaluate the pretrained models instead."
                                      if _web else None)
         eval_btn = st.button(
@@ -265,7 +265,7 @@ if run_btn and _run_sig in st.session_state.get("run_signatures", set()):
     st.info(
         f"**{FEATURE_LABELS[feature_option]} × {MODEL_LABELS[model_option]}** "
         f"(subset {int(subset) or 'full'}, seed {int(seed)}) has already been "
-        "trained — the dev results are unchanged. Press Evaluate for eval corpus "
+        "trained, the dev results are unchanged. Press Evaluate for eval corpus "
         "scoring, or change the configuration to re-train.",
         icon=":material/info:",
     )
@@ -344,7 +344,7 @@ if eval_btn:
             st.error("No models available for evaluation.")
             st.stop()
 
-    # Honour the "Score on" choice (Dev / Eval / Dev + Eval) — previously the
+    # Honour the "Score on" choice (Dev / Eval / Dev + Eval), previously the
     # Evaluate button always scored the eval corpus regardless of the selector.
     _targets = []   # (kind, label, samples)
     if score_split in (SPLIT_DEV, SPLIT_BOTH):
@@ -405,7 +405,7 @@ if not rows:
         "No experiments yet",
         "Set the configuration above and press Run experiment. Each run is "
         "added to a shared results table so you can benchmark configurations "
-        "against each other — and they also feed the Leaderboard.",
+        "against each other, and they also feed the Leaderboard.",
     )
 else:
     df = pd.DataFrame(rows)
@@ -418,7 +418,7 @@ else:
         df_num[col] = pd.to_numeric(df_num[col], errors="coerce")
     valid = df_num.dropna(subset=[COL_EER])
 
-    # ── Best configuration banner (by minDCF — primary metric — then EER) ──── #
+    # ── Best configuration banner (by minDCF, primary metric, then EER) ──── #
     best_idx = None
     if not valid.empty:
         best_idx = valid.sort_values([COL_MIN_DCF, COL_EER],
@@ -437,7 +437,7 @@ else:
             unsafe_allow_html=True,
         )
 
-    # No "last run" metric strip — those figures are columns of the results
+    # No "last run" metric strip, those figures are columns of the results
     # table below (and the best run is highlighted), so it would be redundant.
     tab_res, tab_charts = st.tabs(["Results table", "Charts"])
 
@@ -449,17 +449,6 @@ else:
 
         st.dataframe(df.style.apply(_highlight_best, axis=1),
                      width="stretch", hide_index=True)
-        if best_idx is not None:
-            st.caption("The highlighted row is the best configuration by minDCF "
-                       "(primary metric), EER as tiebreaker.")
-        csv_bytes = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download results as CSV",
-            data=csv_bytes,
-            file_name="experiment_results.csv",
-            mime="text/csv",
-            icon=":material/download:",
-        )
 
     with tab_charts:
         if valid.empty:
@@ -510,13 +499,13 @@ else:
 
             cc1, cc2 = st.columns(2)
             with cc1:
-                st.markdown("**EER (%) — lower is better**")
+                st.markdown("**EER (%), lower is better**")
                 st.altair_chart(_hbar(COL_EER, "EER (%)"), width="stretch")
             with cc2:
-                st.markdown("**minDCF — lower is better**")
+                st.markdown("**minDCF, lower is better**")
                 st.altair_chart(_hbar(COL_MIN_DCF, "minDCF"), width="stretch")
 
-            st.markdown("**Accuracy — informative only**")
+            st.markdown("**Accuracy, informative only**")
             st.altair_chart(_hbar(COL_ACCURACY, "Accuracy"), width="stretch")
             st.caption(
                 "Bars are coloured by classifier; eval-split rows are drawn "

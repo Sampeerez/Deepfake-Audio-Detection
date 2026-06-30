@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app.py — Punto de entrada principal.
+app.py, Punto de entrada principal.
 
 Configura página, CSS global y navegación multi-página ANTES de delegar en
 cada página, de forma que el primer render ya sea estable (sin flash de
@@ -26,7 +26,7 @@ import streamlit as st  # noqa: E402
 # Streamlit's module watcher calls hasattr(m, "__path__") on every entry in
 # sys.modules each rerun. Some transformers subpackages are lazy proxies whose
 # __getattr__ triggers importing the real file, which needs torchvision (not
-# installed). Suppress the resulting WARNING from the watcher logger — the app
+# installed). Suppress the resulting WARNING from the watcher logger, the app
 # works correctly, these are pure noise.
 class _NoTransformerVisionWarning(_logging.Filter):
     def filter(self, record):
@@ -72,7 +72,7 @@ apply_mpl_theme(_theme)
 # y no hay flash de estilos por defecto al navegar.
 st.markdown(build_page_css(_theme), unsafe_allow_html=True)
 
-# May the 4th — a one-line banner that only shows on Star Wars Day (4 May).
+# May the 4th, a one-line banner that only shows on Star Wars Day (4 May).
 import datetime as _dt  # noqa: E402
 
 if (_dt.date.today().month, _dt.date.today().day) == (5, 4):
@@ -92,8 +92,8 @@ if (_dt.date.today().month, _dt.date.today().day) == (5, 4):
 # ratón se ha eliminado: no funcionaba de forma fiable.)
 # Ambient-background canvas + Konami code + Vega-tooltip fix. The script lives in
 # static/canvas.js (externalised for JS linting and browser caching); it is
-# wrapped in <script> tags via CONCATENATION, not an f-string — the JS is full of
-# braces — and injected into a 0-height same-origin iframe.
+# wrapped in <script> tags via CONCATENATION, not an f-string, the JS is full of
+# braces, and injected into a 0-height same-origin iframe.
 _CANVAS_JS = open(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "canvas.js"),
     encoding="utf-8",
@@ -156,7 +156,7 @@ if _fut is not None and _fut.done():
         st.session_state.setdefault("cnn_runs", []).extend(_cnn_rows)
         if not _jobs.cancel_requested():
             st.session_state["bench_done"] = True   # enables "See full comparison"
-    except Exception as _exc:  # noqa: BLE001 — surface compute errors
+    except Exception as _exc:  # noqa: BLE001, surface compute errors
         st.session_state["bench_error"] = str(_exc)
     st.session_state["bench_future"] = None
     st.session_state["op_running"] = False
@@ -175,8 +175,8 @@ if _cnn_fut is not None and _cnn_fut.done():
             st.session_state["cnn_model"]        = _model
             st.session_state["cnn_history"]      = _hist
             st.session_state["cnn_dev"]          = _pend.get("dev", [])
-            st.session_state["cnn_train_corpus"] = _pend.get("corpus", "—")
-            st.session_state["cnn_arch_trained"] = _pend.get("arch", "—")
+            st.session_state["cnn_train_corpus"] = _pend.get("corpus", ", ")
+            st.session_state["cnn_arch_trained"] = _pend.get("arch", ", ")
             if not _train_only:
                 # Produce result rows only when NOT in train-only mode; the
                 # Evaluate button in CNN mode adds them on-demand instead.
@@ -186,7 +186,7 @@ if _cnn_fut is not None and _cnn_fut.done():
                     _ev = [r for r in _results if "[EVAL]" in str(r.get("Model", ""))]
                     _board = _ev or _results
                 st.session_state.setdefault("cnn_runs", []).extend(_board)
-    except Exception as _exc:  # noqa: BLE001 — surface compute errors
+    except Exception as _exc:  # noqa: BLE001, surface compute errors
         st.session_state["cnn_error"] = str(_exc)
     st.session_state["cnn_future"] = None
     st.session_state.pop("cnn_pending", None)
@@ -194,7 +194,7 @@ if _cnn_fut is not None and _cnn_fut.done():
 # Global background-job banner, pinned to the bottom of the sidebar. Rendered
 # BEFORE the page runs (so it appears on every page, even ones that call
 # st.stop()) and as a self-refreshing fragment (so it updates its progress every
-# 2 s on its own and triggers a single full rerun when the job finishes — no
+# 2 s on its own and triggers a single full rerun when the job finishes, no
 # disruptive whole-app polling).
 from src.ui_helpers import (  # noqa: E402
     op_banner_fragment, op_in_progress,
