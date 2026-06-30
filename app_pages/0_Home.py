@@ -23,13 +23,13 @@ from src.ui_helpers import (  # noqa: E402
 _AUDIO_COLORS = {"Red": "#FF5252", "Purple": "#9D4EDD", "Blue": "#4FC3F7", "Green": "#66BB6A"}
 _audio_color_name = st.session_state.get("sw_audio_color", "Red")
 _audio_color_hex = _AUDIO_COLORS.get(_audio_color_name, "#FF5252")
-# Gradient: lighter shade to darker shade of the chosen color
 _audio_grad_light = f"{_audio_color_hex}EE"
 _audio_grad_mid = _audio_color_hex
 _audio_grad_dark = f"{_audio_color_hex}88"
 _audio_gradient = f"linear-gradient(180deg, {_audio_grad_light} 0%, {_audio_grad_mid} 55%, {_audio_grad_dark} 100%)"
+_audio_glow = f"{_audio_color_hex}C0"
 
-st.markdown(themed(f"""
+_CSS_BASE = """
 <style>
 /* Separate the "Open …" page links from the panel card above them. */
 [data-testid="stPageLink"] { margin-top: 0.7rem !important; }
@@ -41,22 +41,22 @@ st.markdown(themed(f"""
     width: 100%;                              /* span the full header width */
     opacity: 0.82;
 }
-.audio-eq span {{
+.audio-eq span {
     display: block; width: 4px; border-radius: 2px;
-    background: {_audio_gradient};
+    background: AUDIO_GRADIENT_PLACEHOLDER;
     animation: eqBounce 1.2s ease-in-out infinite;
     transition: filter .6s ease;          /* smooth glow in/out */
     will-change: transform;
-}}
+}
 @keyframes eqBounce {
     0%, 100% { transform: scaleY(0.18); }
     50%      { transform: scaleY(1); }
 }
 /* Glow ramps in/out smoothly (the SPEED ramp is handled in JS via playbackRate,
    which CSS cannot transition). */
-.audio-eq:hover span {{
-    filter: brightness(1.35) drop-shadow(0 0 7px {_audio_color_hex}C0);
-}}
+.audio-eq:hover span {
+    filter: brightness(1.35) drop-shadow(0 0 7px AUDIO_GLOW_PLACEHOLDER);
+}
 
 /* ── Tech stack pills ────────────────────────────────────────────────────── */
 .tech-stack {
@@ -145,7 +145,10 @@ st.markdown(themed(f"""
 [class*="st-key-navt_"]:hover .nav-tile .nt-icon { transform: scale(1.08) rotate(-4deg); background: rgba(79,139,249,0.22); }
 [class*="st-key-navt_"]:hover .nav-tile.nt-ref .nt-icon { background: rgba(156,39,176,0.2); }
 </style>
-"""), unsafe_allow_html=True)
+"""
+
+_CSS = _CSS_BASE.replace("AUDIO_GRADIENT_PLACEHOLDER", _audio_gradient).replace("AUDIO_GLOW_PLACEHOLDER", _audio_glow)
+st.markdown(themed(_CSS), unsafe_allow_html=True)
 
 # ── Minimal data needed for the stat strip ──────────────────────────────── #
 config    = load_config()
