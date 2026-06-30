@@ -88,14 +88,10 @@ st.markdown("""
 }
 [class*="st-key-da_test_upload"] {
     height: 56px !important;
-    display: flex !important;
-    align-items: center !important;
 }
 [class*="st-key-da_test_upload"] [data-testid="stFileUploadDropzone"] {
     min-height: 56px !important;
     height: 56px !important;
-    display: flex !important;
-    align-items: center !important;
 }
 </style>
 """, unsafe_allow_html=True)
