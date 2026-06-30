@@ -136,11 +136,17 @@ st.markdown(themed("""
 
 # Detect navigation via sidebar: if bench_choice was set from a previous visit,
 # but this load is not from a deliberate internal action, assume sidebar navigation
-# and clear bench_choice to show the home page.
-_is_internal_action = st.session_state.pop("_bench_action_source", None) == "internal"
+# and clear bench_choice to show the home page. Don't pop _bench_action_source yet
+# so internal reruns within a mode keep it marked.
+_is_internal_action = st.session_state.get("_bench_action_source") == "internal"
 _current_choice = st.session_state.get("bench_choice")
-if _current_choice and not _is_internal_action:
+# Clear sidebar-nav marker only if we're actually at the home page (no choice)
+if not _current_choice:
+    st.session_state.pop("_bench_action_source", None)
+elif not _is_internal_action:
+    # Sidebar nav happened while not in internal action: go back to home
     st.session_state.pop("bench_choice", None)
+    st.session_state.pop("_bench_action_source", None)
 
 choice = st.session_state.get("bench_choice")
 

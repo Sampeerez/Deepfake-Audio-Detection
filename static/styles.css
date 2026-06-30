@@ -1295,11 +1295,14 @@ textarea:focus-visible,
 select:focus-visible,
 summary:focus-visible,
 [tabindex]:focus-visible,
-[data-baseweb="select"]:focus-within,
 [data-testid="stSidebarNavLink"]:focus-visible {
     outline: 3px solid var(--saber, #4F8BF9) !important;
     outline-offset: 2px !important;
     border-radius: 0.4rem;
+}
+/* Selectbox focus handling: no visible outline (baseweb handles its own styling) */
+[data-baseweb="select"]:focus-within {
+    outline: none !important;
 }
 
 /* Honour the OS "reduce motion" preference: stop the ambient/decorative
