@@ -568,16 +568,16 @@ def _render_test_results(rows, signal, blob, fname):
         m_name = m['name']
         c = SPOOF_COLOR if p_val >= 0.5 else BONAFIDE_COLOR
         return (f"<div style='border:1px solid {c}55;border-left:3px solid {c};"
-                f"border-radius:0.5rem;padding:0.4rem 0.6rem;background:{c}14;'>"
-                f"<div style='font-size:0.65rem;font-weight:700;color:#C9D7F5;'>"
+                f"border-radius:0.5rem;padding:0.65rem 0.85rem;background:{c}14;min-width:140px;'>"
+                f"<div style='font-size:0.75rem;font-weight:700;color:#C9D7F5;'>"
                 f"{m_name}</div>"
-                f"<div style='font-size:0.7rem;color:#9EA8C0;margin-top:0.15rem;'>"
+                f"<div style='font-size:0.8rem;color:#9EA8C0;margin-top:0.2rem;'>"
                 f"p={p_val:.2f}</div></div>")
     _member_chips = "".join(_member_chip(m) for m in _members)
     # Enlarged verdict panel, centered, with members to the right
     st.markdown(
-        f"<div style='display:flex;gap:1.6rem;align-items:center;margin:1.2rem auto 1.6rem;max-width:1000px;justify-content:center;'>"
-        f"<div style='flex:0 0 380px;padding:2.5rem 3rem;border-radius:1rem;border:2px solid {v_color}59;"
+        f"<div style='display:flex;gap:2rem;align-items:center;margin:1.2rem auto 1.6rem;max-width:1300px;justify-content:center;'>"
+        f"<div style='flex:0 0 420px;padding:2.8rem 3.2rem;border-radius:1rem;border:2px solid {v_color}59;"
         f"box-shadow:0 0 30px {v_color}55, inset 0 0 30px {v_color}1f;text-align:center;'>"
         f"<span style='display:block;font-size:0.7rem;font-weight:800;letter-spacing:0.16em;"
         f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.4rem;'>Final verdict — weighted fusion</span>"
@@ -585,7 +585,7 @@ def _render_test_results(rows, signal, blob, fname):
         f"{v_text}</span>"
         f"<span style='color:#9EA8C0;font-size:1rem;margin-top:0.8rem;display:block;'>"
         f"p(spoof) = <b style='color:#C9D7F5;'>{fused_p:.3f}</b></span></div>"
-        f"<div style='display:flex;flex-direction:column;gap:0.5rem;align-items:flex-start;'>"
+        f"<div style='display:flex;flex-direction:column;gap:0.7rem;align-items:center;'>"
         f"{_member_chips}</div></div>",
         unsafe_allow_html=True,
     )

@@ -23,7 +23,7 @@ from src.ui_helpers import (  # noqa: E402
 _SIDE_LABELS = {"dark": "Dark Side", "light": "Light Side"}
 _AUDIO_COLORS = {"Red": "#FF5252", "Purple": "#9D4EDD", "Blue": "#4FC3F7", "Green": "#66BB6A"}
 _DEFAULTS = {
-    "sw_theme": "dark", "sw_saber": "Auto", "sw_bg": "Star Wars",
+    "sw_theme": "dark", "sw_saber": "Red", "sw_bg": "Star Wars",
     "sw_bg_intensity": "Normal", "sw_show_ships": True,
     "sw_show_deathstar": True, "sw_reduced_motion": False,
     "sw_contrast": False, "sw_text_scale": "Normal", "sw_audio_color": "Red",
@@ -33,6 +33,13 @@ _DEFAULTS = {
 # ── Callbacks: copy the live widget value into the persistent plain key ────────
 def _sync(plain: str, ctl: str) -> None:
     st.session_state[plain] = st.session_state[ctl]
+
+
+def _sync_color() -> None:
+    """Sync color selector to both saber and audio."""
+    color_val = st.session_state.get("sw_color_ctl")
+    st.session_state["sw_saber"] = color_val
+    st.session_state["sw_audio_color"] = color_val
 
 
 def _sync_side() -> None:
@@ -45,8 +52,7 @@ def _reset() -> None:
     for k, v in _DEFAULTS.items():
         st.session_state[k] = v
     st.session_state["sw_side_ctl"]      = _SIDE_LABELS["dark"]
-    st.session_state["sw_saber_ctl"]     = "Auto"
-    st.session_state["sw_audio_color_ctl"] = "Red"
+    st.session_state["sw_color_ctl"]     = "Red"
     st.session_state["sw_bg_ctl"]        = "Star Wars"
     st.session_state["sw_intensity_ctl"] = "Normal"
     st.session_state["sw_ships_ctl"]     = True
@@ -60,8 +66,8 @@ def _reset() -> None:
 # choice without passing default=+key=, which would warn). setdefault only fills
 # the first time the widget is created.
 st.session_state.setdefault("sw_side_ctl", _SIDE_LABELS[theme_mode()])
-st.session_state.setdefault("sw_saber_ctl", st.session_state.get("sw_saber", "Auto"))
-st.session_state.setdefault("sw_audio_color_ctl", st.session_state.get("sw_audio_color", "Red"))
+# Unified color selector for both saber and audio
+st.session_state.setdefault("sw_color_ctl", st.session_state.get("sw_saber", "Red"))
 st.session_state.setdefault("sw_bg_ctl", st.session_state.get("sw_bg", "Star Wars"))
 st.session_state.setdefault("sw_intensity_ctl", st.session_state.get("sw_bg_intensity", "Normal"))
 st.session_state.setdefault("sw_ships_ctl", bool(st.session_state.get("sw_show_ships", True)))
@@ -165,26 +171,18 @@ with _c1:
                    "accessibility light theme with a Tatooine twin-sun backdrop.")
 with _c2:
     with st.container(border=True):
-        st.markdown('<div class="section-label">Lightsaber colour</div>',
+        st.markdown('<div class="section-label">Accent & Audio colour</div>',
                     unsafe_allow_html=True)
         st.selectbox(
-            "Lightsaber colour",
-            ["Auto", "Blue", "Green", "Red", "Purple", "Amber"],
-            key="sw_saber_ctl", on_change=_sync, args=("sw_saber", "sw_saber_ctl"),
+            "Accent & Audio colour",
+            list(_AUDIO_COLORS.keys()),
+            key="sw_color_ctl", on_change=_sync_color,
             label_visibility="collapsed",
-            help="Colour of every glowing accent blade across the app. Auto = a red "
-                 "Sith blade on the Dark Side, a blue Jedi blade on the Light Side.",
+            help="Colour of the lightsaber blade accents across the app and the dancing audio bars on the home page.",
         )
         st.markdown('<div class="saber-demo"></div>'
-                    '<div class="saber-hint">Live preview, this is your blade.</div>',
+                    '<div class="saber-hint">Live preview, this is your blade and audio colour.</div>',
                     unsafe_allow_html=True)
-        st.selectbox(
-            "Audio equaliser colour",
-            list(_AUDIO_COLORS.keys()),
-            key="sw_audio_color_ctl", on_change=_sync, args=("sw_audio_color", "sw_audio_color_ctl"),
-            label_visibility="collapsed",
-            help="Colour of the dancing audio bars on the home page.",
-        )
 
 
 # ── Viewport / background ─────────────────────────────────────────────────────

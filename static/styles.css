@@ -934,7 +934,7 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
     caret-color: transparent !important;
 }
 [class*="st-key-nosearch"] [data-baseweb="select"] > div {
-    cursor: pointer !important;
+    cursor: default !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
