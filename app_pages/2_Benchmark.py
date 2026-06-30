@@ -134,6 +134,19 @@ st.markdown(themed("""
 </style>
 """), unsafe_allow_html=True)
 
+# Detect navigation via sidebar: if bench_choice was set, but we're reloading
+# the page without a deliberate action (like opening a mode or clicking "← Modes"),
+# assume we came from the sidebar and clear bench_choice to show the home page.
+_last_choice = st.session_state.get("_bench_last_choice")
+_current_choice = st.session_state.get("bench_choice")
+if _current_choice and _current_choice == _last_choice:
+    # Same choice as before, but it's a reload — likely from sidebar navigation.
+    # Clear it to show the home page.
+    if st.session_state.get("_bench_action_source") != "internal":
+        st.session_state.pop("bench_choice", None)
+        st.session_state.pop("_bench_action_source", None)
+st.session_state["_bench_last_choice"] = st.session_state.get("bench_choice")
+
 choice = st.session_state.get("bench_choice")
 
 if choice not in _MODES:
@@ -153,6 +166,7 @@ if choice not in _MODES:
             if st.button(f"Open {label}", key=f"bench_open_{key}", width="stretch",
                          type="primary" if key == "full" else "secondary"):
                 st.session_state["bench_choice"] = key
+                st.session_state["_bench_action_source"] = "internal"
                 st.rerun()
 
     # ── Fill the page: how a comparison works + what you have so far ───────── #

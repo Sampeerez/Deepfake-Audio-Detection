@@ -235,8 +235,9 @@ if clear_btn:
 # The 3-step pipeline overview lives on the Benchmark home page now; here we
 # only keep the config summaries used by the run caption and the sidebar.
 _subset_txt = "full dataset" if subset == 0 else f"{int(subset):,} files / subset"
-_split_txt  = {SPLIT_DEV: "dev split", SPLIT_EVAL: "eval split",
-               SPLIT_BOTH: "dev + eval splits"}[score_split]
+_split_base = {SPLIT_DEV: "dev", SPLIT_EVAL: "eval",
+               SPLIT_BOTH: "dev + eval"}[score_split]
+_split_txt  = f"{_split_base} · {corpus}"
 
 COL_SPLIT = "Split"
 
@@ -507,10 +508,6 @@ else:
 
             st.markdown("**Accuracy, informative only**")
             st.altair_chart(_hbar(COL_ACCURACY, "Accuracy"), width="stretch")
-            st.caption(
-                "Bars are coloured by classifier; eval-split rows are drawn "
-                "slightly translucent. Hover any bar for the full metric set."
-            )
 
 # ── Sidebar: live session summary (rendered last, when results exist) ───── #
 

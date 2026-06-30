@@ -562,29 +562,29 @@ def _render_test_results(rows, signal, blob, fname):
     v_text   = ("SPOOF · deepfake" if fusion["verdict"] == "SPOOF"
                 else "BONAFIDE · real speech")
 
-    # Verdict panel (left) + fusion members as chips (right)
+    # Verdict panel (left) + fusion members as vertical chips (right)
     def _member_chip(m):
         p_val = m['p']
         m_name = m['name']
         c = SPOOF_COLOR if p_val >= 0.5 else BONAFIDE_COLOR
         return (f"<div style='border:1px solid {c}55;border-left:3px solid {c};"
-                f"border-radius:0.6rem;padding:0.5rem 0.7rem;background:{c}14;'>"
-                f"<div style='font-size:0.75rem;font-weight:700;color:#C9D7F5;'>"
+                f"border-radius:0.5rem;padding:0.4rem 0.6rem;background:{c}14;'>"
+                f"<div style='font-size:0.65rem;font-weight:700;color:#C9D7F5;'>"
                 f"{m_name}</div>"
-                f"<div style='font-size:0.8rem;color:#9EA8C0;margin-top:0.2rem;'>"
+                f"<div style='font-size:0.7rem;color:#9EA8C0;margin-top:0.15rem;'>"
                 f"p={p_val:.2f}</div></div>")
     _member_chips = "".join(_member_chip(m) for m in _members)
     st.markdown(
-        f"<div style='display:flex;gap:1.6rem;align-items:flex-start;margin:0.6rem auto 1.2rem;max-width:900px;'>"
-        f"<div style='flex:0 0 auto;padding:1rem 1.3rem;border-radius:0.9rem;border:1px solid {v_color}59;"
+        f"<div style='display:flex;gap:2rem;align-items:center;margin:0.6rem auto 1.2rem;max-width:1000px;'>"
+        f"<div style='flex:0 0 280px;padding:1.5rem 1.8rem;border-radius:0.9rem;border:1px solid {v_color}59;"
         f"box-shadow:0 0 20px {v_color}55, inset 0 0 24px {v_color}1f;text-align:center;'>"
-        f"<span style='display:block;font-size:0.66rem;font-weight:800;letter-spacing:0.14em;"
-        f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.15rem;'>Final verdict</span>"
-        f"<span style='font-size:1.6rem;font-weight:700;color:{v_color};text-shadow:0 0 14px {v_color}aa;'>"
+        f"<span style='display:block;font-size:0.62rem;font-weight:800;letter-spacing:0.14em;"
+        f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.2rem;'>Final verdict</span>"
+        f"<span style='font-size:2rem;font-weight:700;color:{v_color};text-shadow:0 0 14px {v_color}aa;'>"
         f"{v_text}</span><br>"
-        f"<span style='color:#9EA8C0;font-size:0.85rem;margin-top:0.3rem;display:block;'>"
+        f"<span style='color:#9EA8C0;font-size:0.9rem;margin-top:0.5rem;display:block;'>"
         f"p(spoof) = <b style='color:#C9D7F5;'>{fused_p:.3f}</b></span></div>"
-        f"<div style='flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.5rem;'>"
+        f"<div style='display:flex;flex-direction:column;gap:0.6rem;'>"
         f"{_member_chips}</div></div>",
         unsafe_allow_html=True,
     )
@@ -657,7 +657,7 @@ def _render_test_results(rows, signal, blob, fname):
         bar = (alt.Chart(df_chart).mark_bar().encode(
                     x=alt.X("p(spoof):Q", scale=alt.Scale(domain=[0, 1]),
                             title="p(spoof)"),
-                    y=alt.Y("Model:N", sort=alt.SortField("_sort_idx", order="ascending"),
+                    y=alt.Y("Model:N", sort=alt.SortField("_sort_idx", order="descending"),
                             title=None),
                     color=alt.Color("Verdict:N", legend=None,
                                     scale=alt.Scale(domain=["BONAFIDE", "SPOOF"],
@@ -667,10 +667,8 @@ def _render_test_results(rows, signal, blob, fname):
         # Each model's OWN threshold, as a yellow tick on its bar
         ticks = (alt.Chart(df_chart).mark_tick(color="#FFD54F", thickness=2, size=22)
                  .encode(x="threshold:Q",
-                        y=alt.Y("Model:N", sort=alt.SortField("_sort_idx", order="ascending"))))
+                        y=alt.Y("Model:N", sort=alt.SortField("_sort_idx", order="descending"))))
         st.altair_chart(bar + ticks, width="stretch")
-        st.caption("Yellow tick = each model's own decision threshold (dev EER "
-                   "operating point).")
 
     st.divider()
     _sh1, _sh2 = st.columns([3, 1.4], vertical_alignment="center")
@@ -772,15 +770,38 @@ with tab_test:
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
     # ── Upload / Analyze / Clear row ─────────────────────────────────────── #
-    _c_up, _c_an, _c_cl = st.columns([5, 1.5, 1], vertical_alignment="center")
-    with _c_up:
+    st.subheader("Upload or select an audio sample", divider=False)
+    _c1, _c2 = st.columns([1, 1])
+
+    # Option 1: Upload a file
+    with _c1:
         uploaded = st.file_uploader(
-            "Upload an audio clip (flac / wav / mp3 / ogg / m4a)",
+            "Upload an audio clip",
             type=["flac", "wav", "mp3", "ogg", "m4a"],
             key="da_test_upload", label_visibility="collapsed")
+
+    # Option 2: Select a project sample
+    with _c2:
+        _dev_samples = get_samples("dev") if corpus_available() else []
+        if _dev_samples:
+            _sample_names = [f"{s[0].split('/')[-1]}" for s in _dev_samples[:50]]
+            _sel = st.selectbox("...or select a dev sample", ["—"] + _sample_names,
+                               key="da_test_sample", label_visibility="collapsed")
+            if _sel and _sel != "—":
+                try:
+                    _sel_idx = _sample_names.index(_sel)
+                    _sel_path = _dev_samples[_sel_idx][0]
+                    _sel_bytes = open(_sel_path, "rb").read()
+                    if _sel_bytes != st.session_state.get("da_test_bytes"):
+                        st.session_state.pop("da_test_rows", None)
+                    st.session_state["da_test_bytes"] = _sel_bytes
+                    st.session_state["da_test_name"] = _sel_path.split("/")[-1]
+                except Exception:
+                    pass
+
+    _c_an, _c_cl = st.columns([1.5, 1], vertical_alignment="center")
     with _c_an:
-        _has_audio = (st.session_state.get("da_test_bytes") is not None
-                      or uploaded is not None)
+        _has_audio = st.session_state.get("da_test_bytes") is not None
         do_analyze = st.button("Analyze", type="primary", icon=":material/radar:",
                                width="stretch", key="da_analyze_btn",
                                disabled=not _has_audio)
@@ -793,13 +814,14 @@ with tab_test:
             st.session_state.pop(_k, None)
         st.rerun()
 
-    # Persist bytes across page navigation; invalidate cached rows when file changes.
+    # Handle uploaded file (if file_uploader was used, not the sample selector).
     if uploaded is not None:
         _new = uploaded.getvalue()
         if _new != st.session_state.get("da_test_bytes"):
             st.session_state.pop("da_test_rows", None)
         st.session_state["da_test_bytes"] = _new
         st.session_state["da_test_name"]  = uploaded.name
+
     _blob  = st.session_state.get("da_test_bytes")
     _fname = st.session_state.get("da_test_name")
 
