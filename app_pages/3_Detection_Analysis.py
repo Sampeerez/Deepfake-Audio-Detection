@@ -789,7 +789,7 @@ with tab_test:
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
     # ── All controls in one compact row ──────────────────────────────────── #
-    _c_up, _c_or, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([2, 0.6, 0.7, 0.7, 0.7, 1, 0.5], vertical_alignment="center")
+    _c_up, _c_or, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([2, 0.6, 0.7, 0.7, 0.7, 1, 0.5], vertical_alignment="top")
 
     # Build available corpus options
     _corpus_opts = []
