@@ -933,14 +933,24 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
     pointer-events: none !important;
     caret-color: transparent !important;
     cursor: default !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
 }
 [class*="st-key-nosearch"] [data-baseweb="select"],
 [class*="st-key-nosearch"] [data-baseweb="select"] > div,
 [class*="st-key-nosearch"] [data-baseweb="select"] input {
     cursor: default !important;
+    border: none !important;
+    outline: none !important;
 }
-[class*="st-key-nosearch"] [data-baseweb="select"] * {
+[class*="st-key-nosearch"] [data-baseweb="select"] *,
+[class*="st-key-nosearch"] [data-baseweb="select"] *:focus,
+[class*="st-key-nosearch"] [data-baseweb="select"] *:focus-visible {
     cursor: default !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

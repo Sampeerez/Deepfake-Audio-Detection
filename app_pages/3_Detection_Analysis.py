@@ -576,8 +576,8 @@ def _render_test_results(rows, signal, blob, fname):
     _member_chips = "".join(_member_chip(m) for m in _members)
     # Enlarged verdict panel, centered, with members to the right
     st.markdown(
-        f"<div style='display:flex;gap:2rem;align-items:center;margin:1.2rem auto 1.6rem;max-width:1400px;justify-content:center;'>"
-        f"<div style='flex:0 0 550px;padding:2.8rem 3.2rem;border-radius:1rem;border:2px solid {v_color}59;"
+        f"<div style='display:flex;gap:2rem;align-items:center;margin:1.2rem auto 1.6rem;max-width:1600px;justify-content:center;'>"
+        f"<div style='flex:0 0 700px;padding:2.8rem 3.2rem;border-radius:1rem;border:2px solid {v_color}59;"
         f"box-shadow:0 0 30px {v_color}55, inset 0 0 30px {v_color}1f;text-align:center;'>"
         f"<span style='display:block;font-size:0.7rem;font-weight:800;letter-spacing:0.16em;"
         f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.4rem;'>Final verdict — weighted fusion</span>"
@@ -785,13 +785,25 @@ with tab_test:
     with _c2:
         _dev_samples = get_samples("dev") if corpus_available() else []
         if _dev_samples:
-            _sample_names = [f"{s[0].split('/')[-1]}" for s in _dev_samples[:50]]
-            _sel = st.selectbox("Sample", ["—"] + _sample_names,
-                               key="da_test_sample", label_visibility="collapsed")
+            # Format samples to show name + type (bonafide/spoof) + origin
+            _sample_display = []
+            _sample_data = []
+            for path, label in _dev_samples[:50]:
+                fname = path.split('/')[-1].replace('.flac', '')
+                lbl_str = "bonafide · real" if label == 0 else "spoof · deepfake"
+                # Extract origin from audio_id (e.g., LA_D_123456 → dev · 2019 LA)
+                origin = "2019 LA · dev"
+                display_str = f"{fname} ({lbl_str}) — {origin}"
+                _sample_display.append(display_str)
+                _sample_data.append((path, label))
+
+            with st.container(key="nosearch_sample"):
+                _sel = st.selectbox("Sample", ["—"] + _sample_display,
+                                   key="da_test_sample", label_visibility="collapsed")
             if _sel and _sel != "—":
                 try:
-                    _sel_idx = _sample_names.index(_sel)
-                    _sel_path = _dev_samples[_sel_idx][0]
+                    _sel_idx = _sample_display.index(_sel)
+                    _sel_path = _sample_data[_sel_idx][0]
                     _sel_bytes = open(_sel_path, "rb").read()
                     if _sel_bytes != st.session_state.get("da_test_bytes"):
                         st.session_state.pop("da_test_rows", None)
