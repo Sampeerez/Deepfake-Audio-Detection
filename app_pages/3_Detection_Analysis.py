@@ -110,7 +110,7 @@ st.markdown("""
 # most stable across seeds (best dev minDCF 0.24, EER std 0.04). The classic DSP
 # detectors collapse out of domain (minDCF ≈ 1.0), so they are NOT trusted for the
 # verdict, they stay visible in the full panel below. The verdict therefore fuses
-# just those two complementary views: raw-waveform SSL + the best spectrogram CNN.
+# just those two complementary views: raw-waveform SSL + the best spectrogram deep network.
 # Weights are renormalised at fusion time, and any member that fails to load is
 # skipped (so the verdict degrades gracefully to whatever loaded).
 FUSION_WEIGHTS = {"wav2vec2": 0.65, "resnext": 0.35}
@@ -196,7 +196,7 @@ _SPEC_TAG = (f"{int(extractor.sample_rate)}_{int(extractor.n_fft)}_"
 
 
 def _score_cnn_on_samples(model, mdev, samples):
-    """Score a CNN on an explicit (path, label) list (local or HF-cached)."""
+    """Score a deep network on an explicit (path, label) list (local or HF-cached)."""
     loader = DataLoader(
         ASVspoofTorchDataset(samples, extractor.get_spectrogram_matrix,
                              extractor.sample_rate, augment=False,
@@ -474,7 +474,7 @@ def _open_in_signal_explorer(blob: bytes, fname: str) -> None:
             del st.session_state[k]
     # Pre-select EVERY representation so the user sees them all without ticking
     # any (mirrors Signal Explorer's ALL_VIEWS / se_views pills key).
-    _all_views = ["Waveform", "STFT", "CNN Input", "MFCC", "LFCC", "CQCC"]
+    _all_views = ["Waveform", "STFT", "Deep Network Input", "MFCC", "LFCC", "CQCC"]
     st.session_state["se_n"]            = 1
     st.session_state["se_views"]        = list(_all_views)
     st.session_state["a_source"]        = "Upload"
@@ -575,7 +575,7 @@ def _analyse_all_models(signal, entries, loaded, thresholds):
 
 def _render_test_results(rows, signal, blob, fname):
     """Render the full Test-an-audio results panel: fusion card, model chips,
-    table/chart, signal views, and CNN activation maps. Each model's Verdict was
+    table/chart, signal views, and deep network activation maps. Each model's Verdict was
     already decided at its OWN best threshold in _analyse_all_models."""
     probs   = [r["p(spoof)"] for r in rows]
     mean_p  = float(np.mean(probs))
@@ -721,10 +721,10 @@ def _render_test_results(rows, signal, blob, fname):
         with _ah1:
             st.markdown("**Convolutional activation maps**")
         with _ah2:
-            if st.button("See full maps in CNN Learning",
+            if st.button("See full maps in Deep Networks Learning",
                          icon=":material/account_tree:", width="stretch",
                          key="da_to_cnn",
-                         help="Open the CNN Learning page with every feature "
+                         help="Open the Deep Networks Learning page with every feature "
                               "map of every block for this clip."):
                 st.session_state["cnn_handoff"] = {
                     "fname": fname,
@@ -996,7 +996,7 @@ with tab_analyse:
                                         format_func=lambda n: n.replace(" (SSL)", ""),
                                         key="da_ssl")
         else:
-            st.caption("Scores the CNN trained in Benchmark · CNN this session.")
+            st.caption("Scores the deep network trained in Benchmark · Deep Networks this session.")
 
     a1, a2, a3, a4 = st.columns([1.3, 1, 1.4, 0.7], vertical_alignment="bottom")
     with a1:
@@ -1101,7 +1101,7 @@ with tab_analyse:
             with st.container(key="nosearch_da_cnn_hf"):
                 cnn_name = st.selectbox("CNN", [e["name"] for e in cnn_entries],
                                         key="da_cnn_hf")
-            st.caption("CNN checkpoint, served on CPU.")
+            st.caption("Deep network checkpoint, served on CPU.")
 
     a1, a2, a3, a4 = st.columns([1.3, 1, 1.4, 0.7], vertical_alignment="bottom")
     with a1:
@@ -1167,7 +1167,7 @@ with st.sidebar:
     # Detector details belong to the "Analyse on a split" tab, so only show them
     # once a split has actually been scored (never on the "Test an audio" tab,
     # where the feature/classifier selection is meaningless). For a classic model
-    # we surface its front-end + classifier; for a CNN, the CNN name.
+    # we surface its front-end + classifier; for a deep network, the deep network name.
     if "da_scores" in st.session_state:
         _det = st.session_state.get("da_detector", {})
         _src = _det.get("source")
