@@ -86,6 +86,13 @@ st.markdown("""
     align-items: center !important;
     padding: 6px 8px !important;
 }
+[class*="st-key-da_test_upload"] {
+    height: 56px !important;
+}
+[class*="st-key-da_test_upload"] [data-testid="stFileUploadDropzone"] {
+    min-height: 56px !important;
+    height: 56px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -606,16 +613,6 @@ def _render_test_results(rows, signal, blob, fname):
         f"p(spoof) = <b style='color:#C9D7F5;'>{fused_p:.3f}</b></span></div>"
         f"<div style='display:flex;flex-direction:column;gap:0.7rem;align-items:center;'>"
         f"{_member_chips}</div></div>",
-        unsafe_allow_html=True,
-    )
-    _cons = ("majority flags spoof" if n_spoof * 2 > n_total
-             else ("majority says bonafide" if n_spoof * 2 < n_total
-                   else "the panel is split"))
-    st.markdown(
-        f"<div style='text-align:center;color:#8A95AE;font-size:0.85rem;"
-        f"margin:1.6rem auto 1.6rem;'>Panel of {n_total} models, {_cons}: "
-        f"<b>{n_spoof}/{n_total}</b> flag spoof &nbsp;·&nbsp; "
-        f"mean p(spoof) = {mean_p:.3f}</div>",
         unsafe_allow_html=True,
     )
     st.audio(signal, sample_rate=extractor.sample_rate)
