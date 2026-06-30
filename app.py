@@ -161,8 +161,8 @@ if _fut is not None and _fut.done():
     st.session_state["bench_future"] = None
     st.session_state["op_running"] = False
 
-# Collect a finished background CNN training the same way: store the model and
-# its results so the CNN Learning page shows them, exactly as if trained inline.
+# Collect a finished background deep network training the same way: store the model and
+# its results so the Deep Networks Learning page shows them, exactly as if trained inline.
 _cnn_fut = st.session_state.get("cnn_future")
 if _cnn_fut is not None and _cnn_fut.done():
     try:
@@ -179,7 +179,7 @@ if _cnn_fut is not None and _cnn_fut.done():
             st.session_state["cnn_arch_trained"] = _pend.get("arch", ", ")
             if not _train_only:
                 # Produce result rows only when NOT in train-only mode; the
-                # Evaluate button in CNN mode adds them on-demand instead.
+                # Evaluate button in Deep Networks mode adds them on-demand instead.
                 st.session_state["cnn_results"] = _results
                 _board = _results
                 if _pend.get("score") == "Eval":

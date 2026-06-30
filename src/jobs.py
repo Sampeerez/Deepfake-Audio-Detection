@@ -6,8 +6,8 @@ Why a background thread:
   * the UI stays responsive, you can browse other pages while it runs (the
     thread is not tied to Streamlit's per-script execution, so navigating away
     does not kill it);
-  * the classic models (CPU: sklearn / XGBoost) and the CNN (GPU: PyTorch) run
-    in PARALLEL, so wall-clock time ≈ max(classic, CNN) instead of the sum.
+  * the classic models (CPU: sklearn / XGBoost) and deep networks (GPU: PyTorch) run
+    in PARALLEL, so wall-clock time ≈ max(classic, deep networks) instead of the sum.
 
 The compute functions never call ``st`` and receive already-fetched data, so
 they are safe to run off the Streamlit ScriptRunContext.
