@@ -71,6 +71,16 @@ st.markdown("""
     height: 56px !important;
     width: 100% !important;
 }
+[class*="st-key-da_test_sample"] [data-baseweb="select"] {
+    height: 44px !important;
+    min-height: 44px !important;
+}
+[class*="st-key-da_test_sample"] [data-baseweb="select"] > div {
+    height: 44px !important;
+    min-height: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -776,7 +786,7 @@ with tab_test:
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
     # ── All controls in one compact row ──────────────────────────────────── #
-    _c_up, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([1.2, 0.95, 1, 2, 0.95, 0.6], vertical_alignment="center")
+    _c_up, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([1, 1, 1, 1, 1, 0.7], vertical_alignment="center")
 
     # Build available corpus options
     _corpus_opts = []
