@@ -954,13 +954,14 @@ with tab_analyse:
     has_cnn = "cnn_model" in st.session_state
     with st.container(border=True):
         st.markdown('<div class="section-label">Detector</div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
         src_opts = ["Classic models"]
         if any(e["kind"] == "cnn" for e in pre_models):
-            src_opts.append("CNN")
+            src_opts.append("Deep networks")
         if any(e["kind"] == "raw" for e in pre_models):
             src_opts.append("SSL")
         if has_cnn:
-            src_opts.append("CNN (this session)")
+            src_opts.append("Deep networks (this session)")
         source = st.segmented_control("Source", src_opts, default="Classic models",
                                       key="da_source", label_visibility="collapsed")
         source = source or "Classic models"
@@ -980,7 +981,7 @@ with tab_analyse:
             with c2:
                 with st.container(key="nosearch_da_clf"):
                     clf_disp = st.selectbox("Classifier", list(CLASSIFIERS), key="da_clf")
-        elif source == "CNN":
+        elif source == "Deep networks":
             # Pick WHICH pretrained deep model (ResNet+SE, 5-Block CNN, CRNN, …) to score.
             _cnn_entries = [e for e in pre_models if e["kind"] == "cnn"]
             with st.container(key="nosearch_da_cnn"):
@@ -1028,7 +1029,7 @@ with tab_analyse:
                     sc, lb = _score_classic_trained_on_samples(
                         feat_key, CLASSIFIERS[clf_disp], samples, _tag)
                     name = f"{FEATURE_LABELS[feat_key]} × {clf_disp} · {corpus} eval"
-                elif source == "CNN":
+                elif source == "Deep networks":
                     _entry = next(e for e in pre_models
                                   if e["kind"] == "cnn" and e["name"] == cnn_name)
                     sc, lb = _score_cnn_on_samples(load_pretrained_model(_entry),
