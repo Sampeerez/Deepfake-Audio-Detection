@@ -775,8 +775,8 @@ with tab_test:
     thresholds = {k: float(m["thr_dev"]) for k, m in _board.items()
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
-    # ── Corpus & Type selection ───────────────────────────────────────────── #
-    _sel_corpus, _sel_type, _sel_sample, _analyze_btn = st.columns([1.5, 1.2, 2.5, 0.8], vertical_alignment="center")
+    # ── All controls in one compact row ──────────────────────────────────── #
+    _c_up, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([1.2, 0.95, 1, 2, 0.95, 0.6], vertical_alignment="center")
 
     # Build available corpus options
     _corpus_opts = []
@@ -787,21 +787,28 @@ with tab_test:
     if corpus_available_2021_df():
         _corpus_opts.append("2021 DF")
 
+    # Upload
+    with _c_up:
+        uploaded = st.file_uploader(
+            "Upload",
+            type=["flac", "wav", "mp3", "ogg", "m4a"],
+            key="da_test_upload", label_visibility="collapsed")
+
     # Corpus selector
-    with _sel_corpus:
+    with _c_corp:
         _sel_corp = st.selectbox("Corpus", _corpus_opts or ["—"],
-                                key="da_corpus", label_visibility="collapsed")
+                                key="da_corpus_sel", label_visibility="collapsed")
 
     # Type selector (bonafide / spoof)
-    with _sel_type:
+    with _c_type:
         _sel_typ = st.selectbox("Type", ["Bonafide", "Spoof"],
-                               key="da_type", label_visibility="collapsed")
+                               key="da_type_sel", label_visibility="collapsed")
 
     # Load samples based on corpus selection
     if _sel_corp and _sel_corp != "—":
         if _sel_corp == "2019 LA":
             _all_samples = get_samples("dev") if corpus_available() else []
-            _corpus_label = "2019 LA · dev"
+            _corpus_label = "2019 LA"
         elif _sel_corp == "2021 LA":
             _all_samples = get_samples_2021_la() if corpus_available_2021_la() else []
             _corpus_label = "2021 LA"
@@ -818,12 +825,12 @@ with tab_test:
         _sample_data = []
         for path, label in _filtered_samples[:50]:
             fname = path.split('/')[-1].replace('.flac', '')
-            display_str = f"{fname} — {_corpus_label}"
+            display_str = f"{fname}"
             _sample_display.append(display_str)
             _sample_data.append((path, label))
 
         # Sample selector
-        with _sel_sample:
+        with _c_samp:
             with st.container(key="nosearch_sample"):
                 _sel = st.selectbox("Sample", ["—"] + _sample_display,
                                    key="da_test_sample", label_visibility="collapsed")
@@ -839,26 +846,18 @@ with tab_test:
                 except Exception:
                     pass
     else:
-        with _sel_sample:
+        with _c_samp:
             st.selectbox("Sample", ["—"], label_visibility="collapsed", disabled=True)
 
-    with _analyze_btn:
+    # Analyze button
+    with _c_ana:
         _has_audio = st.session_state.get("da_test_bytes") is not None
         do_analyze = st.button("Analyze", type="primary", icon=":material/radar:",
                                width="stretch", key="da_analyze_btn",
                                disabled=not _has_audio)
 
-    # ── Upload option on second line ──────────────────────────────────────── #
-    st.markdown("<div style='height:0.3rem'></div>", unsafe_allow_html=True)
-    _c1, _c_spacer, _c_clear = st.columns([1.5, 2.2, 0.8], vertical_alignment="center")
-
-    # Option 1: Upload a file
-    with _c1:
-        uploaded = st.file_uploader(
-            "Upload",
-            type=["flac", "wav", "mp3", "ogg", "m4a"],
-            key="da_test_upload", label_visibility="collapsed")
-    with _c_clear:
+    # Clear button
+    with _c_clr:
         do_clear = st.button("Clear", icon=":material/close:", width="stretch",
                              key="da_clear_btn")
 
