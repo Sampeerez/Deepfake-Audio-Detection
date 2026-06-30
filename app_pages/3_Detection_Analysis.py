@@ -88,10 +88,12 @@ st.markdown("""
 }
 [class*="st-key-da_test_upload"] {
     height: 56px !important;
+    overflow: hidden !important;
 }
 [class*="st-key-da_test_upload"] [data-testid="stFileUploadDropzone"] {
     min-height: 56px !important;
     height: 56px !important;
+    overflow: hidden !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -602,7 +604,7 @@ def _render_test_results(rows, signal, blob, fname):
     _member_chips = "".join(_member_chip(m) for m in _members)
     # Enlarged verdict panel, centered, with members to the right
     st.markdown(
-        f"<div style='display:flex;gap:2rem;align-items:center;margin:1.2rem auto 1.6rem;max-width:1600px;justify-content:center;'>"
+        f"<div style='display:flex;gap:2rem;align-items:center;margin:1.2rem auto 1.6rem;width:fit-content;justify-content:center;'>"
         f"<div style='flex:0 0 700px;padding:2.8rem 3.2rem;border-radius:1rem;border:2px solid {v_color}59;"
         f"box-shadow:0 0 30px {v_color}55, inset 0 0 30px {v_color}1f;text-align:center;'>"
         f"<span style='display:block;font-size:0.7rem;font-weight:800;letter-spacing:0.16em;"
@@ -615,6 +617,7 @@ def _render_test_results(rows, signal, blob, fname):
         f"{_member_chips}</div></div>",
         unsafe_allow_html=True,
     )
+    st.markdown("<div style='height:1.2rem'></div>", unsafe_allow_html=True)
     st.audio(signal, sample_rate=extractor.sample_rate)
     st.divider()
 
