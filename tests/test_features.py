@@ -3,7 +3,7 @@
 tests/test_features.py, DSP front-ends (FeatureExtractor).
 
 Validates the output contract of every extractor: exact dimensionality, finite
-values, the fusion concatenation, the strict CNN-spectrogram shape and its
+values, the fusion concatenation, the strict deep network spectrogram shape and its
 z-score normalisation, plus the audio-loading padding guarantees.
 """
 
@@ -96,7 +96,7 @@ def test_extraction_is_deterministic(extractor, signal_1s):
 
 
 # ---------------------------------------------------------------------------
-# 2-D spectrogram for the CNN
+# 2-D spectrogram for deep networks
 # ---------------------------------------------------------------------------
 
 def test_spectrogram_strict_shape(extractor, signal_1s):

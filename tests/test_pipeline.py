@@ -4,7 +4,7 @@ tests/test_pipeline.py, End-to-end pipeline glue on synthetic audio.
 
 Covers the orchestration layer that turns audio files into leaderboard rows:
 feature-matrix extraction, classic train/eval, scoring pre-fitted estimators,
-and the inference-only scorers for the CNN and the raw-waveform model. Every
+and the inference-only scorers for deep networks and the raw-waveform model. Every
 result dict is checked against the shared ``COL_*`` schema.
 """
 
@@ -104,7 +104,7 @@ def test_score_fitted_classic():
 
 
 # ---------------------------------------------------------------------------
-# evaluate_cnn_on_set, inference-only CNN scorer
+# evaluate_cnn_on_set, inference-only deep network scorer
 # ---------------------------------------------------------------------------
 
 def test_evaluate_cnn_on_set(extractor, labelled_samples, tmp_path, monkeypatch):
@@ -145,7 +145,7 @@ def test_evaluate_raw_on_set(labelled_samples):
 
 
 # ---------------------------------------------------------------------------
-# _aggregate_seed_rows, cross-seed mean ± std for the multi-seed CNN sweep
+# _aggregate_seed_rows, cross-seed mean ± std for the multi-seed deep network sweep
 # ---------------------------------------------------------------------------
 
 def test_aggregate_seed_rows_means_and_std():
