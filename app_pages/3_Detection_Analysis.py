@@ -66,10 +66,25 @@ CLASSIFIERS    = {
 st.markdown("""
 <style>
 [class*="st-key-da_analyze_btn"] button,
+[class*="st-key-da_clear_btn"] button,
+[class*="st-key-nosearch_corpus"] [data-baseweb="select"],
+[class*="st-key-nosearch_type"] [data-baseweb="select"],
+[class*="st-key-nosearch_sample"] [data-baseweb="select"] {
+    min-height: 38px !important;
+    height: 38px !important;
+}
+[class*="st-key-da_analyze_btn"] button,
 [class*="st-key-da_clear_btn"] button {
-    min-height: 56px !important;
-    height: 56px !important;
     width: 100% !important;
+}
+[class*="st-key-nosearch_corpus"] [data-baseweb="select"] > div,
+[class*="st-key-nosearch_type"] [data-baseweb="select"] > div,
+[class*="st-key-nosearch_sample"] [data-baseweb="select"] > div {
+    height: 38px !important;
+    min-height: 38px !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 4px 8px !important;
 }
 </style>
 """, unsafe_allow_html=True)
