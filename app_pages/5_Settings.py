@@ -294,7 +294,7 @@ sidebar_panel(
     "Current setup",
     rows=[
         ("Side", _SIDE_LABELS[theme_mode()]),
-        ("Saber", st.session_state.get("sw_saber", "Auto")),
+        ("Colour", st.session_state.get("sw_saber", "Red")),
         ("Background", st.session_state.get("sw_bg", "Star Wars")),
         ("Intensity", st.session_state.get("sw_bg_intensity", "Normal")),
         ("Ships", "On" if st.session_state.get("sw_show_ships", True) else "Off"),
