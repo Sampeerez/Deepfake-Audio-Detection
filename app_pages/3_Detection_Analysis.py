@@ -574,17 +574,18 @@ def _render_test_results(rows, signal, blob, fname):
                 f"<div style='font-size:0.7rem;color:#9EA8C0;margin-top:0.15rem;'>"
                 f"p={p_val:.2f}</div></div>")
     _member_chips = "".join(_member_chip(m) for m in _members)
+    # Enlarged verdict panel, centered, with members below
     st.markdown(
-        f"<div style='display:flex;gap:2rem;align-items:center;margin:0.6rem auto 1.2rem;max-width:1000px;'>"
-        f"<div style='flex:0 0 280px;padding:1.5rem 1.8rem;border-radius:0.9rem;border:1px solid {v_color}59;"
-        f"box-shadow:0 0 20px {v_color}55, inset 0 0 24px {v_color}1f;text-align:center;'>"
-        f"<span style='display:block;font-size:0.62rem;font-weight:800;letter-spacing:0.14em;"
-        f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.2rem;'>Final verdict</span>"
-        f"<span style='font-size:2rem;font-weight:700;color:{v_color};text-shadow:0 0 14px {v_color}aa;'>"
-        f"{v_text}</span><br>"
-        f"<span style='color:#9EA8C0;font-size:0.9rem;margin-top:0.5rem;display:block;'>"
+        f"<div style='display:flex;flex-direction:column;gap:1.2rem;align-items:center;margin:1.2rem auto 1.6rem;max-width:700px;'>"
+        f"<div style='width:100%;padding:2.5rem 3rem;border-radius:1rem;border:2px solid {v_color}59;"
+        f"box-shadow:0 0 30px {v_color}55, inset 0 0 30px {v_color}1f;text-align:center;'>"
+        f"<span style='display:block;font-size:0.7rem;font-weight:800;letter-spacing:0.16em;"
+        f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.4rem;'>Final verdict — weighted fusion</span>"
+        f"<span style='font-size:3.2rem;font-weight:700;color:{v_color};text-shadow:0 0 20px {v_color}aa;display:block;'>"
+        f"{v_text}</span>"
+        f"<span style='color:#9EA8C0;font-size:1rem;margin-top:0.8rem;display:block;'>"
         f"p(spoof) = <b style='color:#C9D7F5;'>{fused_p:.3f}</b></span></div>"
-        f"<div style='display:flex;flex-direction:column;gap:0.6rem;'>"
+        f"<div style='display:flex;flex-direction:column;gap:0.5rem;width:100%;'>"
         f"{_member_chips}</div></div>",
         unsafe_allow_html=True,
     )
@@ -652,8 +653,9 @@ def _render_test_results(rows, signal, blob, fname):
     with gcol2:
         st.markdown("**Probability per model**")
         # Add a sort index to match the table order (top to bottom = highest to lowest p(spoof))
+        # Use inverted range so highest index appears at top in descending sort.
         df_chart = df.copy()
-        df_chart["_sort_idx"] = range(len(df_chart))
+        df_chart["_sort_idx"] = range(len(df_chart) - 1, -1, -1)
         bar = (alt.Chart(df_chart).mark_bar().encode(
                     x=alt.X("p(spoof):Q", scale=alt.Scale(domain=[0, 1]),
                             title="p(spoof)"),
@@ -769,14 +771,13 @@ with tab_test:
     thresholds = {k: float(m["thr_dev"]) for k, m in _board.items()
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
-    # ── Upload / Analyze / Clear row ─────────────────────────────────────── #
-    st.subheader("Upload or select an audio sample", divider=False)
-    _c1, _c2 = st.columns([1, 1])
+    # ── Upload / Select / Analyze / Clear in one row ─────────────────────── #
+    _c1, _c2, _c3, _c4 = st.columns([2, 2, 1.2, 0.8], vertical_alignment="center")
 
     # Option 1: Upload a file
     with _c1:
         uploaded = st.file_uploader(
-            "Upload an audio clip",
+            "Upload",
             type=["flac", "wav", "mp3", "ogg", "m4a"],
             key="da_test_upload", label_visibility="collapsed")
 
@@ -785,7 +786,7 @@ with tab_test:
         _dev_samples = get_samples("dev") if corpus_available() else []
         if _dev_samples:
             _sample_names = [f"{s[0].split('/')[-1]}" for s in _dev_samples[:50]]
-            _sel = st.selectbox("...or select a dev sample", ["—"] + _sample_names,
+            _sel = st.selectbox("Sample", ["—"] + _sample_names,
                                key="da_test_sample", label_visibility="collapsed")
             if _sel and _sel != "—":
                 try:
@@ -798,14 +799,15 @@ with tab_test:
                     st.session_state["da_test_name"] = _sel_path.split("/")[-1]
                 except Exception:
                     pass
+        else:
+            st.selectbox("Sample", ["—"], label_visibility="collapsed", disabled=True)
 
-    _c_an, _c_cl = st.columns([1.5, 1], vertical_alignment="center")
-    with _c_an:
+    with _c3:
         _has_audio = st.session_state.get("da_test_bytes") is not None
         do_analyze = st.button("Analyze", type="primary", icon=":material/radar:",
                                width="stretch", key="da_analyze_btn",
                                disabled=not _has_audio)
-    with _c_cl:
+    with _c4:
         do_clear = st.button("Clear", icon=":material/close:", width="stretch",
                              key="da_clear_btn")
 

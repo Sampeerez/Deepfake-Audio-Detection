@@ -134,18 +134,13 @@ st.markdown(themed("""
 </style>
 """), unsafe_allow_html=True)
 
-# Detect navigation via sidebar: if bench_choice was set, but we're reloading
-# the page without a deliberate action (like opening a mode or clicking "← Modes"),
-# assume we came from the sidebar and clear bench_choice to show the home page.
-_last_choice = st.session_state.get("_bench_last_choice")
+# Detect navigation via sidebar: if bench_choice was set from a previous visit,
+# but this load is not from a deliberate internal action, assume sidebar navigation
+# and clear bench_choice to show the home page.
+_is_internal_action = st.session_state.pop("_bench_action_source", None) == "internal"
 _current_choice = st.session_state.get("bench_choice")
-if _current_choice and _current_choice == _last_choice:
-    # Same choice as before, but it's a reload — likely from sidebar navigation.
-    # Clear it to show the home page.
-    if st.session_state.get("_bench_action_source") != "internal":
-        st.session_state.pop("bench_choice", None)
-        st.session_state.pop("_bench_action_source", None)
-st.session_state["_bench_last_choice"] = st.session_state.get("bench_choice")
+if _current_choice and not _is_internal_action:
+    st.session_state.pop("bench_choice", None)
 
 choice = st.session_state.get("bench_choice")
 
