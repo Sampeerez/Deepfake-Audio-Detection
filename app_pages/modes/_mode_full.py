@@ -2,9 +2,9 @@
 """
 modes/_mode_full.py, "Full comparison" mode of the Benchmark page.
 
-Locally (corpus present): one click sweeps every DSP×classifier and both CNNs in
+Locally (corpus present): one click sweeps every DSP×classifier and deep neural networks in
 the background, then ranks them by minDCF (EER tiebreaker), the headline TFG
-question, do the CNNs beat the classic front-ends?
+question, do deep networks beat the classic front-ends?
 
 On the corpus-less web demo: the same entry point becomes a MODEL HUB that
 downloads all pretrained models at once and shows their precomputed results.
@@ -131,11 +131,11 @@ st.markdown(themed("""
 
 st.title("Full Comparison")
 st.caption(
-    "Every run this session, classic DSP pipelines and trained CNNs, ranked by "
-    "**minDCF** (primary), EER as tiebreaker. Classic (CPU) and CNN (GPU) run **in "
+    "Every run this session, classic DSP pipelines and trained deep networks, ranked by "
+    "**minDCF** (primary), EER as tiebreaker. Classic (CPU) and Deep Networks (GPU) run **in "
     "parallel in the background**, so you can browse other pages while it works. "
     "**Train and evaluate all** fits and saves all 20 trainable models (LR / SVM / "
-    "XGBoost × 5 DSP front-ends + 5 CNN architectures) and additionally **evaluates** the "
+    "XGBoost × 5 DSP front-ends + 5 deep network architectures) and additionally **evaluates** the "
     "pretrained wav2vec 2.0 SSL detector (inference-only), then scores every one on "
     "the 2019 LA dev split "
     "and every available eval corpus (2019 LA, 2021 LA, 2021 DF), capped to a "
@@ -174,7 +174,7 @@ def _prefetch_models(entries, bar):
     return loaded, failed
 
 
-# Model-family palette, Classic (blue), CNN (purple), SSL/transformer (cyan).
+# Model-family palette, Classic (blue), Deep Networks (purple), SSL/transformer (cyan).
 _LB_TYPE_COLORS = {"Classic": "#4F8BF9", "CNN": "#AB47BC", "SSL": "#26C6DA"}
 
 
@@ -227,7 +227,7 @@ def _render_leaderboard(rows: list) -> None:
     df = pd.DataFrame(rows)
     df[COL_EER]     = pd.to_numeric(df.get(COL_EER), errors="coerce")
     df[COL_MIN_DCF] = pd.to_numeric(df.get(COL_MIN_DCF), errors="coerce")
-    # Cross-seed variance (only present on multi-seed CNN rows; ", "/absent else).
+    # Cross-seed variance (only present on multi-seed deep network rows; ", "/absent else).
     # Guard column presence: older leaderboards / single-run rows lack these keys.
     df["EER std"]    = (pd.to_numeric(df["EER std"], errors="coerce")
                         if "EER std" in df.columns else float("nan"))
@@ -619,14 +619,14 @@ if not corpus_available():
             "Leaderboard not generated yet",
             "Run <b>Full comparison</b> once on a machine with the corpus to train, "
             "evaluate and write <code>leaderboard.json</code>, then commit it, the "
-            "full ranking (classic, CNN and the wav2vec 2.0 SSL detector across every "
+            "full ranking (classic, deep networks and the wav2vec 2.0 SSL detector across every "
             "corpus) appears here.",
         )
     st.stop()
 
 # Fixed, best-effort training configuration, the Full comparison trains the
 # WHOLE zoo with strong defaults (no per-run knobs here; tune individual models
-# in the Classic / CNN modes instead). The CNN trains on the full train set.
+# in the Classic / Deep Networks modes instead). Deep networks train on the full train set.
 _CLASSIC_SUBSET = 6000          # per classic model; RBF-SVM scales poorly beyond
 _CNN_SUBSET     = 0             # 0 = full 2019 LA train set
 _EVAL_SUBSET    = 8000          # stratified cap per eval corpus (2021 DF ≈ 600k)
@@ -677,12 +677,12 @@ if st.session_state.pop("bench_cancelled", False):
 
 @st.fragment(run_every=2.0)
 def _live_progress():
-    """Split view (classic ∥ CNN) of the running comparison, refreshing itself."""
+    """Split view (classic ∥ deep networks) of the running comparison, refreshing itself."""
     if not op_in_progress():
         return
     pr = job_progress()
     _epochs = job_cnn_epochs()
-    st.markdown('<div class="section-label">Running, classic and CNN in '
+    st.markdown('<div class="section-label">Running, classic and deep networks in '
                 'parallel</div>', unsafe_allow_html=True)
 
     lc, rc = st.columns(2, gap="large")
@@ -702,11 +702,11 @@ def _live_progress():
                 st.caption("…")
             st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
 
-    # ── CNN panel, shows a live loss curve when epoch data is available ───── #
+    # ── Deep Networks panel, shows a live loss curve when epoch data is available ───── #
     s_cn = pr["streams"]["cnn"]
     with rc:
         with st.container(border=True):
-            st.markdown("**CNN · GPU**")
+            st.markdown("**Deep Networks · GPU**")
             tot = max(int(s_cn["total"]), 1)
             st.progress(min(1.0, s_cn["done"] / tot),
                         text=f"{s_cn['done']}/{s_cn['total']} · {s_cn['label']}")
@@ -775,7 +775,7 @@ if g_train and not _running:
 
 
 # The leaderboard is ALWAYS the committed leaderboard.json. Manual evaluations run
-# in the Classic / CNN modes (kept in session for THOSE pages) are deliberately NOT
+# in the Classic / Deep Networks modes (kept in session for THOSE pages) are deliberately NOT
 # shown here. A full "Train and evaluate all" rewrites leaderboard.json when it
 # finishes, so its results appear in the table once the run completes.
 _lb_rows = load_leaderboard_rows()
@@ -785,6 +785,6 @@ elif not _running:
     show_empty_state(
         "Leaderboard not generated yet",
         "Run <b>Train and evaluate all</b> once to train every model and write "
-        "<code>leaderboard.json</code>, the full ranking (classic, CNN and the "
+        "<code>leaderboard.json</code>, the full ranking (classic, deep networks and the "
         "wav2vec 2.0 SSL detector across every corpus) appears here.",
     )
