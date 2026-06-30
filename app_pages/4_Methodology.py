@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 app_pages/4_Methodology.py, Reference page: the corpora and data context, plus
-the full benchmark methodology (DSP front-ends, classifiers, CNN, metrics).
+the full benchmark methodology (DSP front-ends, classifiers, deep networks, metrics).
 
 Kept off the Home page so the landing stays light; this is where the detail
 lives for whoever wants it. set_page_config and PAGE_CSS are applied in app.py.
@@ -161,7 +161,7 @@ else:
 st.title("Methodology")
 st.caption(
     "How the benchmark works, the corpora and their class balance, the DSP "
-    "front-ends and classifiers, the CNN architectures, the self-supervised "
+    "front-ends and classifiers, the deep network architectures, the self-supervised "
     "wav2vec 2.0 transformer, and the detection metrics."
 )
 
@@ -303,7 +303,7 @@ st.markdown(
     '<li>Post-training eval on 2021 LA / DF</li>'
     '</ul></div>'
     '<div class="method-card"><div class="mc-num">VI</div><h5>Benchmark rigour</h5><ul>'
-    '<li><strong>Multi-seed</strong>, each CNN is trained over several seeds; the '
+    '<li><strong>Multi-seed</strong>, each deep network is trained over several seeds; the '
     'leaderboard reports the <em>mean</em> (a single saturated-dev run can&rsquo;t '
     'rank the architectures)</li>'
     '<li><strong>Unseen-attack validation</strong>, A05/A06 held out of training to '
@@ -359,7 +359,7 @@ st.markdown(
     '<em>Evaluate on</em> selector exposes across the benchmark: dev = seen, eval = '
     'unseen, 2021&nbsp;LA/DF = unseen + new channel/compression. Because dev shares those '
     'attacks it <em>saturates</em> (deep nets hit ~0&nbsp;% dev EER), so the Full-comparison '
-    'sweep holds out <strong>A05/A06</strong> from CNN training as an <em>unseen-attack</em> '
+    'sweep holds out <strong>A05/A06</strong> from deep network training as an <em>unseen-attack</em> '
     'validation set: early stopping then watches generalisation rather than memorisation, '
     'while the eval sets (A07-A19 / 2021) stay untouched for honest reporting.</p></div>',
     unsafe_allow_html=True,

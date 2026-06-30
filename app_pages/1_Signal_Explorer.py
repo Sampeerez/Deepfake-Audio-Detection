@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 app_pages/1_Signal_Explorer.py, Visualise and compare audio signals at the
-feature level: waveform, STFT-dB, CNN input, MFCC, LFCC, CQCC.
+feature level: waveform, STFT-dB, deep network input, MFCC, LFCC, CQCC.
 
 State model
 -----------
@@ -62,7 +62,7 @@ SLOT_DOT_COLORS = [BONAFIDE_COLOR, SPOOF_COLOR, "#AB47BC"]
 VIEW_META = {
     "Waveform":  "Time-domain amplitude, envelope, silences, clipping",
     "STFT": "Full spectrogram, synthesis artefacts across all bands",
-    "CNN Input": "z-scored STFT-dB, exactly as the CNN sees it (128×300)",
+    "CNN Input": "z-scored STFT-dB, exactly as the deep network sees it (128×300)",
     "MFCC":      "Mel-scale cepstrum, perceptual spectral envelope",
     "LFCC":      "Linear-frequency cepstrum, strong anti-spoofing baseline",
     "CQCC":      "Constant-Q cepstrum, fine log-frequency resolution",

@@ -308,7 +308,7 @@ _nav_tile(t1, "se", "", _ICON_SE, "Signal Explorer",
           "See &amp; compare audio at the feature level, waveform, STFT, "
           "MFCC, LFCC, CQCC.", "app_pages/1_Signal_Explorer.py")
 _nav_tile(t2, "bench", "", _ICON_BENCH, "Benchmark",
-          "Classic models, the CNN, or run everything at once, ranked by "
+          "Classic models, deep networks, or run everything at once, ranked by "
           "minDCF &middot; EER.", "app_pages/2_Benchmark.py")
 _nav_tile(t3, "det", "", _ICON_DET, "Detection Analysis",
           "ROC &amp; DET curves and the decision threshold, or drop your own "

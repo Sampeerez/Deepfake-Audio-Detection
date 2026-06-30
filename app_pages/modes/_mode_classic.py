@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 modes/_mode_classic.py, "Classic models" mode of the Benchmark page: configure
-and launch one DSP-extractor × classifier experiment (the CNN has its own mode).
+and launch one DSP-extractor × classifier experiment (deep networks have their own mode).
 
 Configuration lives in the MAIN area (a bordered panel), not the sidebar:
 dropdown popovers detach from sidebars and the controls are central to the
