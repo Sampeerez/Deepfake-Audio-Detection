@@ -67,19 +67,23 @@ st.markdown("""
 <style>
 [class*="st-key-da_analyze_btn"] button,
 [class*="st-key-da_clear_btn"] button {
-    min-height: 56px !important;
-    height: 56px !important;
+    min-height: 38px !important;
+    height: 38px !important;
     width: 100% !important;
 }
-[class*="st-key-da_test_sample"] [data-baseweb="select"] {
-    height: 44px !important;
-    min-height: 44px !important;
+[data-baseweb="select"] {
+    height: 38px !important;
+    min-height: 38px !important;
 }
-[class*="st-key-da_test_sample"] [data-baseweb="select"] > div {
-    height: 44px !important;
-    min-height: 44px !important;
+[data-baseweb="select"] > div {
+    height: 38px !important;
+    min-height: 38px !important;
     display: flex !important;
     align-items: center !important;
+    padding: 4px 8px !important;
+}
+[data-baseweb="select"] input {
+    font-size: 13px !important;
 }
 </style>
 """, unsafe_allow_html=True)
