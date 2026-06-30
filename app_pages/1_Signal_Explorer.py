@@ -715,7 +715,7 @@ else:
 
 def _slot_row(label: str, source_id, cls) -> tuple:
     if source_id is None:
-        return (label, ", ")
+        return (label, "—")
     name = os.path.basename(str(source_id))
     tag  = "spoof" if cls and "spoof" in str(cls) else \
            "bonafide" if cls and "bonafide" in str(cls) else "upload"
@@ -727,7 +727,7 @@ with st.sidebar:
     for i in range(n_sources):
         label = "File" if n_sources == 1 else f"Source {i + 1}"
         rows.append(_slot_row(label, srcs[i], lbls[i]))
-    rows.append(("Views", ", ".join(views) if views else ", "))
+    rows.append(("Views", ", ".join(views) if views else "—"))
     sidebar_panel("Session", rows)
 
 # Persist selections so they survive leaving and re-entering the page.

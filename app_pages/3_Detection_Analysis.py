@@ -397,11 +397,6 @@ def _render_split_results():
         st.altair_chart((det_line + det_diag + det_eer + det_thr).properties(height=_H),
                         width="stretch", key="da_det")
 
-    st.caption("Yellow dashed line / green dot = the current **threshold**; grey "
-               "dotted line + yellow dot = the **EER** operating point. Move the "
-               "slider to walk the green dot along the ROC and DET curves. minDCF "
-               "weighs a false accept 10× a miss at a 5% prior, so it only drops "
-               "below 1.0 once false acceptances are rare.")
 
 
 # ===========================================================================
