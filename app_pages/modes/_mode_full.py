@@ -182,7 +182,7 @@ def _aggregate_by_model(frame: "pd.DataFrame") -> "pd.DataFrame":
     """Collapse a leaderboard frame to ONE row per model, averaging its metrics
     and timings across EVERY split/corpus present.
 
-    The headline picks ("best model", "most efficient") and the Efficiency tab
+    The headline picks ("best accuracy", "most efficient") and the Efficiency tab
     use this so they reflect overall behaviour across all corpora, not just the
     easy 2019 dev split, which flatters the deep nets. Training time only exists
     on the dev row, so its mean is simply that single value."""
@@ -262,7 +262,7 @@ def _render_leaderboard(rows: list) -> None:
             [t for t in df["Type"].unique() if t not in _fam_order]
 
     # Two headline picks, both judged ACROSS ALL CORPORA (not the easy dev split):
-    #   • Best model, lowest mean minDCF (the model that detects best overall).
+    #   • Best accuracy, lowest mean minDCF (the model that detects best overall).
     #   • Most efficient, best accuracy×speed trade-off (mean EER × per-clip
     #     latency, lower is better), so a fast detector with decent accuracy can win.
     _by_all = _aggregate_by_model(ranked)
@@ -271,7 +271,7 @@ def _render_leaderboard(rows: list) -> None:
         b = _det.iloc[0]
         st.markdown(
             '<div class="champ-banner">'
-            '<span class="cb-tag">★ Best model</span>'
+            '<span class="cb-tag">★ Best accuracy</span>'
             f'<span class="cb-combo">{b["Config"]}</span>'
             f'<span class="cb-metric">type <b>{b["Type"]}</b></span>'
             f'<span class="cb-metric">minDCF <b>{b["minDCF"]:.3f}</b></span>'
