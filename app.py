@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-app.py, Punto de entrada principal.
+app.py, main entry point.
 
-Configura página, CSS global y navegación multi-página ANTES de delegar en
-cada página, de forma que el primer render ya sea estable (sin flash de
-navegación auto-descubierta ni de estilos sin aplicar).
+Configures the page, global CSS and multi-page navigation BEFORE delegating to
+each page, so the first render is already stable (no flash of auto-discovered
+navigation or unstyled content).
 
-NOTA: el directorio de páginas se llama `app_pages/` (no `pages/`) a propósito:
-un directorio `pages/` activa la navegación automática v1 de Streamlit, que
-aparece un instante ("app", "0 Home", …) antes de que st.navigation la
-reemplace. Renombrarlo elimina ese estado intermedio.
+NOTE: the pages directory is named `app_pages/` (not `pages/`) on purpose: a
+`pages/` directory triggers Streamlit's v1 auto-navigation, which appears for a
+moment ("app", "0 Home", …) before st.navigation replaces it. Renaming it
+removes that intermediate state.
 
-Lanzar con:
+Launch with:
     streamlit run app.py
 """
 
@@ -36,8 +36,8 @@ _wl = _logging.getLogger("streamlit.watcher.local_sources_watcher")
 if not any(isinstance(f, _NoTransformerVisionWarning) for f in _wl.filters):
     _wl.addFilter(_NoTransformerVisionWarning())
 
-# Única llamada a set_page_config de toda la app: las páginas individuales NO
-# deben llamarla (el título de pestaña lo aporta cada st.Page).
+# The only set_page_config call in the whole app: individual pages must NOT
+# call it (each st.Page supplies its own tab title).
 st.set_page_config(
     page_title="Deepfake Audio Detection",
     page_icon="🎙️",
@@ -57,19 +57,64 @@ from src.ui_helpers import apply_mpl_theme, build_page_css, theme_mode  # noqa: 
 # Streamlit garbage-collects a WIDGET's state when its page stops rendering, so the
 # Settings widgets write to these plain keys via callbacks (see 5_Settings.py) and
 # everything here reads the plain keys.
+# Defaults MUST match _DEFAULTS in 5_Settings.py: the Settings widgets are seeded
+# from these plain keys, so a value outside a widget's options (e.g. the old
+# "Auto" saber) would silently reset the control and desync the two pages.
 for _k, _v in {
-    "sw_theme": "dark", "sw_saber": "Auto", "sw_bg": "Star Wars",
+    "sw_theme": "dark", "sw_saber": "Red", "sw_bg": "Star Wars",
     "sw_bg_intensity": "Normal", "sw_reduced_motion": False,
     "sw_contrast": False, "sw_text_scale": "Normal",
+    "sw_underline": False, "sw_text_spacing": False,
     "sw_show_ships": True, "sw_show_deathstar": True,
+    "sw_audio_color": "Red",
 }.items():
     st.session_state.setdefault(_k, _v)
 _theme = theme_mode()
 apply_mpl_theme(_theme)
 
-# CSS global inyectado aquí (no en cada página): ocupa siempre la misma
-# posición en el árbol de elementos, así Streamlit lo reconcilia entre páginas
-# y no hay flash de estilos por defecto al navegar.
+# ── Native Streamlit theme follows the chosen side ───────────────────────────
+# The injected CSS cannot reach canvas-based widgets (st.dataframe is a
+# glide-data-grid canvas), so on the Light Side they stayed dark. Flipping the
+# CONFIG theme makes native chrome and the dataframe follow. The new values are
+# only picked up by the NewSession message of the NEXT run, so when something
+# actually changed we rerun once immediately (the comparison guard makes this a
+# strict one-shot, no loop).
+# KNOWN LIMITATION: config options are process-wide, not per-session. On a
+# shared deployment, another visitor's native chrome adopts this theme until
+# their own rerun re-asserts their choice (this block runs before every page,
+# so each session self-corrects on its next interaction; the injected CSS keeps
+# their page consistent meanwhile). Acceptable for a low-traffic demo.
+_NATIVE_THEME = {
+    "dark":  {"base": "dark", "primaryColor": "#4F8BF9",
+              "backgroundColor": "#0E1117",
+              "secondaryBackgroundColor": "#161C2D", "textColor": "#E8EDF8"},
+    "light": {"base": "light", "primaryColor": "#1E5FCF",
+              "backgroundColor": "#D5DEEE",
+              "secondaryBackgroundColor": "#FFFFFF", "textColor": "#1B2438"},
+}
+_theme_changed = False
+try:
+    from streamlit import config as _st_config
+
+    for _opt, _val in _NATIVE_THEME[_theme].items():
+        if _st_config.get_option(f"theme.{_opt}") != _val:
+            _st_config.set_option(f"theme.{_opt}", _val)
+            _theme_changed = True
+except Exception:  # noqa: BLE001, never let theming break the app
+    _theme_changed = False
+# Outside the try: st.rerun() raises a control-flow exception that the guard
+# above must not swallow. NEVER rerun on a session's FIRST script run: at that
+# point st.navigation has not routed the URL yet, and the rerun would land the
+# visitor on the default page instead of the deep link they opened (only the
+# multi-user stale-config case even reaches here on a first run; it
+# self-corrects on the next interaction and is documented in the README).
+if _theme_changed and st.session_state.get("_nav_routed"):
+    st.rerun()
+st.session_state["_nav_routed"] = True
+
+# Global CSS injected here (not per page): it always occupies the same position
+# in the element tree, so Streamlit reconciles it across pages and there is no
+# flash of default styles when navigating.
 st.markdown(build_page_css(_theme), unsafe_allow_html=True)
 
 # May the 4th, a one-line banner that only shows on Star Wars Day (4 May).
@@ -84,20 +129,23 @@ if (_dt.date.today().month, _dt.date.today().day) == (5, 4):
         unsafe_allow_html=True,
     )
 
-# ── Script host (iframe de altura 0, same-origin) ────────────────────────────
-# Aloja, en un único IIFE: el lienzo de fondo Star Wars (naves, Estrella de la
-# Muerte, hiperespacio), el listener del código Konami y el ocultador del tirador
-# de redimensionado de la sidebar. El guard __ddAutoCloseV4 evita listeners
-# duplicados entre reruns. (El antiguo auto-cierre de desplegables al salir el
-# ratón se ha eliminado: no funcionaba de forma fiable.)
-# Ambient-background canvas + Konami code + Vega-tooltip fix. The script lives in
-# static/canvas.js (externalised for JS linting and browser caching); it is
-# wrapped in <script> tags via CONCATENATION, not an f-string, the JS is full of
-# braces, and injected into a 0-height same-origin iframe.
-_CANVAS_JS = open(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "canvas.js"),
-    encoding="utf-8",
-).read()
+# ── Script host (0-height, same-origin iframe) ───────────────────────────────
+# Hosts, in a single IIFE: the Star Wars background canvas (ships, Death Star,
+# hyperspace), the Konami-code listener and the sidebar resize-handle hider. The
+# script lives in static/canvas.js (externalised for JS linting and browser
+# caching); it is wrapped in <script> tags via CONCATENATION, not an f-string,
+# the JS is full of braces, and injected into a 0-height same-origin iframe.
+@st.cache_data(show_spinner=False)
+def _canvas_js() -> str:
+    # app.py re-executes on every rerun; cache the 24 KB read instead of
+    # hitting the disk each interaction.
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "static", "canvas.js")
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+_CANVAS_JS = _canvas_js()
 with st.container(key="ddac_host"):
     st.iframe(
         "<script>\n" + _CANVAS_JS + "\n</script>",
@@ -108,17 +156,30 @@ with st.container(key="ddac_host"):
 
 # ── Live settings → background canvas ────────────────────────────────────────
 # The canvas script (above) runs once and reads these window flags every frame.
-# This tiny iframe re-renders on every rerun, so the Settings page can switch the
-# background mode / motion live. Double braces escape the f-string for JS blocks.
+#
+# Helper-iframe design note (evaluated for merging, kept separate on purpose):
+#   • ddac_host (canvas.js) must stay STATIC, if its srcdoc carried the live
+#     flags it would change every rerun, remounting the iframe and resetting the
+#     whole background animation on every interaction.
+#   • eqramp_host lives on Home only (page-scoped script over Home's DOM).
+#   • This flags iframe is the only script channel Streamlit offers for pushing
+#     values into the parent window (st.markdown strips <script>). What we CAN
+#     save is re-rendering it when nothing changed: the flags persist on
+#     window.parent once set, so the iframe is emitted only when their value
+#     ACTUALLY differs from what this session last pushed, i.e. one component
+#     render on the first run and on each Settings change, zero on every other
+#     rerun (the common case).
 _BG_MODES = {"Star Wars": "starwars", "Particle network": "network", "Off": "off"}
 _bg_mode = _BG_MODES.get(st.session_state.get("sw_bg", "Star Wars"), "starwars")
 _intensity = st.session_state.get("sw_bg_intensity", "Normal")
 _reduce = "1" if st.session_state.get("sw_reduced_motion") else "0"
 _ships = "1" if st.session_state.get("sw_show_ships", True) else "0"
 _deathstar = "1" if st.session_state.get("sw_show_deathstar", True) else "0"
+_sw_flags = (_bg_mode, _theme, _intensity, _reduce, _ships, _deathstar)
 with st.container(key="swflags_host"):
-    st.iframe(
-        f"""
+    if st.session_state.get("_swflags_sent") != _sw_flags:
+        st.iframe(
+            f"""
 <script>
 (function(){{
   var w; try {{ w = window.parent; }} catch (e) {{ return; }}
@@ -132,8 +193,9 @@ with st.container(key="swflags_host"):
 }})();
 </script>
 """,
-        height=1,
-    )
+            height=1,
+        )
+        st.session_state["_swflags_sent"] = _sw_flags
 
 # Collect a finished background benchmark (runs on every page) and clear the
 # "operation in progress" flag so run/train buttons re-enable everywhere.

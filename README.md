@@ -207,11 +207,15 @@ streamlit run app.py        # opens http://localhost:8501
 
 ## Tests & CI
 
-**88 tests, ~15 s, 100% synthetic data**, no corpus, no GPU, runs anywhere.
+**100+ tests, ~15 s, 100% synthetic data**, no corpus, no GPU, runs anywhere.
 
 ```bash
-pytest                             # full suite
+pytest                             # full suite (browser e2e excluded by default)
 pytest tests/test_metrics.py -v    # one module, verbose
+pytest -m e2e                      # browser audits: axe-core accessibility scan
+                                   # (WCAG 2.x A/AA) + Vega hover regression.
+                                   # Needs: pip install playwright
+                                   #        playwright install chromium
 ```
 
 <details>
@@ -227,11 +231,26 @@ pytest tests/test_metrics.py -v    # one module, verbose
 | `test_data_loader.py` | 2019/2021 protocol parsing, stratified subsampling, both PyTorch `Dataset`s. |
 | `test_pipeline.py` | Feature-matrix extraction, classic train/eval, CNN & raw-waveform inference scorers. |
 | `test_pages_smoke.py` | Headless render of every page + benchmark mode (Streamlit `AppTest`), catches UI/import regressions. |
+| `test_e2e_a11y.py` | Real-browser audits (`-m e2e`, Playwright + vendored axe-core): WCAG 2.x A/AA scan of Home & Settings in BOTH themes, plus the Efficiency-chart hover regression. |
 
 </details>
 
 Every push and PR to `main` runs the suite on **Python 3.11 & 3.12** via
 [GitHub Actions](.github/workflows/ci.yml), status shown in the CI badge above.
+
+### Known limitations
+
+- **Native theme switching is process-wide.** The Light/Dark Side is rendered
+  via injected CSS per session, but canvas-based widgets (`st.dataframe`)
+  ignore CSS, so the app also flips Streamlit's *config* theme to match. That
+  config is shared by the whole server process: on a busy shared deployment,
+  another visitor's native chrome may briefly adopt your theme until their own
+  next interaction re-asserts their choice (each session re-syncs the config at
+  the top of every rerun). Irrelevant for single-user/local runs.
+- **axe-core scan scope.** The e2e accessibility audit excludes Streamlit's own
+  chrome (toolbar, status widget) and the script-only helper iframes, we can't
+  fix upstream markup from this repo. The exclusion list lives at the top of
+  `tests/test_e2e_a11y.py`.
 
 ---
 
@@ -332,7 +351,7 @@ the code never hard-codes magic numbers.
 | `n_fft` / `hop_length` | 1024 / 512 | FFT window & hop (50% overlap). |
 | `cnn_input` | 128 × 300 | Frequency bins × time frames (≈ 9.6 s). |
 | `epochs` / `batch_size` / `lr` | 20 / 32 / 1e-3 | CNN training (Adam); per-arch optima in `cnn_arch_params`. |
-| `semilla` | 42 | Global reproducibility seed. |
+| `seed` | 42 | Global reproducibility seed. |
 | `cnn_multiseed.seeds` | [42, 43, 44] | Seeds each CNN is trained over; metrics averaged. |
 | `cnn_multiseed.holdout_attacks` | [A05, A06] | Attacks held out for unseen-attack early-stopping validation. |
 

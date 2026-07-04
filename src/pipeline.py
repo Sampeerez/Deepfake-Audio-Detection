@@ -673,7 +673,7 @@ def train_and_evaluate_cnn(
         train_samples: List of (path, label) for training.
         dev_samples:   List of (path, label) for the reported dev metrics.
         extractor:     FeatureExtractor instance (provides get_spectrogram_matrix).
-        params:        Dict from config.yaml['train_params'] plus 'semilla'.
+        params:        Dict from config.yaml['train_params'] plus 'seed'.
         eval_samples:  Optional eval subset; if provided, an extra [EVAL] row
                        is appended to the results.
         epoch_callback: Optional per-epoch callback for live progress reporting.
@@ -689,7 +689,7 @@ def train_and_evaluate_cnn(
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n[CNN] Compute device: {device}")
-    torch.manual_seed(int(params["semilla"]))
+    torch.manual_seed(int(params["seed"]))
     # Inputs are a fixed 128×300 size → cuDNN can pick the fastest conv algorithms.
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True

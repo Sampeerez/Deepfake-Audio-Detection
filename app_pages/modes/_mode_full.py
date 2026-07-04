@@ -445,10 +445,18 @@ def _render_leaderboard(rows: list) -> None:
                 sc["tt_eer"]     = sc["EER"].map(lambda v: f"{v:.2f} %")
                 sc["tt_dcf"]     = sc["minDCF"].map(
                     lambda v: ", " if pd.isna(v) else f"{v:.3f}")
-                _sel = alt.selection_point(name="effsel", fields=["Model"],
-                                           on="click", clear="dblclick", empty=False)
+                # NOTE, hover-tooltip bug (fixed): this chart used to carry a
+                # click selection (alt.selection_point + key=). Streamlit
+                # re-renders a keyed selection chart on every rerun and restores
+                # the selection state into the fresh Vega view, which drops the
+                # tooltip handler, so hovering worked until the FIRST click or
+                # widget interaction, then died. The selection only powered a
+                # redundant "pin the numbers" caption (the table above already
+                # lists every value), so the chart is now selection-free and
+                # static from Streamlit's point of view: tooltips survive any
+                # number of clicks, filter changes and reruns.
                 scatter = (
-                    alt.Chart(sc).mark_circle(size=170).encode(
+                    alt.Chart(sc).mark_circle(size=170, opacity=0.9).encode(
                         x=alt.X("Latency_ms:Q",
                                 title="Latency per clip (ms), lower is faster",
                                 scale=alt.Scale(zero=False)),
@@ -459,7 +467,6 @@ def _render_leaderboard(rows: list) -> None:
                                                         range=[_LB_TYPE_COLORS.get(t, "#90A4AE")
                                                                for t in _dom]),
                                         legend=alt.Legend(orient="bottom", title=None)),
-                        opacity=alt.condition(_sel, alt.value(1.0), alt.value(0.85)),
                         tooltip=[alt.Tooltip("Model", title="Model"),
                                  alt.Tooltip("Type", title="Family"),
                                  alt.Tooltip("Features", title="Front-end"),
@@ -467,30 +474,9 @@ def _render_leaderboard(rows: list) -> None:
                                  alt.Tooltip("tt_latency", title="Latency"),
                                  alt.Tooltip("tt_eer", title="EER"),
                                  alt.Tooltip("tt_dcf", title="minDCF")],
-                    ).add_params(_sel).properties(height=340)
+                    ).properties(height=340)
                 )
-                _ev = st.altair_chart(scatter, width="stretch", key="eff_scatter")
-                # Hover tooltips can stop firing after a Streamlit rerun (a known Vega
-                # quirk), so ALSO support click-to-inspect: clicking a dot pins its
-                # full numbers below, which never depends on the hover handler.
-                _picked = None
-                try:
-                    _state = (_ev.selection if hasattr(_ev, "selection")
-                              else _ev.get("selection", {}))
-                    _hits = _state.get("effsel", []) if hasattr(_state, "get") else []
-                    if _hits:
-                        _picked = _hits[0].get("Model")
-                except Exception:
-                    _picked = None
-                if _picked is not None and (sc["Model"] == _picked).any():
-                    _pr = sc[sc["Model"] == _picked].iloc[0]
-                    st.caption(
-                        f"**{_picked}** ({_pr['Type']}), latency "
-                        f"**{_pr['Latency_ms']:.2f} ms/clip** · EER "
-                        f"**{_pr['EER']:.2f} %** · minDCF **{_pr['minDCF']:.3f}** · "
-                        f"train {_pr['tt_train']}  ·  double-click to clear.")
-                else:
-                    pass
+                st.altair_chart(scatter, width="stretch")
 
             # Second efficiency angle, TRAINING cost: wall-clock seconds to fit each
             # model (one run; CNNs averaged over seeds). The latency scatter shows

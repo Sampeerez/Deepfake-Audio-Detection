@@ -64,6 +64,23 @@ st.markdown(themed("""
 .cc-badge-ok  { color:#66BB6A; font-weight:700; }
 .cc-badge-err { color:#EF5350; font-weight:700; }
 
+/* ── Section quick-nav, four anchor chips under the page caption ─────────── */
+.toc-row { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.1rem 0 0.9rem; }
+.toc-row a.toc-chip {
+    display: inline-flex; align-items: baseline; gap: 0.4rem;
+    font-size: 0.76rem; font-weight: 600; text-decoration: none;
+    color: #AFC3E8; background: rgba(79,139,249,0.07);
+    border: 1px solid rgba(79,139,249,0.24); border-radius: 2rem;
+    padding: 0.22rem 0.8rem;
+    transition: background 0.2s ease, border-color 0.2s ease,
+                transform 0.2s ease;
+}
+.toc-row a.toc-chip b { color: #82B1FF; font-weight: 800; font-size: 0.68rem; }
+.toc-row a.toc-chip:hover {
+    background: rgba(79,139,249,0.16); border-color: rgba(79,139,249,0.55);
+    transform: translateY(-1px);
+}
+
 /* ── Methodology cards ───────────────────────────────────────────────────── */
 .method-card {
     background: linear-gradient(145deg,
@@ -72,7 +89,7 @@ st.markdown(themed("""
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(79,139,249,0.13);
     border-radius: 0.85rem;
-    padding: 1.1rem 1.2rem 1.15rem;
+    padding: 1.15rem 1.3rem 1.2rem;
     height: 100%;
     cursor: default;
     transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
@@ -92,20 +109,29 @@ st.markdown(themed("""
     box-shadow: 0 10px 28px rgba(9,28,78,0.4);
 }
 .method-card:hover::before { opacity: 1; }
+/* Index badge as a small chip, anchors the eye at the top of each card. */
 .method-card .mc-num {
-    font-size: 0.66rem; font-weight: 800; color: #4F8BF9;
-    letter-spacing: 0.12em; margin-bottom: 0.3rem;
+    display: inline-block; font-size: 0.64rem; font-weight: 800; color: #82B1FF;
+    letter-spacing: 0.12em; margin-bottom: 0.45rem;
+    background: rgba(79,139,249,0.12); border: 1px solid rgba(79,139,249,0.3);
+    border-radius: 2rem; padding: 0.08rem 0.55rem;
 }
 .method-card h5 {
-    margin: 0 0 .6rem; font-size: .9rem; font-weight: 700;
-    color: #82B1FF; letter-spacing: 0.01em;
+    margin: 0 0 .6rem; font-size: .95rem; font-weight: 700;
+    color: #82B1FF; letter-spacing: 0.01em; line-height: 1.35;
 }
+/* Reading rhythm: slightly larger, looser list text with breathing room
+   between items, kills the wall-of-text feel of the dense cards. */
 .method-card ul { margin: 0; padding-left: 1.05rem; }
 .method-card li {
-    font-size: .8rem; opacity: .7; margin-bottom: .28rem; line-height: 1.45;
+    font-size: .84rem; opacity: .78; margin-bottom: .42rem; line-height: 1.6;
     transition: opacity 0.2s ease;
 }
-.method-card:hover li { opacity: .85; }
+.method-card li strong { color: #BFE0FF; font-weight: 700; }
+.method-card:hover li { opacity: .9; }
+/* Long explanatory paragraphs: cap the measure at a readable line length and
+   open up the leading (full-width 200-char lines were hard to scan). */
+.info-card .ic-body { max-width: 78ch; font-size: 0.84rem; line-height: 1.7; }
 
 /* ── Class-distribution cards (expander) ─────────────────────────────────── */
 .dist-cards { display: flex; flex-direction: column; gap: 1rem; margin-top: .2rem; }
@@ -165,10 +191,22 @@ st.caption(
     "wav2vec 2.0 transformer, and the detection metrics."
 )
 
+# Quick-nav: one chip per section, jumps via the section_header anchors.
+st.markdown(
+    '<div class="toc-row">'
+    '<a class="toc-chip" href="#m-data"><b>01</b>Data &amp; Corpora</a>'
+    '<a class="toc-chip" href="#m-pipeline"><b>02</b>Pipeline &amp; Methods</a>'
+    '<a class="toc-chip" href="#m-attacks"><b>03</b>Spoofing attacks</a>'
+    '<a class="toc-chip" href="#m-protocol"><b>04</b>Evaluation protocol</a>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
 # ── 01 · Data & corpora ──────────────────────────────────────────────────── #
 section_header("01", "Data & Corpora",
                "Three corpora with increasing difficulty, from the official "
-               "2019 benchmark to in-the-wild 2021 deepfakes.")
+               "2019 benchmark to in-the-wild 2021 deepfakes.",
+               anchor="m-data")
 
 if corpus_ok:
     _card19 = (
@@ -258,7 +296,8 @@ st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 
 # ── 02 · Pipeline & methods ──────────────────────────────────────────────── #
 section_header("02", "Pipeline & Methods",
-               "Full pipeline: feature extraction → classification → detection metrics.")
+               "Full pipeline: feature extraction → classification → detection metrics.",
+               anchor="m-pipeline")
 
 st.markdown(
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1rem;margin:.4rem 0;">'
@@ -321,7 +360,7 @@ st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 # ── 03 · Spoofing attacks ────────────────────────────────────────────────── #
 section_header("03", "Spoofing attacks (logical access)",
                "How the fakes are made, and why the eval set is so much harder "
-               "than dev.")
+               "than dev.", anchor="m-attacks")
 st.markdown(
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:.4rem 0;">'
     '<div class="method-card"><div class="mc-num">A01-A06</div>'
@@ -370,7 +409,7 @@ st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 # ── 04 · Evaluation protocol ─────────────────────────────────────────────── #
 section_header("04", "Evaluation protocol",
                "Exactly how ASVspoof scores a countermeasure (ASVspoof 2019 "
-               "evaluation plan).")
+               "evaluation plan).", anchor="m-protocol")
 st.markdown(
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem;margin:.4rem 0;">'
     '<div class="method-card"><div class="mc-num">§</div><h5>The task &amp; scores</h5><ul>'

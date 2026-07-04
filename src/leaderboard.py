@@ -21,9 +21,6 @@ LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "leaderboard.json")
 # showing its committed metrics after the rename.
 _LEGACY_LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "demo_leaderboard.json")
 
-# Back-compat alias: some imports still reference the old constant name.
-DEMO_LEADERBOARD_PATH = LEADERBOARD_PATH
-
 
 @st.cache_data(show_spinner=False)
 def load_leaderboard() -> Dict:
@@ -61,8 +58,3 @@ def load_leaderboard_rows() -> List[Dict]:
     local Full comparison, so the web demo can render the IDENTICAL filterable
     table/chart, not just a condensed summary."""
     return load_leaderboard().get("rows", [])
-
-
-# Back-compat alias for the old name (now returns the per-model metrics map).
-def load_demo_leaderboard() -> Dict[str, Dict]:
-    return load_leaderboard_models()

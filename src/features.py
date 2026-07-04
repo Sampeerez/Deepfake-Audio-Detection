@@ -71,7 +71,7 @@ class FeatureExtractor:
         self.n_mels:         int = int(audio["n_mels"])
         self.n_mfcc:         int = int(audio["n_mfcc"])
         self.n_lfcc:         int = int(audio["n_lfcc"])
-        self.n_linear_filters: int = int(audio["n_filtros_lineales"])
+        self.n_linear_filters: int = int(audio["n_linear_filters"])
         self.wavelet_mother: str = str(audio["wavelet_mother"])
 
         # CQCC parameters (defaults overridable from YAML).
@@ -167,6 +167,59 @@ class FeatureExtractor:
                 ) from first_exc
         # Ensure minimum length == n_fft so STFT and CQT never receive a
         # signal shorter than their analysis window (avoids UserWarning).
+        if len(signal) < self.n_fft:
+            signal = np.pad(signal, (0, self.n_fft - len(signal)))
+        return signal
+
+    @staticmethod
+    def sniff_audio_suffix(name, raw: bytes) -> str:
+        """Best file suffix for an audio byte blob: trust the filename extension
+        first, then the container magic bytes. Used for decode-error messages and
+        to help audioread pick a decoder for temp files."""
+        if name and "." in name:
+            ext = "." + name.rsplit(".", 1)[1].lower()
+            if ext in (".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac"):
+                return ext
+        if raw[:4] == b"RIFF":
+            return ".wav"
+        if raw[:4] == b"fLaC":
+            return ".flac"
+        if raw[:4] == b"OggS":
+            return ".ogg"
+        if raw[:3] == b"ID3" or raw[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+            return ".mp3"
+        if raw[4:8] == b"ftyp":
+            return ".m4a"
+        return ".flac"
+
+    def load_audio_bytes(self, blob: bytes, name=None) -> np.ndarray:
+        """Decode an in-memory audio blob (upload) to mono float32 at the project
+        sample rate. Tries librosa/libsndfile first; falls back to piping the raw
+        container through the bundled ffmpeg binary, which decodes compressed
+        formats (mp3/ogg/m4a) and odd FLAC variants that libsndfile rejects.
+
+        Raises:
+            AudioLoadError: if no backend can decode the blob.
+        """
+        import io as _io
+        try:
+            signal, _ = librosa.load(_io.BytesIO(blob), sr=self.sample_rate,
+                                     mono=True)
+        except Exception as first_exc:
+            try:
+                proc = subprocess.run(
+                    [self._ffmpeg_exe(), "-nostdin", "-loglevel", "quiet",
+                     "-i", "pipe:0", "-f", "f32le", "-acodec", "pcm_f32le",
+                     "-ac", "1", "-ar", str(self.sample_rate), "pipe:1"],
+                    input=blob, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    check=True,
+                )
+                signal = np.frombuffer(proc.stdout, dtype=np.float32).copy()
+            except Exception as exc:
+                suffix = self.sniff_audio_suffix(name, blob)
+                raise AudioLoadError(
+                    f"unsupported or corrupt audio ({suffix}). [{exc}]"
+                ) from first_exc
         if len(signal) < self.n_fft:
             signal = np.pad(signal, (0, self.n_fft - len(signal)))
         return signal

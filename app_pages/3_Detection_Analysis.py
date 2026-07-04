@@ -15,14 +15,12 @@ set_page_config and PAGE_CSS are applied in app.py.
 """
 
 import concurrent.futures as cf
-import io
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import altair as alt  # noqa: E402
-import librosa  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
@@ -47,7 +45,7 @@ from src.ui_helpers import (  # noqa: E402
     demo_corpus_notice, eval_corpora_for, fig_activation_evolution,
     fig_cnn_input, fig_waveform, get_extractor, hf_eval_samples,
     load_leaderboard_models, load_pretrained_model, op_busy_notice,
-    show_empty_state, sidebar_panel,
+    show_empty_state, sidebar_panel, themed,
 )
 
 FEATURE_LABELS = FeatureExtractor.OPTION_NAMES
@@ -402,68 +400,6 @@ def _render_split_results():
 # ===========================================================================
 # Single-clip inference shared by the multi-model tab
 # ===========================================================================
-def _audio_suffix(name, raw: bytes) -> str:
-    """Best temp-file suffix for an upload: trust the filename extension first,
-    then sniff the container magic bytes. Determines which decoder librosa's
-    audioread fallback selects, so getting it right is what lets mp3/ogg/m4a
-    (and odd wav/flac) decode."""
-    if name and "." in name:
-        ext = "." + name.rsplit(".", 1)[1].lower()
-        if ext in (".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac"):
-            return ext
-    if raw[:4] == b"RIFF":
-        return ".wav"
-    if raw[:4] == b"fLaC":
-        return ".flac"
-    if raw[:4] == b"OggS":
-        return ".ogg"
-    if raw[:3] == b"ID3" or raw[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
-        return ".mp3"
-    if raw[4:8] == b"ftyp":
-        return ".m4a"
-    return ".flac"
-
-
-def _decode_with_ffmpeg(raw: bytes, sr: int) -> np.ndarray:
-    """Decode arbitrary audio bytes to mono float32 via the ffmpeg binary bundled
-    by ``imageio-ffmpeg``. This needs NO system ffmpeg, so it works on hosts
-    (Streamlit Cloud) where soundfile's libsndfile chokes on a FLAC and audioread
-    has no backend. Pipes the raw container in, reads f32le PCM out."""
-    import subprocess
-    import imageio_ffmpeg
-    exe = imageio_ffmpeg.get_ffmpeg_exe()
-    proc = subprocess.run(
-        [exe, "-nostdin", "-loglevel", "quiet", "-i", "pipe:0",
-         "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(sr), "pipe:1"],
-        input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
-    )
-    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
-
-
-def _load_signal(uploaded, name=None):
-    try:
-        signal, _ = librosa.load(uploaded, sr=extractor.sample_rate, mono=True)
-    except Exception:
-        # soundfile can't read compressed formats (mp3/m4a/ogg) or some FLAC from
-        # a BytesIO. Read the bytes and decode through the bundled ffmpeg binary,
-        # which is far more permissive and needs no system install.
-        if hasattr(uploaded, "seek"):
-            uploaded.seek(0)
-        raw = (uploaded.read() if hasattr(uploaded, "read")
-               else bytes(uploaded) if isinstance(uploaded, (bytes, bytearray))
-               else b"")
-        try:
-            signal = _decode_with_ffmpeg(raw, extractor.sample_rate)
-        except Exception as _ex:                          # final, clearer failure
-            suffix = _audio_suffix(name, raw)
-            raise RuntimeError(
-                f"unsupported or corrupt audio ({suffix}). [{_ex}]"
-            ) from _ex
-    if len(signal) < extractor.n_fft:
-        signal = np.pad(signal, (0, extractor.n_fft - len(signal)))
-    return signal
-
-
 def _open_in_signal_explorer(blob: bytes, fname: str) -> None:
     """Drop everything currently loaded in Signal Explorer and place THIS uploaded
     clip as its single source, then jump to that page so the user can browse every
@@ -473,8 +409,9 @@ def _open_in_signal_explorer(blob: bytes, fname: str) -> None:
         for k in [key for key in list(st.session_state) if key.startswith(f"{p}_")]:
             del st.session_state[k]
     # Pre-select EVERY representation so the user sees them all without ticking
-    # any (mirrors Signal Explorer's ALL_VIEWS / se_views pills key).
-    _all_views = ["Waveform", "STFT", "Deep Network Input", "MFCC", "LFCC", "CQCC"]
+    # any. Must match Signal Explorer's ALL_VIEWS exactly: an unknown view name
+    # here would corrupt the se_views pills state on arrival.
+    _all_views = ["Waveform", "STFT", "CNN Input", "MFCC", "LFCC", "CQCC"]
     st.session_state["se_n"]            = 1
     st.session_state["se_views"]        = list(_all_views)
     st.session_state["a_source"]        = "Upload"
@@ -601,19 +538,26 @@ def _render_test_results(rows, signal, blob, fname):
                 f"<div style='font-size:0.8rem;color:#9EA8C0;margin-top:0.2rem;'>"
                 f"p={p_val:.2f}</div></div>")
     _member_chips = "".join(_member_chip(m) for m in _members)
-    # Enlarged verdict panel, centered, with members to the right
-    st.markdown(
-        f"<div style='display:flex;gap:2rem;align-items:center;margin:1.2rem auto 1.6rem;justify-content:center;'>"
-        f"<div style='flex:0 0 700px;padding:2.8rem 3.2rem;border-radius:1rem;border:2px solid {v_color}59;"
+    # Verdict panel, centered, fusion members beside it. Fluid sizing: the panel
+    # shrinks (and the members wrap below it) on narrow windows instead of the
+    # old fixed 700px box forcing a horizontal overflow. themed() swaps the
+    # grey/blue text literals for readable ones on the Light Side.
+    st.markdown(themed(
+        f"<div style='display:flex;flex-wrap:wrap;gap:1.4rem 2rem;align-items:center;"
+        f"margin:1.2rem auto 1.6rem;justify-content:center;'>"
+        f"<div style='flex:1 1 340px;max-width:700px;"
+        f"padding:clamp(1.4rem,3.5vw,2.8rem) clamp(1.5rem,4vw,3.2rem);"
+        f"border-radius:1rem;border:2px solid {v_color}59;"
         f"box-shadow:0 0 30px {v_color}55, inset 0 0 30px {v_color}1f;text-align:center;'>"
         f"<span style='display:block;font-size:0.7rem;font-weight:800;letter-spacing:0.16em;"
         f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.4rem;'>Final verdict — weighted fusion</span>"
-        f"<span style='font-size:3.2rem;font-weight:700;color:{v_color};text-shadow:0 0 20px {v_color}aa;display:block;'>"
+        f"<span style='font-size:clamp(1.9rem,4.2vw,3.2rem);font-weight:700;color:{v_color};"
+        f"text-shadow:0 0 20px {v_color}aa;display:block;'>"
         f"{v_text}</span>"
         f"<span style='color:#9EA8C0;font-size:1rem;margin-top:0.8rem;display:block;'>"
         f"p(spoof) = <b style='color:#C9D7F5;'>{fused_p:.3f}</b></span></div>"
         f"<div style='display:flex;flex-direction:column;gap:0.7rem;align-items:center;'>"
-        f"{_member_chips}</div></div>",
+        f"{_member_chips}</div></div>"),
         unsafe_allow_html=True,
     )
     st.markdown("<div style='height:1.2rem'></div>", unsafe_allow_html=True)
@@ -640,18 +584,23 @@ def _render_test_results(rows, signal, blob, fname):
             f'<span style="color:#8A95AE;font-size:0.74rem;">'
             f'p={r["p(spoof)"]:.2f}</span></div></div>'
         )
-    st.markdown(
+    st.markdown(themed(
         '<div style="display:grid;grid-template-columns:'
         'repeat(auto-fill,minmax(168px,1fr));gap:0.5rem;margin:0.3rem 0 0.5rem;">'
-        + "".join(_chips) + "</div>",
+        + "".join(_chips) + "</div>"),
         unsafe_allow_html=True,
     )
     st.divider()
 
+    # SINGLE source of model ordering for the table AND the chart: this frame,
+    # sorted most-suspicious-first (same convention as the verdict chip grid
+    # above). The chart consumes the resulting Model list as its explicit sort,
+    # so the two views can never drift apart again.
     df = (pd.DataFrame([{"Model": r["Model"], "Front-end": r["Front-end"],
                          "p(spoof)": r["p(spoof)"], "threshold": r.get("thr", 0.5),
                          "Verdict": r["Verdict"]} for r in rows])
-          .sort_values("p(spoof)", ascending=True).reset_index(drop=True))
+          .sort_values("p(spoof)", ascending=False).reset_index(drop=True))
+    _model_order = df["Model"].tolist()
 
     gcol1, gcol2 = st.columns([1.05, 1], gap="large")
     with gcol1:
@@ -670,24 +619,18 @@ def _render_test_results(rows, signal, blob, fname):
         )
     with gcol2:
         st.markdown("**Probability per model**")
-        # Add a sort index to match the table order (top to bottom = highest to lowest p(spoof))
-        # Use inverted range so highest index appears at top in descending sort.
-        df_chart = df.copy()
-        df_chart["_sort_idx"] = range(len(df_chart) - 1, -1, -1)
-        bar = (alt.Chart(df_chart).mark_bar().encode(
+        bar = (alt.Chart(df).mark_bar().encode(
                     x=alt.X("p(spoof):Q", scale=alt.Scale(domain=[0, 1]),
                             title="p(spoof)"),
-                    y=alt.Y("Model:N", sort=alt.SortField("_sort_idx", order="descending"),
-                            title=None),
+                    y=alt.Y("Model:N", sort=_model_order, title=None),
                     color=alt.Color("Verdict:N", legend=None,
                                     scale=alt.Scale(domain=["BONAFIDE", "SPOOF"],
                                                     range=[BONAFIDE_COLOR, SPOOF_COLOR])),
                     tooltip=["Model", "Front-end", "p(spoof)", "threshold", "Verdict"])
-               .properties(height=max(150, 42 * len(df_chart))))
+               .properties(height=max(150, 42 * len(df))))
         # Each model's OWN threshold, as a yellow tick on its bar
-        ticks = (alt.Chart(df_chart).mark_tick(color="#FFD54F", thickness=2, size=22)
-                 .encode(x="threshold:Q",
-                        y=alt.Y("Model:N", sort=alt.SortField("_sort_idx", order="descending"))))
+        ticks = (alt.Chart(df).mark_tick(color="#FFD54F", thickness=2, size=22)
+                 .encode(x="threshold:Q", y=alt.Y("Model:N", sort=_model_order)))
         st.altair_chart(bar + ticks, width="stretch")
 
     st.divider()
@@ -910,7 +853,7 @@ with tab_test:
 
         # Load signal (needed for both analysis and display). Errors surface here.
         try:
-            signal = _load_signal(io.BytesIO(_blob), name=_fname)
+            signal = extractor.load_audio_bytes(_blob, _fname)
         except Exception as _ex:
             st.error(f"Could not decode the audio file, {_ex}")
             st.stop()

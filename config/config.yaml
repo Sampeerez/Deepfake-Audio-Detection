@@ -1,43 +1,42 @@
 # =============================================================================
-# CONFIGURACIÓN GLOBAL DEL BANCO DE PRUEBAS ANTI-SPOOFING (TFG)
+# GLOBAL CONFIGURATION FOR THE ANTI-SPOOFING TEST BENCH (TFG)
 # =============================================================================
-# Este fichero centraliza los parámetros FÍSICOS de la señal y las rutas del
-# dataset. El código nunca incrusta "números mágicos": todo módulo (features,
-# data_loader, main) lee de aquí, garantizando reproducibilidad experimental.
+# This file centralises the PHYSICAL signal parameters and the dataset paths.
+# The code never hardcodes "magic numbers": every module (features, data_loader,
+# etc.) reads from here, guaranteeing experimental reproducibility.
 #
-# NOTA SOBRE EL ADC (Conversión Analógico-Digital):
-#   ASVspoof 2019 LA está distribuido a 16 kHz / 16 bits (PCM). Esto implica:
-#   - Frecuencia de Nyquist = sample_rate / 2 = 8000 Hz. Cualquier componente
-#     analógica superior fue eliminada con filtros pasabajo (anti-aliasing)
-#     antes del muestreo para evitar el repliegue espectral (aliasing).
-#   - Bit depth de 16 bits -> 65536 niveles de cuantización: mayor rango
-#     dinámico y menor error de aproximación que con 8 bits.
+# NOTE ON THE ADC (Analog-to-Digital Conversion):
+#   ASVspoof 2019 LA is distributed at 16 kHz / 16 bits (PCM). This implies:
+#   - Nyquist frequency = sample_rate / 2 = 8000 Hz. Any analog component above
+#     it was removed with anti-aliasing low-pass filters before sampling to
+#     avoid spectral folding (aliasing).
+#   - 16-bit depth -> 65536 quantisation levels: wider dynamic range and smaller
+#     approximation error than 8 bits.
 # =============================================================================
 
 audio:
-  sample_rate: 16000        # Tasa de muestreo (Hz). Nyquist = 8000 Hz.
-  n_fft: 1024               # Tamaño del frame para la FFT. Potencia exacta de 2
-                            # para que la FFT alcance complejidad O(N log2 N)
-                            # frente al O(N^2) de la DFT directa.
-  hop_length: 512           # Desplazamiento entre frames (50% de solape).
-                            # Compensa la señal atenuada en los bordes por la
-                            # ventana de Hann superponiendo frames consecutivos.
-  n_mels: 80                # Nº de bandas del banco de filtros de Mel (MFCC).
-  n_mfcc: 20                # Nº de coeficientes cepstrales de Mel a conservar.
-  n_lfcc: 20                # Nº de coeficientes cepstrales lineales (LFCC).
-  n_filtros_lineales: 40    # Nº de filtros triangulares LINEALES previos a la
-                            # DCT en el pipeline analítico del LFCC.
-  wavelet_mother: "db4"     # Wavelet madre (Daubechies-4) para la DWT.
+  sample_rate: 16000        # Sample rate (Hz). Nyquist = 8000 Hz.
+  n_fft: 1024               # FFT frame size. Exact power of 2 so the FFT runs in
+                            # O(N log2 N) instead of the O(N^2) of the direct DFT.
+  hop_length: 512           # Hop between frames (50% overlap). Compensates for the
+                            # signal attenuated at the edges by the Hann window by
+                            # overlapping consecutive frames.
+  n_mels: 80                # Number of Mel filter-bank bands (MFCC).
+  n_mfcc: 20                # Number of Mel cepstral coefficients to keep.
+  n_lfcc: 20                # Number of linear cepstral coefficients (LFCC).
+  n_linear_filters: 40      # Number of linear triangular filters before the DCT
+                            # in the LFCC analytic pipeline.
+  wavelet_mother: "db4"     # Mother wavelet (Daubechies-4) for the DWT.
 
-# Dimensiones fijas de la "imagen" espectral que alimenta a la CNN 2D.
-# La red convolucional exige tensores de tamaño constante por lote (batch).
+# Fixed dimensions of the spectral "image" fed to the 2D CNN. The convolutional
+# network requires constant-size tensors per batch.
 cnn_input:
-  freq_bins: 128            # Bandas de frecuencia tras compresión por bloques.
-  time_frames: 300          # Frames temporales (padding/truncado estricto).
-                            # 300 frames * 512 hop / 16000 Hz ~= 9.6 segundos.
+  freq_bins: 128            # Frequency bands after block compression.
+  time_frames: 300          # Temporal frames (strict padding/truncation).
+                            # 300 frames * 512 hop / 16000 Hz ~= 9.6 seconds.
 
 dataset:
-  path_la2019: "./data/ASVspoof2019/LA/LA"   # Raíz del corpus LA (Logical Access).
+  path_la2019: "./data/ASVspoof2019/LA/LA"   # LA (Logical Access) corpus root.
   protocols_dir: "ASVspoof2019_LA_cm_protocols"
   protocols:
     train: "ASVspoof2019.LA.cm.train.trn.txt"
@@ -45,20 +44,19 @@ dataset:
     eval: "ASVspoof2019.LA.cm.eval.trl.txt"
 
 train_params:
-  epochs: 20                # Pasadas completas sobre el subset de entrenamiento.
-  batch_size: 32            # Tamaño de lote para el descenso por gradiente.
-  lr: 0.001                 # Tasa de aprendizaje del optimizador Adam.
-  dropout: 0.3              # Probabilidad de apagado de neuronas (anti-sobreajuste).
-  num_workers: 2            # Procesos paralelos de carga de audio en PyTorch.
-  semilla: 42               # Semilla global de reproducibilidad.
-  early_stopping_patience: 5  # Épocas sin mejora de loss_val antes de parar.
+  epochs: 20                # Full passes over the training subset.
+  batch_size: 32            # Batch size for gradient descent.
+  lr: 0.001                 # Learning rate of the Adam optimiser.
+  dropout: 0.3              # Neuron drop probability (overfitting guard).
+  num_workers: 2            # Parallel audio-loading processes in PyTorch.
+  seed: 42                  # Global reproducibility seed.
+  early_stopping_patience: 5  # Epochs without val-loss improvement before stopping.
 
-# Configuración ÓPTIMA por arquitectura para "Full Comparison": cada modelo se
-# entrena con sus mejores hiperparámetros (sobrescriben train_params en el
-# barrido masivo). Ajusta estos valores tras los primeros entrenamientos.
-# Claves de arquitectura: cnn, cnn_se, resnet, resnext, crnn.
+# Per-architecture OPTIMAL configuration for "Full Comparison": each model trains
+# with its best hyperparameters (these override train_params in the mass sweep).
+# Architecture keys: cnn, cnn_se, resnet, resnext, crnn.
 cnn_arch_params:
-  cnn:                      # 5-Block CNN (baseline rápida).
+  cnn:                      # 5-Block CNN (fast baseline).
     epochs: 25
     batch_size: 32
     lr: 0.001
@@ -68,46 +66,45 @@ cnn_arch_params:
     batch_size: 32
     lr: 0.001
     early_stopping_patience: 6
-  resnet:                   # ResNet + SE (residual, generaliza mejor).
+  resnet:                   # ResNet + SE (residual, generalises better).
     epochs: 35
     batch_size: 32
     lr: 0.0005
     early_stopping_patience: 7
-  resnext:                  # ResNeXt + SE (convolución agrupada, cardinalidad).
+  resnext:                  # ResNeXt + SE (grouped convolution, cardinality).
     epochs: 35
     batch_size: 32
     lr: 0.0005
     early_stopping_patience: 7
-  crnn:                     # CRNN (CNN + GRU bidireccional, eje temporal).
+  crnn:                     # CRNN (CNN + bidirectional GRU, temporal axis).
     epochs: 30
     batch_size: 16
     lr: 0.0005
     early_stopping_patience: 6
 
-# Rigor del barrido CNN en "Full Comparison":
-#   - seeds: cada arquitectura se entrena UNA VEZ POR SEMILLA y las métricas se
-#     promedian (media ± desviación). Una sola corrida sobre un dev saturado no
-#     distingue bien entre arquitecturas; repetir sobre semillas hace fiable el
-#     ranking. El checkpoint guardado en /models es el de la MEJOR semilla (menor
-#     loss de validación con ataques no vistos).
-#   - holdout_attacks: ataques retirados del entrenamiento y usados SOLO para el
-#     early stopping / selección de modelo. train/dev comparten ataques (A01-A06),
-#     así que validar sobre A05/A06 "no vistos" da señal real de generalización
-#     sin tocar el eval (A07-A19 / 2021). Lista vacía ⇒ se usa dev como antes.
-#   - bonafide_val_frac: fracción de bonafide que acompaña a los ataques retenidos
-#     en el set de validación (el bonafide no tiene ataque que retirar).
+# Rigour of the CNN sweep in "Full Comparison":
+#   - seeds: each architecture is trained ONCE PER SEED and the metrics are
+#     averaged (mean +/- std). A single run on a saturated dev set can't tell the
+#     architectures apart; repeating over seeds makes the ranking reliable. The
+#     checkpoint saved to /models is the BEST seed (lowest unseen-attack val loss).
+#   - holdout_attacks: attacks removed from training and used ONLY for early
+#     stopping / model selection. train/dev share attacks (A01-A06), so validating
+#     on "unseen" A05/A06 gives a real generalisation signal without touching eval
+#     (A07-A19 / 2021). Empty list => dev is used as before.
+#   - bonafide_val_frac: fraction of bonafide that accompanies the held-out
+#     attacks in the validation set (bonafide has no attack to remove).
 cnn_multiseed:
   seeds: [42, 43, 44]
   holdout_attacks: ["A05", "A06"]
   bonafide_val_frac: 0.1
 
 experiment:
-  usar_cache: true          # Caché de vectores DSP en disco (directorio cache/).
-  n_workers_dsp: 4          # Hilos para extracción DSP paralela (1 = secuencial).
+  use_cache: true           # On-disk cache of DSP vectors (cache/ directory).
+  n_workers_dsp: 4          # Threads for parallel DSP extraction (1 = sequential).
 
-# ASVspoof 2021, solo split eval (sin train/dev oficial).
-# La pista LA tiene condiciones de canal telefónico real.
-# La pista DF incluye deepfakes "en la naturaleza" (3 particiones).
+# ASVspoof 2021, eval split only (no official train/dev).
+# The LA track has real telephone-channel conditions.
+# The DF track includes "in the wild" deepfakes (3 partitions).
 dataset_2021:
   la:
     eval_dir: "./data/ASVspoof2021/ASVspoof2021_LA_eval/ASVspoof2021_LA_eval"

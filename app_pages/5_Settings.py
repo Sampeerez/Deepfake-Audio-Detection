@@ -17,17 +17,36 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st  # noqa: E402
 
 from src.ui_helpers import (  # noqa: E402
-    app_footer, sidebar_panel, theme_mode, themed,
+    ACCENT_COLORS, app_footer, sidebar_panel, theme_mode, themed,
 )
 
 _SIDE_LABELS = {"dark": "Dark Side", "light": "Light Side"}
-# All Star Wars lightsaber colors for accent and audio
-_ACCENT_COLORS = {"Red": "#FF3B3B", "Blue": "#2C82FF", "Green": "#46E36B", "Purple": "#B36BFF", "Amber": "#FFB23B"}
 _DEFAULTS = {
     "sw_theme": "dark", "sw_saber": "Red", "sw_bg": "Star Wars",
     "sw_bg_intensity": "Normal", "sw_show_ships": True,
     "sw_show_deathstar": True, "sw_reduced_motion": False,
-    "sw_contrast": False, "sw_text_scale": "Normal", "sw_audio_color": "Red",
+    "sw_contrast": False, "sw_text_scale": "Normal",
+    "sw_underline": False, "sw_text_spacing": False, "sw_audio_color": "Red",
+}
+
+# Widget key → (persistent plain key, plain→widget transform). The SINGLE wiring
+# table used both to seed the controls and to reset them, so a new setting only
+# has to be added here (the old hand-maintained lists drifted apart).
+_CTL_WIRING = {
+    "sw_side_ctl":      ("sw_theme",          lambda v: _SIDE_LABELS[v]),
+    # Guard legacy values (the saber key once allowed "Auto") so a stale session
+    # can never seed the selectbox with an option it doesn't have.
+    "sw_color_ctl":     ("sw_saber",
+                         lambda v: v if v in ACCENT_COLORS else "Red"),
+    "sw_bg_ctl":        ("sw_bg",             None),
+    "sw_intensity_ctl": ("sw_bg_intensity",   None),
+    "sw_ships_ctl":     ("sw_show_ships",     bool),
+    "sw_ds_ctl":        ("sw_show_deathstar", bool),
+    "sw_rm_ctl":        ("sw_reduced_motion", bool),
+    "sw_hc_ctl":        ("sw_contrast",       bool),
+    "sw_ul_ctl":        ("sw_underline",      bool),
+    "sw_sp_ctl":        ("sw_text_spacing",   bool),
+    "sw_ts_ctl":        ("sw_text_scale",     None),
 }
 
 
@@ -37,45 +56,38 @@ def _sync(plain: str, ctl: str) -> None:
 
 
 def _sync_color() -> None:
-    """Sync color selector to both saber and audio."""
+    """One colour drives both the saber accents and the Home audio bars."""
     color_val = st.session_state.get("sw_color_ctl")
     st.session_state["sw_saber"] = color_val
     st.session_state["sw_audio_color"] = color_val
 
 
 def _sync_side() -> None:
-    st.session_state["sw_theme"] = (
-        "light" if st.session_state.get("sw_side_ctl") == "Light Side" else "dark"
-    )
+    light = st.session_state.get("sw_side_ctl") == "Light Side"
+    st.session_state["sw_theme"] = "light" if light else "dark"
+    # Each side ignites its signature blade: Jedi blue on the Light Side, Sith
+    # red on the Dark Side. It keeps the light palette coherently blue; the
+    # colour picker below can still override it afterwards.
+    accent = "Blue" if light else "Red"
+    for _k in ("sw_saber", "sw_audio_color", "sw_color_ctl"):
+        st.session_state[_k] = accent
 
 
 def _reset() -> None:
     for k, v in _DEFAULTS.items():
         st.session_state[k] = v
-    st.session_state["sw_side_ctl"]      = _SIDE_LABELS["dark"]
-    st.session_state["sw_color_ctl"]     = "Red"
-    st.session_state["sw_bg_ctl"]        = "Star Wars"
-    st.session_state["sw_intensity_ctl"] = "Normal"
-    st.session_state["sw_ships_ctl"]     = True
-    st.session_state["sw_ds_ctl"]        = True
-    st.session_state["sw_rm_ctl"]        = False
-    st.session_state["sw_hc_ctl"]        = False
-    st.session_state["sw_ts_ctl"]        = "Normal"
+    for ctl, (plain, conv) in _CTL_WIRING.items():
+        v = _DEFAULTS[plain]
+        st.session_state[ctl] = conv(v) if conv else v
+    st.toast("Defaults restored.", icon=":material/restart_alt:")
 
 
 # Seed each widget key from its persistent value (so controls reflect the saved
 # choice without passing default=+key=, which would warn). setdefault only fills
 # the first time the widget is created.
-st.session_state.setdefault("sw_side_ctl", _SIDE_LABELS[theme_mode()])
-# Unified color selector for both saber and audio
-st.session_state.setdefault("sw_color_ctl", st.session_state.get("sw_saber", "Red"))
-st.session_state.setdefault("sw_bg_ctl", st.session_state.get("sw_bg", "Star Wars"))
-st.session_state.setdefault("sw_intensity_ctl", st.session_state.get("sw_bg_intensity", "Normal"))
-st.session_state.setdefault("sw_ships_ctl", bool(st.session_state.get("sw_show_ships", True)))
-st.session_state.setdefault("sw_ds_ctl", bool(st.session_state.get("sw_show_deathstar", True)))
-st.session_state.setdefault("sw_rm_ctl", bool(st.session_state.get("sw_reduced_motion")))
-st.session_state.setdefault("sw_hc_ctl", bool(st.session_state.get("sw_contrast")))
-st.session_state.setdefault("sw_ts_ctl", st.session_state.get("sw_text_scale", "Normal"))
+for _ctl, (_plain, _conv) in _CTL_WIRING.items():
+    _v = st.session_state.get(_plain, _DEFAULTS[_plain])
+    st.session_state.setdefault(_ctl, _conv(_v) if _conv else _v)
 
 
 # ── Page-local styling (themed so it swaps cleanly on the Light Side) ──────────
@@ -83,42 +95,46 @@ st.markdown(themed("""
 <style>
 /* Section headers, NOT a glowing saber rule (too saturated on this dense page).
    Instead a compact saber-coloured number chip with a soft glow: eye-catching but
-   far less invasive, and it still tracks the chosen lightsaber colour. */
-.set-sec { display: flex; align-items: center; gap: 0.65rem; margin: 1.5rem 0 0.15rem; }
+   far less invasive, and it still tracks the chosen lightsaber colour.
+   The chip darkens the saber colour under the white numeral (color-mix) so the
+   pairing meets AA contrast even for the bright Amber/Green blades. */
+.set-sec { display: flex; align-items: center; gap: 0.65rem; margin: 1.15rem 0 0.15rem; }
 .set-sec .ss-num {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 1.75rem; height: 1.75rem; border-radius: 0.55rem;
-    font-size: 0.82rem; font-weight: 800; color: #fff; background: var(--saber);
+    font-size: 0.82rem; font-weight: 800; color: #fff;
+    background: color-mix(in srgb, var(--saber) 58%, #000);
+    border: 1px solid var(--saber);
     box-shadow: 0 0 10px var(--saber-glow); letter-spacing: 0.02em;
 }
 .set-sec .ss-title {
     font-size: 1.2rem; font-weight: 750; color: #E8EDF8; letter-spacing: -0.01em;
 }
-.set-sub2 { font-size: 0.82rem; opacity: 0.6; margin: 0 0 0.7rem 2.4rem; }
+/* Quiet rule filling the rest of the row: ties each section to the saber tint
+   and gives the page the same editorial rhythm as the other pages' sec-heads,
+   without the animated blade (too loud on a dense control page). */
+.set-sec .ss-rule {
+    flex: 1 1 auto; min-width: 2rem; height: 1px; align-self: center;
+    background: linear-gradient(90deg, var(--saber-glow), transparent);
+    opacity: 0.45;
+}
+/* Real colour instead of opacity: translucent text fell below AA contrast. */
+.set-sub2 { font-size: 0.82rem; color: #8FA3CE; margin: 0 0 0.55rem 2.4rem; }
 
-/* Live lightsaber preview, a full blade + a properly modelled metal hilt that
-   updates to whatever colour you pick. */
+/* A little air between stacked toggles inside the accessibility grid. */
+[class*="st-key-a11ygrid"] [data-testid="stToggle"] { margin-bottom: 0.15rem; }
+.set-hint { font-size: 0.74rem; color: #8FA3CE; margin: -0.35rem 0 0.6rem; }
+
+/* Live lightsaber preview: the blade only, the metal hilt comes from the shared
+   saber CSS (same ::before as the title rules), one hilt definition app-wide. */
 .saber-demo {
-    position: relative; height: 9px; border-radius: 5px;
+    position: relative; height: 9px; border-radius: 5px; overflow: visible;
     margin: 1.25rem 0 0.5rem 38px; background: var(--saber);
     box-shadow: 0 0 12px var(--saber-glow), 0 0 26px var(--saber-glow),
                 0 0 48px var(--saber-glow);
     animation: saberPulse 2.4s ease-in-out infinite;
 }
-.saber-demo::before {
-    content: ""; position: absolute; top: 50%; left: -36px; transform: translateY(-50%);
-    width: 36px; height: 17px; border-radius: 4px 2px 2px 4px;
-    background:
-        linear-gradient(90deg, transparent 0 79%, rgba(255,255,255,0.55) 79% 81%,
-                        var(--saber) 81% 100%),
-        repeating-linear-gradient(90deg, rgba(255,255,255,0.12) 0 1px,
-                        rgba(0,0,0,0.22) 3px 4px, transparent 4px 7px),
-        linear-gradient(180deg, #f1f3f7 0%, #c4cad4 20%, #889 50%,
-                        #4d5362 80%, #2a2f3a 100%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.5),
-                inset 0 -1px 0 rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.55);
-}
-.saber-hint { font-size: 0.74rem; opacity: 0.6; margin-top: 0.15rem; }
+.saber-hint { font-size: 0.74rem; color: #8FA3CE; margin-top: 0.15rem; }
 
 /* Cantina rumour (Konami) with little keycaps. */
 .konami-hint {
@@ -148,7 +164,7 @@ def _sec(num: str, title: str, sub: str) -> None:
     """Compact, low-saturation section header (no glowing saber rule)."""
     st.markdown(
         f'<div class="set-sec"><span class="ss-num">{num}</span>'
-        f'<span class="ss-title">{title}</span></div>'
+        f'<span class="ss-title">{title}</span><span class="ss-rule"></span></div>'
         f'<div class="set-sub2">{sub}</div>',
         unsafe_allow_html=True,
     )
@@ -168,20 +184,21 @@ with _c1:
             help="Dark Side = the deep-space dark theme. Light Side = a high-key "
                  "light theme for bright rooms or projectors.",
         )
-        st.caption("Dark Side keeps the deep-space look · Light Side is the "
-                   "accessibility light theme with a Tatooine twin-sun backdrop.")
+        st.caption("Dark Side keeps the deep-space look with a red blade · "
+                   "Light Side switches to a blue-on-light theme (blue blade) "
+                   "with a Tatooine twin-sun backdrop.")
 with _c2:
     with st.container(border=True):
         st.markdown('<div class="section-label">Accent & Audio colour</div>',
                     unsafe_allow_html=True)
         st.selectbox(
             "Accent & Audio colour",
-            list(_ACCENT_COLORS.keys()),
+            list(ACCENT_COLORS),
             key="sw_color_ctl", on_change=_sync_color,
             label_visibility="collapsed",
             help="Colour of the lightsaber blade accents across the app and the dancing audio bars on the home page.",
         )
-        st.markdown('<div class="saber-demo"></div>'
+        st.markdown('<div class="saber-demo" aria-hidden="true"></div>'
                     '<div class="saber-hint">Live preview, this is your blade and audio colour.</div>',
                     unsafe_allow_html=True)
 
@@ -244,31 +261,50 @@ with st.container(border=True):
 
 
 # ── Accessibility ─────────────────────────────────────────────────────────────
-_sec("03", "Accessibility", "Make the app easier to read and calmer.")
+_sec("03", "Accessibility", "Make the app easier to read and calmer. "
+     "Everything applies instantly, across every page.")
 
-with st.container(border=True):
-    _a1, _a2, _a3 = st.columns(3, gap="large")
+with st.container(border=True, key="a11ygrid"):
+    _a1, _a2 = st.columns(2, gap="large")
     with _a1:
+        st.markdown('<div class="section-label">Comfort</div>',
+                    unsafe_allow_html=True)
         st.toggle(
             "Reduce motion", key="sw_rm_ctl",
             on_change=_sync, args=("sw_reduced_motion", "sw_rm_ctl"),
             help="Stops the ambient animations (saber glow, drifting background, "
                  "passing ships) for a calmer, distraction-free interface.",
         )
+        st.toggle(
+            "Comfortable text spacing", key="sw_sp_ctl",
+            on_change=_sync, args=("sw_text_spacing", "sw_sp_ctl"),
+            help="Looser line height, letter and word spacing on running text "
+                 "(in the spirit of WCAG 1.4.12), easier reading, e.g. for "
+                 "dyslexic users.",
+        )
     with _a2:
+        st.markdown('<div class="section-label">Legibility</div>',
+                    unsafe_allow_html=True)
         st.toggle(
             "High contrast", key="sw_hc_ctl",
             on_change=_sync, args=("sw_contrast", "sw_hc_ctl"),
             help="Stronger text and thicker borders for better legibility.",
         )
-    with _a3:
-        st.markdown('<div class="section-label">Text size</div>',
-                    unsafe_allow_html=True)
-        st.segmented_control(
-            "Text size", ["Normal", "Large", "Larger"],
-            key="sw_ts_ctl", on_change=_sync, args=("sw_text_scale", "sw_ts_ctl"),
-            label_visibility="collapsed",
+        st.toggle(
+            "Underline links", key="sw_ul_ctl",
+            on_change=_sync, args=("sw_underline", "sw_ul_ctl"),
+            help="Links stay underlined everywhere, so colour is never the only "
+                 "cue that something is clickable (WCAG 1.4.1).",
         )
+
+    st.markdown('<div class="section-label" style="margin-top:0.6rem;">Text size</div>',
+                unsafe_allow_html=True)
+    st.segmented_control(
+        "Text size", ["Normal", "Large", "Larger"],
+        key="sw_ts_ctl", on_change=_sync, args=("sw_text_scale", "sw_ts_ctl"),
+        label_visibility="collapsed",
+        help="Scales the content text only; the layout keeps its proportions.",
+    )
 
 
 # ── Save / reset ──────────────────────────────────────────────────────────────
@@ -291,6 +327,11 @@ with _r3:
                  width="stretch"):
         st.toast("Settings saved for this session.", icon=":material/check_circle:")
 
+# Reading aids summarised in one row so the panel stays scannable.
+_aids = [label for key, label in (
+    ("sw_reduced_motion", "motion"), ("sw_contrast", "contrast"),
+    ("sw_underline", "links"), ("sw_text_spacing", "spacing"),
+) if st.session_state.get(key)]
 sidebar_panel(
     "Current setup",
     rows=[
@@ -300,7 +341,7 @@ sidebar_panel(
         ("Intensity", st.session_state.get("sw_bg_intensity", "Normal")),
         ("Ships", "On" if st.session_state.get("sw_show_ships", True) else "Off"),
         ("Death Star", "On" if st.session_state.get("sw_show_deathstar", True) else "Off"),
-        ("Reduced motion", "On" if st.session_state.get("sw_reduced_motion") else "Off"),
+        ("Reading aids", ", ".join(_aids) if _aids else "Off"),
         ("Text size", st.session_state.get("sw_text_scale", "Normal")),
     ],
 )

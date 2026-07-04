@@ -17,27 +17,13 @@ data/
 cache/
 
 # ── Pretrained model weights ────────────────────────────────────────────
-# The model zoo is small (~4 MB of classic .joblib + a few MB per CNN .pth), so
-# it is COMMITTED to the repo and loaded from models/ directly — no download at
-# runtime. Only the multi-GB DATASETS still live on Hugging Face.
-# Stray .pth/.joblib/.pkl OUTSIDE models/ (e.g. ad-hoc checkpoints at the repo
-# root) stay ignored; the tracked weights live under models/.
 /*.pth
 /*.joblib
 /*.pkl
 asvspoof_model_checkpoint.pth
-
-# EXCEPTION: the fine-tuned wav2vec 2.0 checkpoint (~469 MB) exceeds GitHub's
-# 100 MB hard limit, so it is the ONE model NOT committed. Locally it is read
-# from models/wav2vec2.pth; on the cloud it is fetched on first run from the
-# public Hugging Face repo declared in the registry (Sara1708/deepfake-audio-
-# wav2vec2 → stage2_best.pt). Every OTHER model in models/ IS committed.
 models/wav2vec2.pth
 
 # ── Bundled sample clips ─────────────────────────────────────────────────
-# The small committed samples/ tree (train/dev + a tiny eval fallback) IS
-# tracked so the web demo always has audio. The runtime cache of eval clips
-# streamed from the external Hugging Face dataset is NOT.
 samples/_hf_cache/
 
 # ── Secrets & local settings ────────────────────────────

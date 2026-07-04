@@ -4,9 +4,10 @@
 Split out of the former monolithic src/ui_helpers.py and re-exported there for
 backward compatibility, so existing `from src.ui_helpers import ...` call sites
 are unaffected. Contains the page stylesheet, the lightsaber/theme CSS, the
-dark->light colour swap, and build_page_css / themed / inject_css.
+dark->light colour swap, and build_page_css / themed.
 """
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Tuple
 
@@ -91,6 +92,8 @@ _LIGHT_MAP = {
     "#AFC3E8": "#42567F", "#8FA3CE": "#46588A", "#6E87C9": "#46588A",
     "#7487B0": "#586A92", "#5E7FD4": "#3458AE", "#9FB6E0": "#46588A",
     "#8AABEF": "#2E5AA8", "#4FC3F7": "#1597C7",
+    # grey-blue captions on the Detection Analysis verdict/chips panels
+    "#9EA8C0": "#4E5C7A", "#8A95AE": "#586684",
     # ── purple operation banner ─────────────────────────────────────────────
     "rgba(74,20,110,0.62)": "rgba(124,63,176,0.14)",
     "rgba(34,16,74,0.6)":   "rgba(124,63,176,0.08)",
@@ -109,6 +112,13 @@ def _light_swap(css: str) -> str:
     return css
 
 
+@lru_cache(maxsize=1)
+def _light_page_css() -> str:
+    """Light-swapped PAGE_CSS, computed once: ~70 str.replace passes over a 64 KB
+    stylesheet is pure waste on every rerun (the input never changes)."""
+    return _light_swap(PAGE_CSS)
+
+
 # Lightsaber accent: the one decorative colour, exposed as a CSS variable so the
 # blade styling (below) and the verdict glow can read it. The user picks a blade
 # colour in Settings (session key 'sw_saber'); "Auto" follows the side, a red
@@ -121,6 +131,10 @@ _SABER_NAMED = {
     "Amber":  ("#FFB23B", "255,178,59"),
 }
 _SABER_AUTO = {"dark": "Red", "light": "Blue"}
+
+# Public name → hex map for every UI that offers the saber/accent palette
+# (Settings picker, Home equaliser). Single source of truth: _SABER_NAMED.
+ACCENT_COLORS = {name: hex_ for name, (hex_, _rgb) in _SABER_NAMED.items()}
 
 
 def saber_choice(theme: str) -> Tuple[str, str]:
@@ -168,9 +182,10 @@ _SABER_CSS = """
 }
 /* ── Lightsaber HILT, a properly modelled metal handle on the title blades ──
    A short cylinder (top-lit shine), a few machined grip rings, a glowing emitter
-   ring where the blade ignites, and a rounded pommel. Shared by the section-title
-   rule and the free-standing accent bar so every title blade has a real hilt. */
-.gradient-bar::before, .sec-head .sh-rule::before {
+   ring where the blade ignites, and a rounded pommel. ONE definition shared by
+   the section-title rule, the free-standing accent bar and the Settings
+   .saber-demo preview, so every blade has the same hilt. */
+.gradient-bar::before, .sec-head .sh-rule::before, .saber-demo::before {
     content: ""; position: absolute; top: 50%; transform: translateY(-50%);
     width: 30px; height: 14px; border-radius: 4px 2px 2px 4px;
     background:
@@ -191,6 +206,9 @@ _SABER_CSS = """
 /* The free-standing bar sits clear of any text, so its hilt extends fully left. */
 .gradient-bar { overflow: visible; }
 .gradient-bar::before { left: -28px; }
+/* The Settings preview blade is inset 38px from its card edge; park the hilt in
+   that gap. */
+.saber-demo::before { left: -34px; }
 /* The title rule has a heading to its left; nudge the hilt only slightly so the
    emitter sits at the rule's start and the blade glows away from the title. */
 .sec-head .sh-rule::before { left: -8px; }
@@ -277,6 +295,25 @@ def _accessibility_css() -> str:
             '.pipe-step, .stat-strip{border-width:2px !important;}'
             'a, .hero-author a{text-decoration:underline !important;}'
         )
+    # Always-underlined links (WCAG 1.4.1: colour must not be the only cue).
+    # High contrast already underlines; this offers it independently.
+    if st.session_state.get("sw_underline"):
+        out.append(
+            'a, [data-testid="stMarkdownContainer"] a, .hero-author a'
+            '{text-decoration: underline !important;'
+            'text-underline-offset: 0.15em;}'
+        )
+    # Comfortable text spacing (in the spirit of WCAG 1.4.12): looser leading,
+    # letter and word spacing on running text; helps dyslexic readers.
+    if st.session_state.get("sw_text_spacing"):
+        out.append(
+            '[data-testid="stMarkdownContainer"] p,'
+            '[data-testid="stMarkdownContainer"] li,'
+            '.info-card .ic-body, .panel-card li, .method-card li,'
+            '.rep-card .rep-desc, .sec-sub, .dist-note'
+            '{line-height:1.85 !important;letter-spacing:0.045em !important;'
+            'word-spacing:0.1em !important;margin-bottom:0.55em !important;}'
+        )
     return "".join(out)
 
 
@@ -319,6 +356,31 @@ li[role="option"][aria-selected="true"], [role="option"][aria-selected="true"] {
     background: rgba(40,90,180,0.12) !important;
 }
 
+/* ── buttons ────────────────────────────────────────────────────────────────
+   Streamlit's dark base (config.toml) paints secondary/tertiary buttons with a
+   dark fill, while the generic rule above forces their label text dark, dark on
+   dark = invisible buttons (the old "Restore defaults" bug). Repaint them as
+   white chips with a blue border; primary buttons keep their gradient. */
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-tertiary"],
+[data-testid="stBaseButton-popover"] {
+    background: #FFFFFF !important;
+    color: #1B2438 !important;
+    border: 1px solid rgba(40,90,180,0.40) !important;
+}
+[data-testid="stBaseButton-secondary"]:hover,
+[data-testid="stBaseButton-tertiary"]:hover,
+[data-testid="stBaseButton-popover"]:hover {
+    background: #EEF4FD !important;
+    border-color: #1E5FCF !important;
+}
+/* Toggle tracks: the unchecked track was near-invisible on the light canvas.
+   :has() scopes the tint to UNCHECKED switches only, so the checked state keeps
+   the primary blue and the two states stay clearly distinguishable. */
+[data-baseweb="checkbox"]:has(input[aria-checked="false"]) > div:first-child {
+    background: rgba(70,90,140,0.35) !important;
+}
+
 /* ── closed controls: select, text/number inputs, textareas, file uploader ── */
 [data-baseweb="select"] > div, [data-baseweb="input"], [data-baseweb="base-input"],
 [data-baseweb="base-input"] input, textarea, input[type="text"], input[type="number"],
@@ -358,6 +420,16 @@ li[role="option"][aria-selected="true"], [role="option"][aria-selected="true"] {
 ::-webkit-scrollbar-track { background: rgba(40,90,180,0.10) !important; }
 ::-webkit-scrollbar-thumb  { background: rgba(40,90,180,0.40) !important; }
 
+/* links read as links on the light canvas: the project blue, not body grey
+   (the generic dark-text rule above would otherwise flatten them). The hero
+   block below re-lightens its own pill links, it comes later and wins. */
+[data-testid="stMarkdownContainer"] a, [data-testid="stApp"] a {
+    color: #1E5FCF !important;
+}
+[data-testid="stMarkdownContainer"] a:hover, [data-testid="stApp"] a:hover {
+    color: #1548C0 !important;
+}
+
 /* selected pill / segmented option keeps white text on its blue gradient */
 [data-testid="stBaseButton-pillsActive"],
 [data-testid="stBaseButton-segmented_controlActive"],
@@ -380,7 +452,7 @@ def build_page_css(theme: str) -> str:
     inject = _root_block(theme) + _SABER_CSS
     css = PAGE_CSS
     if theme == "light":
-        css = _light_swap(css)
+        css = _light_page_css()
         inject += _LIGHT_PATCH
     inject += _accessibility_css()          # appended LAST so it always wins
     return css.replace("</style>", inject + "\n</style>", 1)
@@ -390,13 +462,3 @@ def themed(html: str) -> str:
     """Light-swap a CSS/HTML string when the Light Side is active (no-op on dark).
     Lets page-local <style> blocks reuse the single _LIGHT_MAP."""
     return _light_swap(html) if theme_mode() == "light" else html
-
-
-def inject_css(html: str) -> None:
-    """st.markdown for a page-local style block, theming it for the active side."""
-    st.markdown(themed(html), unsafe_allow_html=True)
-
-
-# ===========================================================================
-# Cached resources
-# ===========================================================================

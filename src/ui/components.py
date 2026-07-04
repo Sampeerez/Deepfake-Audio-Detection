@@ -11,12 +11,10 @@ from typing import List, Optional, Tuple
 
 import streamlit as st
 
-from src.features import FeatureExtractor
 from src.ui.styles import BONAFIDE_COLOR, SPOOF_COLOR
 from src.model_registry import (
-    HF_EVAL_DATASETS, HF_EVAL_PER_CLASS, corpus_available, get_extractor,
+    HF_EVAL_DATASETS, HF_EVAL_PER_CLASS, corpus_available,
     get_samples, get_samples_2021_df, get_samples_2021_la, hf_eval_samples,
-    load_config,
 )
 
 def demo_corpus_notice(title: str = "Disabled in the web demo",
@@ -37,24 +35,6 @@ def demo_corpus_notice(title: str = "Disabled in the web demo",
         f'<p class="ic-body">{body}</p></div>',
         unsafe_allow_html=True,
     )
-
-
-def test_audio_cta(
-    text: str = "Instead, hear the state of the art in real time: upload your own "
-                "clip and watch every pretrained model judge it side by side.",
-) -> None:
-    """Attractive redirect from a corpus-only section to the multi-model file
-    analysis that DOES work in the web demo."""
-    st.markdown(
-        f'<p style="margin:0.9rem 0 1.15rem;opacity:0.8;">{text}</p>',
-        unsafe_allow_html=True,
-    )
-    try:
-        st.page_link("app_pages/3_Detection_Analysis.py",
-                     label="Try the live multi-model analysis",
-                     icon=":material/hearing:")
-    except Exception:  # noqa: BLE001, page_link needs st.navigation context
-        st.caption("Open **Detection Analysis → Test an audio** from the sidebar.")
 
 
 # ===========================================================================
@@ -84,10 +64,16 @@ def label_badge(label: str) -> str:
     )
 
 
-def section_header(num: str, title: str, caption: Optional[str] = None) -> None:
-    """Editorial section header: index number, title, fading rule, caption."""
+def section_header(num: str, title: str, caption: Optional[str] = None,
+                   anchor: Optional[str] = None) -> None:
+    """Editorial section header: index number, title, fading rule, caption.
+
+    ``anchor`` adds an HTML id so an in-page nav (e.g. the Methodology chip row)
+    can jump straight to the section.
+    """
+    _id = f' id="{anchor}"' if anchor else ""
     st.markdown(
-        f'<div class="sec-head"><span class="sh-num">{num}</span>'
+        f'<div class="sec-head"{_id}><span class="sh-num">{num}</span>'
         f'<h3 class="sh-title">{title}</h3><span class="sh-rule"></span></div>'
         + (f'<p class="sec-sub">{caption}</p>' if caption else ""),
         unsafe_allow_html=True,
@@ -338,45 +324,5 @@ def op_banner_fragment() -> None:
     else:
         _op_banner_idle()
 
-
-def launch_full_comparison(classic_subset: int = 4000, include_cnn: bool = True) -> None:
-    """Submit a full comparison with sensible defaults (2019 LA, dev + eval).
-
-    Used by the sidebar quick-launch button so the headline benchmark, the base
-    for everything else in the app, is one click away from any page."""
-    from src.jobs import submit_benchmark
-    ext = get_extractor()
-    st.session_state["bench_future"] = submit_benchmark(
-        ext=ext, feat_labels=FeatureExtractor.OPTION_NAMES,
-        base_params=dict(load_config()["train_params"]),
-        train=get_samples("train"), primary=get_samples("dev"), pname="dev",
-        eval_corpora=eval_corpora_for("2019 LA"),
-        classic_subset=int(classic_subset), cnn_subset=0,
-        include_cnn=include_cnn, seed=42,
-    )
-    st.session_state["bench_score"] = "Dev + Eval"
-    st.session_state["op_running"] = True
-
-
-def render_full_cta() -> None:
-    """Sidebar quick-launch for the full comparison, pinned to the same bottom
-    spot the running banner uses (shown only when nothing is running). Once a
-    full comparison has finished, it turns into a shortcut to its leaderboard."""
-    with st.sidebar:
-        with st.container(key="opcta"):
-            if st.session_state.get("bench_done"):
-                if st.button("See full comparison", key="cta_see_full",
-                             type="primary", width="stretch",
-                             icon=":material/leaderboard:"):
-                    st.session_state["bench_choice"] = "full"
-                    st.switch_page("app_pages/2_Benchmark.py")
-            elif st.button("Run full comparison", key="cta_full_cmp",
-                           type="primary", width="stretch",
-                           icon=":material/playlist_play:",
-                           disabled=not corpus_available()):
-                launch_full_comparison()
-                # Land on the full-comparison page so its live progress is visible.
-                st.session_state["bench_choice"] = "full"
-                st.switch_page("app_pages/2_Benchmark.py")
 
 

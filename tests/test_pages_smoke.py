@@ -49,3 +49,17 @@ def _force_demo(monkeypatch):
 def test_page_renders_without_exception(page):
     at = AppTest.from_file(str(ROOT / page), default_timeout=90).run()
     assert not at.exception, f"{page} raised: {at.exception}"
+
+
+def test_settings_survives_app_seeded_state():
+    """Settings must render with the plain keys app.py seeds on every rerun,
+    including a stale legacy 'Auto' saber value, which its colour selectbox
+    does not offer and must therefore be coerced, not passed through."""
+    at = AppTest.from_file(str(ROOT / "app_pages/5_Settings.py"),
+                           default_timeout=90)
+    at.session_state["sw_theme"] = "dark"
+    at.session_state["sw_saber"] = "Auto"     # legacy value from old sessions
+    at.run()
+    assert not at.exception, f"Settings raised: {at.exception}"
+    assert at.session_state["sw_color_ctl"] in (
+        "Red", "Blue", "Green", "Purple", "Amber")

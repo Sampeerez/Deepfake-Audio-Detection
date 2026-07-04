@@ -50,9 +50,10 @@ st.markdown(themed("""
     background: linear-gradient(150deg, rgba(10,22,62,0.5), rgba(14,28,75,0.28));
     border: 1px solid rgba(79,139,249,0.16);
     border-radius: 1rem; padding: 1.4rem 1.3rem 1.2rem;
-    /* Fixed height (not just min-height) so all three cards line up exactly,
-       no matter how many lines each description wraps to. */
-    height: 13rem; box-sizing: border-box;
+    /* min-height (NOT a fixed height): the three cards still line up in the
+       common case, but text that wraps one line more (narrower window, other
+       OS font metrics) grows the card instead of overflowing it. */
+    min-height: 13rem; box-sizing: border-box;
     text-align: center; cursor: default;
     transition: transform .25s cubic-bezier(0.34,1.56,0.64,1),
                 border-color .25s ease, box-shadow .25s ease;

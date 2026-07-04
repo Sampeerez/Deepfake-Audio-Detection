@@ -15,14 +15,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st  # noqa: E402
 
 from src.ui_helpers import (  # noqa: E402
-    app_footer, corpus_available, demo_mode, get_samples, load_config,
-    sidebar_panel, themed,
+    ACCENT_COLORS, app_footer, corpus_available, demo_mode, get_samples,
+    load_config, sidebar_panel, themed,
 )
 
-# Audio equaliser colour from settings (red, purple, blue, green) with fallback gradient
-_ACCENT_COLORS = {"Red": "#FF3B3B", "Blue": "#2C82FF", "Green": "#46E36B", "Purple": "#B36BFF", "Amber": "#FFB23B"}
+# Audio equaliser colour, follows the accent chosen in Settings.
 _audio_color_name = st.session_state.get("sw_audio_color", "Red")
-_audio_color_hex = _ACCENT_COLORS.get(_audio_color_name, "#FF5252")
+_audio_color_hex = ACCENT_COLORS.get(_audio_color_name, ACCENT_COLORS["Red"])
 _audio_grad_light = f"{_audio_color_hex}EE"
 _audio_grad_mid = _audio_color_hex
 _audio_grad_dark = f"{_audio_color_hex}88"
@@ -56,6 +55,11 @@ _CSS_BASE = """
    which CSS cannot transition). */
 .audio-eq:hover span {
     filter: brightness(1.35) drop-shadow(0 0 7px AUDIO_GLOW_PLACEHOLDER);
+}
+/* Short viewports: the equaliser strip gives back some of its air so the
+   stat strip and nav tiles fit without scrolling. */
+@media (max-height: 820px) {
+    .audio-eq { margin: 1.25rem 0 0.9rem; }
 }
 
 /* ── Tech stack pills ────────────────────────────────────────────────────── */
@@ -91,8 +95,9 @@ _CSS_BASE = """
     transition: transform .25s cubic-bezier(0.34,1.56,0.64,1),
                 border-color .25s ease, box-shadow .25s ease;
 }
-/* Equal-height row tiles regardless of description length. */
-.nav-tile:not(.nt-wide) { height: 9.5rem; min-height: 9.5rem; }
+/* Row tiles share a common min-height; longer wrapped text grows the tile
+   instead of overflowing it (fixed heights clipped on other font metrics). */
+.nav-tile:not(.nt-wide) { min-height: 9.5rem; }
 .nav-tile::before {
     content: "";
     position: absolute;

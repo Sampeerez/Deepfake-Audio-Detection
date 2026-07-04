@@ -23,7 +23,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import librosa  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import streamlit as st  # noqa: E402
@@ -211,61 +210,10 @@ def _load_corpus_signal(path: str):
         return None
 
 
-def _audio_suffix(name, raw: bytes) -> str:
-    """Best temp-file suffix for an upload: trust the filename extension first,
-    then sniff the container magic bytes, this is what lets librosa's audioread
-    fallback pick the right decoder for mp3/ogg/m4a as well as wav/flac."""
-    if name and "." in name:
-        ext = "." + name.rsplit(".", 1)[1].lower()
-        if ext in (".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac"):
-            return ext
-    if raw[:4] == b"RIFF":
-        return ".wav"
-    if raw[:4] == b"fLaC":
-        return ".flac"
-    if raw[:4] == b"OggS":
-        return ".ogg"
-    if raw[:3] == b"ID3" or raw[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
-        return ".mp3"
-    if raw[4:8] == b"ftyp":
-        return ".m4a"
-    return ".flac"
-
-
-def _decode_with_ffmpeg(raw: bytes, sr: int) -> np.ndarray:
-    """Decode arbitrary audio bytes to mono float32 via the ffmpeg binary bundled
-    by ``imageio-ffmpeg``, needs NO system ffmpeg, so it works on hosts where
-    soundfile's libsndfile chokes on a FLAC and audioread has no backend."""
-    import subprocess
-    import imageio_ffmpeg
-    exe = imageio_ffmpeg.get_ffmpeg_exe()
-    proc = subprocess.run(
-        [exe, "-nostdin", "-loglevel", "quiet", "-i", "pipe:0",
-         "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(sr), "pipe:1"],
-        input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
-    )
-    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
-
-
 @st.cache_data(show_spinner=False, max_entries=16)
 def _decode_upload(name: str, blob: bytes) -> np.ndarray:
-    ext = get_extractor()
-    try:
-        signal, _ = librosa.load(io.BytesIO(blob), sr=ext.sample_rate, mono=True)
-    except Exception:
-        # soundfile can't read compressed formats (mp3/m4a/ogg) or some FLAC from
-        # a BytesIO. Decode through the bundled ffmpeg binary, which is far more
-        # permissive and needs no system install.
-        try:
-            signal = _decode_with_ffmpeg(blob, ext.sample_rate)
-        except Exception as _ex:
-            suffix = _audio_suffix(name, blob)
-            raise RuntimeError(
-                f"unsupported or corrupt audio ({suffix}). [{_ex}]"
-            ) from _ex
-    if len(signal) < ext.n_fft:
-        signal = np.pad(signal, (0, ext.n_fft - len(signal)))
-    return signal
+    # Shared decoder (librosa + bundled-ffmpeg fallback) lives on the extractor.
+    return get_extractor().load_audio_bytes(blob, name)
 
 
 # ===========================================================================

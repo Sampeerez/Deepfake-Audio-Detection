@@ -430,7 +430,7 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
             with _lock:
                 _cnn_epochs.clear()
             _stream("cnn", label=f"{name}, seed {si + 1}/{n_seeds} starting…")
-            pp = dict(p); pp["semilla"] = sd
+            pp = dict(p); pp["seed"] = sd
 
             def _cb(rec, _a=name, _si=si):
                 with _lock:

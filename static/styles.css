@@ -1,5 +1,15 @@
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
+   LAYOUT TOKENS, the values that MUST stay in sync across several rules.
+   --sidebar-w drives the sidebar itself AND the pinned job banner/CTA (both are
+   position:fixed and must match its width); override it in media queries
+   instead of repeating widths.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+    --sidebar-w: 17.5rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    KEYFRAMES, only continuous ambient motion; never entry animations
    (those replay on every rerun and read as flicker).
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -123,7 +133,7 @@ section[data-testid="stSidebar"] {
     background: linear-gradient(180deg,
         #06101F 0%, #09193A 35%, #0B1E48 65%, #07131E 100%) !important;
     border-right: 1px solid rgba(79,139,249,0.12) !important;
-    width: 17.5rem !important;
+    width: var(--sidebar-w) !important;
 }
 section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0 !important;
@@ -1237,12 +1247,11 @@ html, body { background-color: #0E1117 !important; }
                                           0 0 30px rgba(156,39,176,0.42); } }
 @keyframes obDot  { 0%,100% { opacity: 0.35; transform: scale(0.8); }
                     50%      { opacity: 1;    transform: scale(1.15); } }
-/* The sidebar has a fixed 17.5rem width, so pin the banner there near the
-   bottom. It is position:fixed (does NOT add to the content height), so it never
-   forces the sidebar to scroll; the page's own panels are short enough to sit
-   above it. */
+/* The banner is pinned to the sidebar, whose width is --sidebar-w. It is
+   position:fixed (does NOT add to the content height), so it never forces the
+   sidebar to scroll; the page's own panels are short enough to sit above it. */
 [class*="st-key-opbanner"], [class*="st-key-opcta"] {
-    position: fixed; bottom: 3rem; left: 0; width: 17.5rem; z-index: 60;
+    position: fixed; bottom: 3rem; left: 0; width: var(--sidebar-w); z-index: 60;
     padding: 0 0.9rem;
 }
 .op-cta-head {
@@ -1316,9 +1325,14 @@ summary:focus-visible,
     outline-offset: 2px !important;
     border-radius: 0.4rem;
 }
-/* Selectbox focus handling: no visible outline (baseweb handles its own styling) */
+/* Selectboxes: baseweb strips the native outline, so keyboard users had no way
+   to see which dropdown held focus (WCAG 2.4.7). Re-assert the same saber ring
+   used everywhere else; it also shows briefly on mouse open, which is the
+   standard, acceptable trade-off for composite widgets. */
 [data-baseweb="select"]:focus-within {
-    outline: none !important;
+    outline: 3px solid var(--saber, #4F8BF9) !important;
+    outline-offset: 2px !important;
+    border-radius: 0.4rem;
 }
 
 /* Honour the OS "reduce motion" preference: stop the ambient/decorative
@@ -1334,11 +1348,27 @@ summary:focus-visible,
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   RESPONSIVE, tablet & phone. The hero title scales fluidly; dense custom grids
-   collapse; and the sidebar collapse control (hidden on desktop) comes back so
-   the sidebar can be opened/closed on touch devices.
+   RESPONSIVE. Four layers, from laptop to phone:
+     ≤1440px  COMPACT, laptop screens (13-15" MacBook et al.): same look, tighter
+              spacing so pages fit without artificial scroll.
+     ≤1024px  tablet: dense custom grids collapse; sidebar control returns.
+     ≤680px   phone: single-ish columns, narrow sidebar.
+     ≤460px   smallest phones: single column everywhere.
+   Plus a max-height layer: short viewports trim vertical padding, not content.
    ═══════════════════════════════════════════════════════════════════════════ */
 .hero-banner h1 { font-size: clamp(1.85rem, 5.2vw, 3.1rem); }
+
+@media (max-width: 1440px) {
+    :root { --sidebar-w: 16rem; }
+    .hero-banner   { padding: 1.45rem 2.1rem 1.4rem; }
+    .hero-banner h1 { font-size: clamp(1.85rem, 4.6vw, 2.6rem); }
+    .hero-banner p { font-size: 0.94rem; line-height: 1.6; }
+    .panel-card    { min-height: 14rem; padding: 1.25rem 1.35rem 1.4rem; }
+    .stat-cell     { padding: 0.85rem 1rem 0.8rem; }
+    .stat-cell .st-num { font-size: 1.4rem; }
+    [data-testid="stMetric"] { padding: 0.75rem 0.95rem !important; }
+    .sec-head .sh-title { font-size: 1.22rem; }
+}
 
 @media (max-width: 1024px) {
     .stat-strip { grid-template-columns: repeat(2, 1fr); }
@@ -1348,9 +1378,9 @@ summary:focus-visible,
        is recoverable (it is hidden on the desktop always-open layout). */
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] { display: inline-flex !important; }
-    .set-grid   { grid-template-columns: 1fr !important; }
 }
 @media (max-width: 680px) {
+    :root { --sidebar-w: 15rem; }
     [data-testid="stMainBlockContainer"] {
         padding-left: 0.7rem !important; padding-right: 0.7rem !important;
     }
@@ -1363,13 +1393,9 @@ summary:focus-visible,
     .stat-cell .st-num { font-size: 1.3rem; }
     .rep-grid      { grid-template-columns: 1fr; }
     .panel-card    { min-height: auto; }
-    .mode-card     { height: auto !important; min-height: 11rem; }
+    .mode-card     { min-height: 11rem; }
     .corpus-card, .method-card { height: auto; }
     .hcw-step      { grid-template-columns: 44px 1fr; gap: 0.7rem; }
-    section[data-testid="stSidebar"] { width: 15rem !important; }
-    /* The pinned background-job banner must match the narrower sidebar so it
-       never overflows past its right edge. */
-    [class*="st-key-opbanner"], [class*="st-key-opcta"] { width: 15rem !important; }
     /* The uppercase sidebar header would overflow a 15rem rail; tighten it. */
     [data-testid="stSidebarNav"]::before { font-size: 0.64rem; letter-spacing: 0.08em; }
     /* Re-enable the sidebar open/close affordance on small screens. */
@@ -1386,5 +1412,18 @@ summary:focus-visible,
     [data-testid="stMetricValue"] { font-size: 1.15rem !important; }
     /* Let footer halves stack instead of cramming onto one baseline. */
     .app-footer { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
+}
+
+/* Short viewports (laptop with dock/taskbar, 16:10 at 100%+ zoom): trim the
+   VERTICAL rhythm so a page that nearly fits stops scrolling by a few pixels.
+   Content is never hidden, only dead space shrinks. */
+@media (max-height: 820px) {
+    .hero-banner   { padding-top: 1.25rem; padding-bottom: 1.2rem; }
+    .hero-author   { margin-top: 0.8rem; padding-top: 0.6rem; }
+    .stat-strip    { margin: 0.75rem 0 0.3rem; }
+    .panel-card    { min-height: 13rem; }
+    .app-footer    { margin-top: 1.4rem; padding-top: 0.8rem; }
+    .sec-head      { margin: 0.45rem 0 0.3rem; }
+    .sec-sub       { margin-bottom: 0.65rem; }
 }
 </style>

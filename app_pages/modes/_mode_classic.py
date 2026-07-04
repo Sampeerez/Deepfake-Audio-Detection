@@ -35,7 +35,7 @@ from src.ui_helpers import (
     available_pretrained_models, corpus_available, demo_corpus_notice,
     eval_corpora_for, eval_score_controls,
     get_extractor, get_samples, load_config, load_pretrained_classic,
-    op_busy_notice, op_in_progress, show_empty_state, sidebar_panel, test_audio_cta,
+    op_busy_notice, op_in_progress, show_empty_state, sidebar_panel,
     themed,
 )
 

@@ -43,7 +43,7 @@ from src.ui_helpers import (  # noqa: E402
     eval_corpora_for, eval_score_controls,
     fig_activation_grid, fig_cnn_input, fig_waveform, get_extractor, get_samples,
     load_config, load_pretrained_torch, model_downloaded, op_busy_notice, op_in_progress,
-    running_on_gpu, show_empty_state, sidebar_panel, test_audio_cta,
+    running_on_gpu, show_empty_state, sidebar_panel,
 )
 
 config    = load_config()
@@ -437,7 +437,7 @@ if train_btn:
 
     params = dict(config["train_params"])
     params.update({
-        "semilla":                 int(seed),
+        "seed":                    int(seed),
         "epochs":                  int(epochs),
         "batch_size":              int(batch_size),
         "lr":                      float(lr),
