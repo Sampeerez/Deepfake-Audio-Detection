@@ -191,13 +191,17 @@ with _c2:
     with st.container(border=True):
         st.markdown('<div class="section-label">Accent & Audio colour</div>',
                     unsafe_allow_html=True)
-        st.selectbox(
-            "Accent & Audio colour",
-            list(ACCENT_COLORS),
-            key="sw_color_ctl", on_change=_sync_color,
-            label_visibility="collapsed",
-            help="Colour of the lightsaber blade accents across the app and the dancing audio bars on the home page.",
-        )
+        # nosearch_* container → CSS makes this a pure dropdown: no text caret, no
+        # type-to-filter, click to open and pick only (there are just 5 named
+        # colours, typing to search adds nothing but a stray focus caret).
+        with st.container(key="nosearch_color"):
+            st.selectbox(
+                "Accent & Audio colour",
+                list(ACCENT_COLORS),
+                key="sw_color_ctl", on_change=_sync_color,
+                label_visibility="collapsed",
+                help="Colour of the lightsaber blade accents across the app and the dancing audio bars on the home page.",
+            )
         st.markdown('<div class="saber-demo" aria-hidden="true"></div>'
                     '<div class="saber-hint">Live preview, this is your blade and audio colour.</div>',
                     unsafe_allow_html=True)

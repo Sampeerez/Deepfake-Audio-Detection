@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:22D3EE,40:4F8BF9,100:6366F1&height=220&section=header&text=Deepfake%20Audio%20Detection&fontSize=52&fontColor=ffffff&animation=fadeIn&fontAlignY=40&desc=Catch%20synthetic%20voices%20before%20they%20fool%20you&descSize=19&descAlignY=62&descColor=ffffff" width="100%"/>
 
 <a href="https://deepfake-audio-detection-tfg.streamlit.app">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&duration=3000&pause=800&color=4F8BF9&center=true&vCenter=true&width=620&lines=18+detectors%2C+one+verdict.;Classic+DSP+-%3E+CNNs+-%3E+wav2vec+2.0;Drop+a+clip.+Real+or+fake%3F+In+seconds." alt="Typing tagline"/>
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&duration=3000&pause=800&color=4F8BF9&center=true&vCenter=true&width=620&lines=21+detectors%2C+one+verdict.;Classic+DSP+-%3E+CNNs+-%3E+wav2vec+2.0;Drop+a+clip.+Real+or+fake%3F+In+seconds." alt="Typing tagline"/>
 </a>
 
 <br/>
@@ -18,7 +18,7 @@
 [![Hugging Face](https://img.shields.io/badge/Models-Hugging_Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co/)
 
 [![CI](https://github.com/Sampeerez/Deepfake-Audio-Detection/actions/workflows/ci.yml/badge.svg)](https://github.com/Sampeerez/Deepfake-Audio-Detection/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-88_passing-2ea043)
+![Tests](https://img.shields.io/badge/tests-104_passing-2ea043)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Thesis](https://img.shields.io/badge/Thesis-PDF_(soon)-8A2BE2)](#)
 
@@ -121,7 +121,7 @@ verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 | **Home** | The project at a glance: corpora, methodology, key metrics. |
 | **Signal Explorer** | Visualize waveform + every spectral view (STFT-dB, CNN input, MFCC, LFCC, CQCC), or pit a **real voice against a deepfake** side by side. |
 | **Benchmark** | Three modes: **Classic** (DSP × classifier), **Deep Networks** (train live, loss curves per epoch) and **Full comparison** (all 21 models, leaderboard). |
-| **Detection Analysis** | **Test an audio**: drop a clip, every model scores it in parallel, weighted-fusion verdict. **Analyse on a split**: *why* a detector gets its EER, with score distributions, ROC/DET curves, interactive threshold. |
+| **Detection Analysis** | **Test an audio**: drop a clip (or pick a bundled corpus sample), every model scores it in parallel, weighted-fusion verdict. **Analyse on a split**: *why* a detector gets its EER, with score distributions, ROC/DET curves, interactive threshold. |
 | **Methodology** | The full reference: corpora, DSP front-ends, classifiers, architectures, metrics. |
 | **Settings** | **Light / Dark Side** theme, animated background, accessibility, and a few easter eggs. |
 
@@ -305,9 +305,9 @@ Deepfake-Audio-Detection/
 │   └── ui_helpers.py           # Thin facade re-exporting ui/ + model_registry + leaderboard
 ├── static/                     # styles.css (page stylesheet) + canvas.js (animated background)
 ├── models/                     # 15 classic .joblib + 5 deep .pth (cnn5, cnn5_se, resnet, resnext, crnn); wav2vec2.pth from HF
-├── samples/                    # Example clips per corpus/subset (app always has audio)
+├── samples/                    # Example clips per corpus/subset (Signal Explorer & Test-an-audio always have audio)
 ├── config/config.yaml          # Signal, CNN & corpus-path parameters
-├── tests/                      # Test suite (metrics, features, models, data_loader, pipeline, page smoke)
+├── tests/                      # Test suite (metrics, features, models, data_loader, pipeline, page smoke, browser e2e/a11y)
 ├── leaderboard.json            # Full per-model × split metrics (feeds Full comparison)
 ├── pytest.ini                  # pytest config
 ├── .github/workflows/ci.yml    # Continuous integration (GitHub Actions)

@@ -129,9 +129,10 @@ st.markdown(themed("""
 }
 .method-card li strong { color: #BFE0FF; font-weight: 700; }
 .method-card:hover li { opacity: .9; }
-/* Long explanatory paragraphs: cap the measure at a readable line length and
-   open up the leading (full-width 200-char lines were hard to scan). */
-.info-card .ic-body { max-width: 78ch; font-size: 0.84rem; line-height: 1.7; }
+/* Explanatory paragraphs fill the full card width (a max-width cap left them
+   floating in the left half of these wide, full-width cards, reading as narrow
+   boxes). Slightly larger text + open leading for comfortable reading. */
+.info-card .ic-body { font-size: 0.84rem; line-height: 1.7; }
 
 /* ── Class-distribution cards (expander) ─────────────────────────────────── */
 .dist-cards { display: flex; flex-direction: column; gap: 1rem; margin-top: .2rem; }

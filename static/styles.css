@@ -1334,6 +1334,12 @@ summary:focus-visible,
     outline-offset: 2px !important;
     border-radius: 0.4rem;
 }
+/* …EXCEPT dropdown-only (nosearch) selects: they cannot be typed into and always
+   show their current value, so the focus ring + caret just read as a stray click
+   artefact. Opt them out (more specific than the rule above, so it always wins). */
+[class*="st-key-nosearch"] [data-baseweb="select"]:focus-within {
+    outline: none !important;
+}
 
 /* Honour the OS "reduce motion" preference: stop the ambient/decorative
    animations for users who ask their system not to animate. (The Settings page

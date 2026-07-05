@@ -37,7 +37,7 @@ from src.models import get_classic_model  # noqa: E402
 from src.pipeline import extract_feature_matrix  # noqa: E402
 from src.model_registry import (  # noqa: E402
     get_samples, get_samples_2021_la, get_samples_2021_df,
-    corpus_available_2021_la, corpus_available_2021_df,
+    corpus_available_2021_la, corpus_available_2021_df, bundled_samples,
 )
 from src.ui_helpers import (  # noqa: E402
     BONAFIDE_COLOR, SPOOF_COLOR, EVAL_CORPUS_CHOICES, HF_EVAL_DATASETS,
@@ -732,17 +732,29 @@ with tab_test:
     thresholds = {k: float(m["thr_dev"]) for k, m in _board.items()
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
+    # Corpus → (live split, bundled-clips subset). The picker prefers the FULL
+    # live corpus when it is on disk, and otherwise falls back to the clips
+    # COMMITTED under samples/<corpus>/<subset>/, so the corpus-less web demo can
+    # still pick from the repo's bundled audio (mirrors Signal Explorer). Without
+    # this, corpus_available*() is False on the cloud and the picker was empty.
+    _CORPUS_SUBSET = {"2019 LA": "dev", "2021 LA": "eval", "2021 DF": "eval"}
+
+    def _corpus_pool(corpus):
+        if corpus == "2019 LA":
+            live = get_samples("dev") if corpus_available() else []
+        elif corpus == "2021 LA":
+            live = get_samples_2021_la() if corpus_available_2021_la() else []
+        else:
+            live = get_samples_2021_df() if corpus_available_2021_df() else []
+        return live or bundled_samples(corpus, _CORPUS_SUBSET[corpus])
+
     # ── All controls in one compact row ──────────────────────────────────── #
     _c_up, _c_or, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([2, 0.6, 0.7, 0.7, 0.7, 1, 0.5], vertical_alignment="top")
 
-    # Build available corpus options
-    _corpus_opts = []
-    if corpus_available():
-        _corpus_opts.append("2019 LA")
-    if corpus_available_2021_la():
-        _corpus_opts.append("2021 LA")
-    if corpus_available_2021_df():
-        _corpus_opts.append("2021 DF")
+    # A corpus is offered when it has ANY clips to pick from (live split or
+    # bundled). The pools are cheap: get_samples* are cached and empty in demo
+    # mode, bundled_samples is a local dir scan, no network here.
+    _corpus_opts = [c for c in ("2019 LA", "2021 LA", "2021 DF") if _corpus_pool(c)]
 
     # Upload
     with _c_up:
@@ -768,17 +780,9 @@ with tab_test:
             _sel_typ = st.selectbox("Type", ["Bonafide", "Spoof"],
                                    key="da_type_sel", label_visibility="collapsed")
 
-    # Load samples based on corpus selection
+    # Load samples based on corpus selection (live split or bundled repo clips).
     if _sel_corp and _sel_corp != "—":
-        if _sel_corp == "2019 LA":
-            _all_samples = get_samples("dev") if corpus_available() else []
-            _corpus_label = "2019 LA"
-        elif _sel_corp == "2021 LA":
-            _all_samples = get_samples_2021_la() if corpus_available_2021_la() else []
-            _corpus_label = "2021 LA"
-        else:  # 2021 DF
-            _all_samples = get_samples_2021_df() if corpus_available_2021_df() else []
-            _corpus_label = "2021 DF"
+        _all_samples = _corpus_pool(_sel_corp)
 
         # Filter by type
         _label_val = 0 if _sel_typ == "Bonafide" else 1
@@ -788,7 +792,7 @@ with tab_test:
         _sample_display = []
         _sample_data = []
         for path, label in _filtered_samples[:50]:
-            fname = path.split('/')[-1].replace('.flac', '')
+            fname = os.path.basename(path).rsplit(".", 1)[0]
             display_str = f"{fname}"
             _sample_display.append(display_str)
             _sample_data.append((path, label))
@@ -802,11 +806,12 @@ with tab_test:
                 try:
                     _sel_idx = _sample_display.index(_sel)
                     _sel_path = _sample_data[_sel_idx][0]
-                    _sel_bytes = open(_sel_path, "rb").read()
+                    with open(_sel_path, "rb") as _fh:
+                        _sel_bytes = _fh.read()
                     if _sel_bytes != st.session_state.get("da_test_bytes"):
                         st.session_state.pop("da_test_rows", None)
                     st.session_state["da_test_bytes"] = _sel_bytes
-                    st.session_state["da_test_name"] = _sel_path.split("/")[-1]
+                    st.session_state["da_test_name"] = os.path.basename(_sel_path)
                 except Exception:
                     pass
     else:
