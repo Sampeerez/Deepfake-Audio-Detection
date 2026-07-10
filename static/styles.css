@@ -1408,11 +1408,18 @@ summary:focus-visible,
 .hero-banner h1 { font-size: clamp(1.85rem, 5.2vw, 3.1rem); }
 
 /* ── Container-query layer ────────────────────────────────────────────────
-   Streamlit columns become query containers: their width comes from the flex
-   layout (never from their content), so inline-size containment is safe, and
-   it lets cramped-slot rules react to the COLUMN width instead of the
-   viewport, a control can be squeezed at any screen size. */
-[data-testid="stColumn"] { container-type: inline-size; }
+   Scoped NARROWLY to single-widget wrapper elements (stButton, stFileUploader):
+   these are block-level, sized 100% of their column, and never themselves rely
+   on their own content to determine their width, so containing them is safe.
+   Containing a whole stColumn (a flex item) instead was tried and reverted: it
+   strips the column's automatic min-content protection against shrinking,
+   which let UNRELATED sibling controls in the same row (e.g. the plain-text
+   ◀ ▶ ✕ reorder buttons, which carry no material icon and so are untouched by
+   the rule below) get crushed with no protection left at all. */
+[data-testid="stButton"]:has(button [data-testid="stIconMaterial"]) {
+    container-type: inline-size;
+}
+[data-testid="stFileUploader"] { container-type: inline-size; }
 
 /* Icon buttons (Clear, Random, Analyze, …): never let the label wrap into a
    vertical letter-stack; below a usable width drop the label entirely, the
@@ -1444,21 +1451,10 @@ summary:focus-visible,
 
 /* Train on / Evaluate on / Score on box: when its column gets narrow the
    side-by-side row (with vertical dividers) turns into a weird wrapped blob,
-   stack the three controls vertically with horizontal dividers instead. */
-@container (max-width: 34rem) {
-    [class*="st-key-evalgrp_"] {
-        flex-direction: column !important;
-        width: 100% !important;
-        row-gap: 0.45rem !important;
-    }
-    [class*="st-key-evalgrp_"] > [data-testid="stElementContainer"]:not(:first-child) {
-        border-left: none !important;
-        padding-left: 0 !important;
-        margin-left: 0 !important;
-        border-top: 1px solid rgba(79,139,249,0.22);
-        padding-top: 0.45rem;
-    }
-}
+   stack the three controls vertically with horizontal dividers instead.
+   evalgrp itself is `width: fit-content`, so it can't be the query container
+   (an axis can't size intrinsically AND be contained on that same axis); the
+   viewport-width fallback further down (max-width: 760px) covers this. */
 
 @media (max-width: 1440px) {
     :root { --sidebar-w: 16rem; }

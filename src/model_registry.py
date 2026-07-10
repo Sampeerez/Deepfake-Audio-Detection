@@ -694,6 +694,36 @@ def load_pretrained_model(entry: Dict):
     return load_pretrained_classic(entry["file"], entry["url"], entry["name"])
 
 
+@st.cache_resource(show_spinner=False)
+def preload_wav2vec_background() -> bool:
+    """Kick off wav2vec 2.0 loading in a background thread as soon as the app
+    boots (called once from app.py), instead of waiting for the first visitor
+    to open Benchmark → Full comparison (or Detection Analysis), where it used
+    to stall on the ~469 MB Hugging Face download + torch.load.
+
+    Relies on TWO layers of caching to do this safely exactly once per server
+    process, however many sessions rerun app.py: this function is itself
+    ``st.cache_resource`` (so ITS body, including the thread spawn, runs once),
+    and ``load_pretrained_raw`` underneath is ALSO cache_resource, so whichever
+    caller (this background thread or a later real page) gets there first does
+    the work and everyone else reuses the cached model. Best-effort: any
+    failure here is swallowed, the normal lazy load on Full comparison /
+    Detection Analysis is the fallback, unaffected by this warm-up."""
+    import threading
+
+    def _load():
+        try:
+            entry = next((e for e in available_pretrained_models()
+                          if e["key"] == "wav2vec2"), None)
+            if entry is not None:
+                load_pretrained_model(entry)
+        except Exception:
+            pass
+
+    threading.Thread(target=_load, daemon=True, name="wav2vec2-preload").start()
+    return True
+
+
 def load_pretrained_cnn():
     """Backward-compatible helper: load the first available deep network entry (or the
     legacy single checkpoint) and return (model, meta)."""

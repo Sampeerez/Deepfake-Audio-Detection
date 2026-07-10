@@ -45,7 +45,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from src.ui_helpers import apply_mpl_theme, build_page_css, theme_mode  # noqa: E402
+from src.ui_helpers import (  # noqa: E402
+    apply_mpl_theme, build_page_css, preload_wav2vec_background, theme_mode,
+)
+
+# Start loading wav2vec 2.0 (raw-waveform SSL detector) in the background the
+# moment the app boots, instead of the first visitor paying for it mid-navigation
+# on Benchmark → Full comparison or Detection Analysis. Non-blocking (returns
+# immediately, the model finishes loading on a background thread) and runs
+# exactly once per server process no matter how many sessions rerun this file.
+preload_wav2vec_background()
 
 # ── Light Side / Dark Side ───────────────────────────────────────────────────
 # Read the chosen side (default Dark Side) and apply the matching palette to both

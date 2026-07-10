@@ -27,11 +27,10 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import streamlit as st  # noqa: E402
 
-from src.data_loader import LABEL_BONAFIDE  # noqa: E402
 from src.features import AudioLoadError  # noqa: E402
 from src.ui_helpers import (  # noqa: E402
-    bundle_samples, bundled_samples, compute_signal_stats, hf_eval_listing,
-    hf_eval_samples, hf_fetch_clip, label_badge, mini_note, show_empty_state,
+    bundle_samples, bundled_samples, compute_signal_stats,
+    label_badge, mini_note, show_empty_state,
     sidebar_panel, fig_cnn_input, fig_cqcc, fig_lfcc, fig_mfcc, fig_stft_db,
     fig_waveform, get_extractor, get_samples, get_samples_2021_la,
     get_samples_2021_df, split_by_label, BONAFIDE_COLOR, SPOOF_COLOR,
@@ -261,40 +260,28 @@ def _corpus_picker(key_prefix: str, n: int = 1):
         with st.spinner("Cross-checking the star charts (2021 DF index)…"):
             samples = get_samples_2021_df()
 
-    _listing = None
     if samples:
         bundle_samples(corpus, samples, subset)   # cache a few clips for the web demo
     else:
-        # No live corpus index (web demo). EVAL browses a LARGE lazy index from the
-        # public Hugging Face dataset, list MANY clips (label + url, no audio) and
-        # download only the one you pick (fast). Fall back to the small eager HF
-        # sample, then the committed bundled clips, if HF is unavailable.
-        if subset == "eval":
-            with st.spinner(f"Indexing {corpus} records from the Archives…"):
-                _listing = hf_eval_listing(corpus)
-            if not _listing:
-                with st.spinner(f"Pulling {corpus} records from the Archives…"):
-                    samples = hf_eval_samples(corpus)
-        if not samples and not _listing:
-            samples = bundled_samples(corpus, subset)
+        # No live corpus index (web demo): use the clips committed under
+        # samples/<corpus>/<subset>/ directly, a local dir scan, instant, no
+        # network. Hugging Face streaming is reserved for Detection Analysis's
+        # "Analyse on a split" tab, where downloading real eval data to SCORE
+        # models against is the actual point; Signal Explorer only needs a
+        # clip to look at, so it must never wait on a remote fetch.
+        samples = bundled_samples(corpus, subset)
 
-    if not samples and not _listing:
+    if not samples:
         mini_note(f"No {corpus} samples bundled yet, switch to Upload, or run "
                   "locally with the dataset to populate them.")
         return None, None, None
 
     want_bona = cls.startswith("bonafide")
-    if _listing:
-        pool_shown = [e for e in _listing
-                      if (e[0] == LABEL_BONAFIDE) == want_bona][:500]
-        names      = [e[2] for e in pool_shown]
-        pool_total = len(pool_shown)
-    else:
-        bonafide, spoof = split_by_label(samples)
-        pool       = bonafide if want_bona else spoof
-        pool_shown = pool[:500]
-        names      = [os.path.basename(p) for p in pool_shown]
-        pool_total = len(pool)
+    bonafide, spoof = split_by_label(samples)
+    pool       = bonafide if want_bona else spoof
+    pool_shown = pool[:500]
+    names      = [os.path.basename(p) for p in pool_shown]
+    pool_total = len(pool)
 
     if not pool_shown:
         st.warning(f"No {cls.split()[0]} files in the '{subset}' subset.")
@@ -338,16 +325,6 @@ def _corpus_picker(key_prefix: str, n: int = 1):
 
     if sel_idx == _PLACEHOLDER:
         return None, None, None
-
-    if _listing:
-        # Web browse: download just this clip now (the index carried only URLs).
-        lab, src, fname = pool_shown[sel_idx]
-        with st.spinner("Fetching the clip from the Archives…"):
-            path = hf_fetch_clip(corpus, src, fname, lab)
-        if not path:
-            st.warning("Could not fetch this clip, pick another or press Random.")
-            return None, None, None
-        return _load_corpus_signal(path), cls, path
 
     path = pool_shown[sel_idx]
     return _load_corpus_signal(path), cls, path
