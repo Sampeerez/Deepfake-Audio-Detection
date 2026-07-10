@@ -2,11 +2,19 @@
 """
 app_pages/5_Settings.py, Appearance & accessibility control panel.
 
+Staged-apply model
+------------------
+Picking an option NEVER changes the app on its own: every control stages its
+value in a private widget key (…_ctl) and nothing else. The app reads the
+PERSISTENT plain keys (sw_theme, sw_saber, …), which are only rewritten when the
+user presses "Save changes" (or "Restore defaults"). So the two commit buttons
+are the ONLY things that change the live appearance, exactly what "Save" implies.
+The lightsaber colour is previewed live on THIS page only (a scoped --saber
+override), so you can see a blade colour before committing it everywhere.
+
 Persistence note: Streamlit discards a widget's state once its page stops
-rendering, so binding settings straight to widget keys made them reset when you
-navigated away. Instead every control writes to a PLAIN session key (sw_theme,
-sw_bg, …) through an on_change callback; app.py reads those plain keys on every
-rerun. The widget keys (…_ctl) are just the live control state for this page.
+rendering, so unsaved edits are dropped on navigation (expected for a form); the
+saved plain keys survive because app.py reseeds them every rerun.
 """
 
 import os
@@ -16,9 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import streamlit as st  # noqa: E402
 
-from src.ui_helpers import (  # noqa: E402
-    ACCENT_COLORS, app_footer, sidebar_panel, theme_mode, themed,
-)
+from src.ui_helpers import ACCENT_COLORS, themed  # noqa: E402
 
 _SIDE_LABELS = {"dark": "Dark Side", "light": "Light Side"}
 _DEFAULTS = {
@@ -29,65 +35,66 @@ _DEFAULTS = {
     "sw_underline": False, "sw_text_spacing": False, "sw_audio_color": "Red",
 }
 
-# Widget key → (persistent plain key, plain→widget transform). The SINGLE wiring
-# table used both to seed the controls and to reset them, so a new setting only
-# has to be added here (the old hand-maintained lists drifted apart).
-_CTL_WIRING = {
-    "sw_side_ctl":      ("sw_theme",          lambda v: _SIDE_LABELS[v]),
-    # Guard legacy values (the saber key once allowed "Auto") so a stale session
-    # can never seed the selectbox with an option it doesn't have.
-    "sw_color_ctl":     ("sw_saber",
-                         lambda v: v if v in ACCENT_COLORS else "Red"),
-    "sw_bg_ctl":        ("sw_bg",             None),
-    "sw_intensity_ctl": ("sw_bg_intensity",   None),
-    "sw_ships_ctl":     ("sw_show_ships",     bool),
-    "sw_ds_ctl":        ("sw_show_deathstar", bool),
-    "sw_rm_ctl":        ("sw_reduced_motion", bool),
-    "sw_hc_ctl":        ("sw_contrast",       bool),
-    "sw_ul_ctl":        ("sw_underline",      bool),
-    "sw_sp_ctl":        ("sw_text_spacing",   bool),
-    "sw_ts_ctl":        ("sw_text_scale",     None),
-}
+
+def _side_to_plain(w):   return "light" if w == "Light Side" else "dark"
+def _side_seed(p):       return _SIDE_LABELS.get(p, "Dark Side")
+def _color_norm(v):      return v if v in ACCENT_COLORS else "Red"
+def _ident(v):           return v
 
 
-# ── Callbacks: copy the live widget value into the persistent plain key ────────
-def _sync(plain: str, ctl: str) -> None:
-    st.session_state[plain] = st.session_state[ctl]
+# One row per control: (widget key, [plain keys it commits to], widget→plain,
+# plain→widget seed). The FIRST plain key seeds the widget. This single table
+# drives seeding, the dirty check, Save and Restore, so a new setting is added
+# in exactly one place.
+_CONTROLS = [
+    ("sw_side_ctl",      ["sw_theme"],                   _side_to_plain, _side_seed),
+    ("sw_color_ctl",     ["sw_saber", "sw_audio_color"], _color_norm,    _color_norm),
+    ("sw_bg_ctl",        ["sw_bg"],                       _ident,         _ident),
+    ("sw_intensity_ctl", ["sw_bg_intensity"],             _ident,         _ident),
+    ("sw_ships_ctl",     ["sw_show_ships"],               bool,           bool),
+    ("sw_ds_ctl",        ["sw_show_deathstar"],           bool,           bool),
+    ("sw_rm_ctl",        ["sw_reduced_motion"],           bool,           bool),
+    ("sw_hc_ctl",        ["sw_contrast"],                 bool,           bool),
+    ("sw_ul_ctl",        ["sw_underline"],                bool,           bool),
+    ("sw_sp_ctl",        ["sw_text_spacing"],             bool,           bool),
+    ("sw_ts_ctl",        ["sw_text_scale"],               _ident,         _ident),
+]
 
 
-def _sync_color() -> None:
-    """One colour drives both the saber accents and the Home audio bars."""
-    color_val = st.session_state.get("sw_color_ctl")
-    st.session_state["sw_saber"] = color_val
-    st.session_state["sw_audio_color"] = color_val
+# ── Staged-apply helpers ──────────────────────────────────────────────────────
+def _has_unsaved() -> bool:
+    """True when any staged widget value differs from the committed plain key."""
+    for ctl, plains, to_plain, _seed in _CONTROLS:
+        wv = st.session_state.get(ctl)
+        if any(st.session_state.get(pk) != to_plain(wv) for pk in plains):
+            return True
+    return False
 
 
-def _sync_side() -> None:
-    light = st.session_state.get("sw_side_ctl") == "Light Side"
-    st.session_state["sw_theme"] = "light" if light else "dark"
-    # Each side ignites its signature blade: Jedi blue on the Light Side, Sith
-    # red on the Dark Side. It keeps the light palette coherently blue; the
-    # colour picker below can still override it afterwards.
-    accent = "Blue" if light else "Red"
-    for _k in ("sw_saber", "sw_audio_color", "sw_color_ctl"):
-        st.session_state[_k] = accent
+def _save() -> None:
+    """Commit every staged widget value into its persistent plain key(s). app.py
+    reads those at the top of the (post-callback) rerun, so the whole app updates."""
+    for ctl, plains, to_plain, _seed in _CONTROLS:
+        wv = st.session_state.get(ctl)
+        for pk in plains:
+            st.session_state[pk] = to_plain(wv)
+    st.toast("Settings saved for this session.", icon=":material/check_circle:")
 
 
 def _reset() -> None:
-    for k, v in _DEFAULTS.items():
-        st.session_state[k] = v
-    for ctl, (plain, conv) in _CTL_WIRING.items():
-        v = _DEFAULTS[plain]
-        st.session_state[ctl] = conv(v) if conv else v
+    """Restore defaults AND apply them (reset the staged widgets and commit)."""
+    for ctl, plains, _to_plain, seed in _CONTROLS:
+        st.session_state[ctl] = seed(_DEFAULTS[plains[0]])
+        for pk in plains:
+            st.session_state[pk] = _DEFAULTS[pk]
     st.toast("Defaults restored.", icon=":material/restart_alt:")
 
 
-# Seed each widget key from its persistent value (so controls reflect the saved
-# choice without passing default=+key=, which would warn). setdefault only fills
-# the first time the widget is created.
-for _ctl, (_plain, _conv) in _CTL_WIRING.items():
-    _v = st.session_state.get(_plain, _DEFAULTS[_plain])
-    st.session_state.setdefault(_ctl, _conv(_v) if _conv else _v)
+# Seed each widget key from its saved value so the controls open on the saved
+# choice (setdefault only fills the first time the widget is created).
+for _ctl, _plains, _to_plain, _seed in _CONTROLS:
+    _v = st.session_state.get(_plains[0], _DEFAULTS[_plains[0]])
+    st.session_state.setdefault(_ctl, _seed(_v))
 
 
 # ── Page-local styling (themed so it swaps cleanly on the Light Side) ──────────
@@ -125,6 +132,14 @@ st.markdown(themed("""
 [class*="st-key-a11ygrid"] [data-testid="stToggle"] { margin-bottom: 0.15rem; }
 .set-hint { font-size: 0.74rem; color: #8FA3CE; margin: -0.35rem 0 0.6rem; }
 
+/* Appearance row: the two cards share one height regardless of their content
+   (the colour card is taller with its live blade preview), so their bottom
+   edges line up. The two columns are already equal height; force the bordered
+   card AND Streamlit's layout wrapper between it and the column to fill that
+   height (that wrapper was the ~4px gap). */
+[data-testid="stLayoutWrapper"]:has(> [class*="st-key-appbox_"]) { height: 100% !important; }
+[class*="st-key-appbox_"] { height: 100% !important; }
+
 /* Live lightsaber preview: the blade only, the metal hilt comes from the shared
    saber CSS (same ::before as the title rules), one hilt definition app-wide. */
 .saber-demo {
@@ -136,9 +151,11 @@ st.markdown(themed("""
 }
 .saber-hint { font-size: 0.74rem; color: #8FA3CE; margin-top: 0.15rem; }
 
-/* Cantina rumour (Konami) with little keycaps. */
+/* Cantina rumour (Konami) with little keycaps. The extra bottom margin keeps
+   the wrapped line off the viewport card's bottom border. */
 .konami-hint {
-    font-size: 0.76rem; color: #AFC3E8; line-height: 2.1; margin-top: 0.4rem;
+    font-size: 0.76rem; color: #AFC3E8; line-height: 1.95;
+    margin: 0.4rem 0 0.35rem;
 }
 .konami-hint .kbd {
     display: inline-block; min-width: 1.15em; text-align: center;
@@ -147,16 +164,37 @@ st.markdown(themed("""
     border: 1px solid rgba(79,139,249,0.32); border-radius: 0.35rem;
     box-shadow: 0 1px 0 rgba(0,0,0,0.3);
 }
+
+/* Save row: an inline saved / unsaved status next to the two commit buttons. */
+.save-status { font-size: 0.82rem; font-weight: 600; display: flex;
+    align-items: center; gap: 0.4rem; }
+.save-status .sdot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.save-status.unsaved { color: #D9BC8A; }
+.save-status.unsaved .sdot { background: #E0A93B; box-shadow: 0 0 8px rgba(224,169,59,0.6); }
+.save-status.saved { color: #8FA3CE; }
+.save-status.saved .sdot { background: #66BB6A; box-shadow: 0 0 8px rgba(102,187,106,0.5); }
 </style>
 """), unsafe_allow_html=True)
+
+
+# Live blade preview: override --saber on THIS page's main area only, driven by
+# the STAGED colour, so the saber demo + section chips show the colour you are
+# about to save (the rest of the app keeps the saved colour until you Save).
+_staged_hex = ACCENT_COLORS.get(_color_norm(st.session_state.get("sw_color_ctl")), "#FF3B3B")
+_r, _g, _b = (int(_staged_hex[i:i + 2], 16) for i in (1, 3, 5))
+st.markdown(
+    f"<style>[data-testid='stMain']{{--saber:{_staged_hex} !important;"
+    f"--saber-glow:rgba({_r},{_g},{_b},0.65) !important;}}</style>",
+    unsafe_allow_html=True,
+)
 
 
 # ── Title (a normal page title, like every other page) ────────────────────────
 st.title("Settings")
 st.caption(
     "Choose your side of the Force, pick a lightsaber colour, command the viewport "
-    "background and tune accessibility. Changes apply live across the whole app; "
-    "press Save changes to confirm them for this session."
+    "background and tune accessibility. Nothing changes until you press "
+    "Save changes, the lightsaber colour previews live on this page."
 )
 
 
@@ -175,20 +213,19 @@ _sec("01", "Appearance", "Your side of the Force and a lightsaber to match.")
 
 _c1, _c2 = st.columns(2, gap="large")
 with _c1:
-    with st.container(border=True):
+    with st.container(border=True, key="appbox_side"):
         st.markdown('<div class="section-label">Side of the Force</div>',
                     unsafe_allow_html=True)
         st.segmented_control(
             "Side of the Force", ["Dark Side", "Light Side"],
-            key="sw_side_ctl", on_change=_sync_side, label_visibility="collapsed",
+            key="sw_side_ctl", label_visibility="collapsed",
             help="Dark Side = the deep-space dark theme. Light Side = a high-key "
                  "light theme for bright rooms or projectors.",
         )
-        st.caption("Dark Side keeps the deep-space look with a red blade · "
-                   "Light Side switches to a blue-on-light theme (blue blade) "
-                   "with a Tatooine twin-sun backdrop.")
+        st.caption("Dark Side keeps the deep-space look · Light Side switches to a "
+                   "blue-on-light theme with a Tatooine twin-sun backdrop.")
 with _c2:
-    with st.container(border=True):
+    with st.container(border=True, key="appbox_color"):
         st.markdown('<div class="section-label">Accent & Audio colour</div>',
                     unsafe_allow_html=True)
         # nosearch_* container → CSS makes this a pure dropdown: no text caret, no
@@ -198,7 +235,7 @@ with _c2:
             st.selectbox(
                 "Accent & Audio colour",
                 list(ACCENT_COLORS),
-                key="sw_color_ctl", on_change=_sync_color,
+                key="sw_color_ctl",
                 label_visibility="collapsed",
                 help="Colour of the lightsaber blade accents across the app and the dancing audio bars on the home page.",
             )
@@ -217,8 +254,7 @@ with st.container(border=True):
                     unsafe_allow_html=True)
         st.segmented_control(
             "Background", ["Star Wars", "Particle network", "Off"],
-            key="sw_bg_ctl", on_change=_sync, args=("sw_bg", "sw_bg_ctl"),
-            label_visibility="collapsed",
+            key="sw_bg_ctl", label_visibility="collapsed",
             help="Star Wars = a starfield with a drifting Death Star, shooting stars "
                  "and ships flying wandering routes. Particle network = the original "
                  "connected-dots field. Off = a plain background.",
@@ -228,9 +264,7 @@ with st.container(border=True):
                     unsafe_allow_html=True)
         st.segmented_control(
             "Intensity", ["Subtle", "Normal", "Busy"],
-            key="sw_intensity_ctl", on_change=_sync,
-            args=("sw_bg_intensity", "sw_intensity_ctl"),
-            label_visibility="collapsed",
+            key="sw_intensity_ctl", label_visibility="collapsed",
             help="How many stars and how often ships fly across.",
         )
 
@@ -240,14 +274,12 @@ with st.container(border=True):
     with _f1:
         st.toggle(
             "Passing ships", key="sw_ships_ctl",
-            on_change=_sync, args=("sw_show_ships", "sw_ships_ctl"),
             help="TIEs, X-wings, the Millennium Falcon and Star Destroyers crossing "
                  "the viewport on wandering flight paths.",
         )
     with _f2:
         st.toggle(
             "Death Star", key="sw_ds_ctl",
-            on_change=_sync, args=("sw_show_deathstar", "sw_ds_ctl"),
             help="The drifting battle station in the upper field of the Star Wars "
                  "background.",
         )
@@ -266,7 +298,7 @@ with st.container(border=True):
 
 # ── Accessibility ─────────────────────────────────────────────────────────────
 _sec("03", "Accessibility", "Make the app easier to read and calmer. "
-     "Everything applies instantly, across every page.")
+     "Applies across every page when you save.")
 
 with st.container(border=True, key="a11ygrid"):
     _a1, _a2 = st.columns(2, gap="large")
@@ -275,13 +307,11 @@ with st.container(border=True, key="a11ygrid"):
                     unsafe_allow_html=True)
         st.toggle(
             "Reduce motion", key="sw_rm_ctl",
-            on_change=_sync, args=("sw_reduced_motion", "sw_rm_ctl"),
             help="Stops the ambient animations (saber glow, drifting background, "
                  "passing ships) for a calmer, distraction-free interface.",
         )
         st.toggle(
             "Comfortable text spacing", key="sw_sp_ctl",
-            on_change=_sync, args=("sw_text_spacing", "sw_sp_ctl"),
             help="Looser line height, letter and word spacing on running text "
                  "(in the spirit of WCAG 1.4.12), easier reading, e.g. for "
                  "dyslexic users.",
@@ -291,12 +321,10 @@ with st.container(border=True, key="a11ygrid"):
                     unsafe_allow_html=True)
         st.toggle(
             "High contrast", key="sw_hc_ctl",
-            on_change=_sync, args=("sw_contrast", "sw_hc_ctl"),
             help="Stronger text and thicker borders for better legibility.",
         )
         st.toggle(
             "Underline links", key="sw_ul_ctl",
-            on_change=_sync, args=("sw_underline", "sw_ul_ctl"),
             help="Links stay underlined everywhere, so colour is never the only "
                  "cue that something is clickable (WCAG 1.4.1).",
         )
@@ -305,49 +333,26 @@ with st.container(border=True, key="a11ygrid"):
                 unsafe_allow_html=True)
     st.segmented_control(
         "Text size", ["Normal", "Large", "Larger"],
-        key="sw_ts_ctl", on_change=_sync, args=("sw_text_scale", "sw_ts_ctl"),
-        label_visibility="collapsed",
+        key="sw_ts_ctl", label_visibility="collapsed",
         help="Scales the content text only; the layout keeps its proportions.",
     )
 
 
 # ── Save / reset ──────────────────────────────────────────────────────────────
-st.markdown('<div style="height:0.4rem;"></div>', unsafe_allow_html=True)
-_r1, _r2, _r3 = st.columns([2.4, 1, 1], vertical_alignment="center")
-with _r1:
-    st.markdown(
-        '<div class="info-card">'
-        '<div class="ic-title">About these settings</div>'
-        '<p class="ic-body">Preferences live in your browser session only and '
-        'reset when you reload the public demo. The Dark Side is the default so '
-        'first-time visitors always see the intended look.</p></div>',
-        unsafe_allow_html=True,
-    )
-with _r2:
+st.markdown('<div style="height:0.6rem;"></div>', unsafe_allow_html=True)
+_dirty = _has_unsaved()
+_s1, _s2, _s3 = st.columns([2.4, 1, 1], vertical_alignment="center")
+with _s1:
+    if _dirty:
+        st.markdown('<div class="save-status unsaved"><span class="sdot"></span>'
+                    'Unsaved changes, press Save to apply.</div>',
+                    unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="save-status saved"><span class="sdot"></span>'
+                    'All changes saved.</div>', unsafe_allow_html=True)
+with _s2:
     st.button("Restore defaults", icon=":material/restart_alt:",
               on_click=_reset, width="stretch")
-with _r3:
-    if st.button("Save changes", type="primary", icon=":material/save:",
-                 width="stretch"):
-        st.toast("Settings saved for this session.", icon=":material/check_circle:")
-
-# Reading aids summarised in one row so the panel stays scannable.
-_aids = [label for key, label in (
-    ("sw_reduced_motion", "motion"), ("sw_contrast", "contrast"),
-    ("sw_underline", "links"), ("sw_text_spacing", "spacing"),
-) if st.session_state.get(key)]
-sidebar_panel(
-    "Current setup",
-    rows=[
-        ("Side", _SIDE_LABELS[theme_mode()]),
-        ("Colour", st.session_state.get("sw_saber", "Red")),
-        ("Background", st.session_state.get("sw_bg", "Star Wars")),
-        ("Intensity", st.session_state.get("sw_bg_intensity", "Normal")),
-        ("Ships", "On" if st.session_state.get("sw_show_ships", True) else "Off"),
-        ("Death Star", "On" if st.session_state.get("sw_show_deathstar", True) else "Off"),
-        ("Reading aids", ", ".join(_aids) if _aids else "Off"),
-        ("Text size", st.session_state.get("sw_text_scale", "Normal")),
-    ],
-)
-
-app_footer("Settings", "May the Force be with you.")
+with _s3:
+    st.button("Save changes", type="primary", icon=":material/save:",
+              on_click=_save, width="stretch", disabled=not _dirty)

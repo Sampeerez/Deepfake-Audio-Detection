@@ -287,12 +287,17 @@ def models_trained() -> bool:
 
 # ── Bundled sample clips (so Signal Explorer always has audio to show) ─────── #
 # A handful of real clips per corpus/subset are committed under
-# samples/<key>/<subset>/ so the explorer works even without the multi-GB
-# datasets (e.g. on the cloud). For whatever folder is still empty they are
-# auto-populated from the live corpus the first time it is browsed locally.
-# The label is encoded in the filename prefix (spoof__* / bonafide__*).
+# samples/<key>/<subset>/<bonafide|spoof>/ so the explorer works even without
+# the multi-GB datasets (e.g. on the cloud). For whatever folder is still empty
+# they are auto-populated from the live corpus the first time it is browsed
+# locally. The label comes from the CONTAINING FOLDER (bonafide/ vs spoof/), and
+# each clip keeps its real ASVspoof utterance name (e.g. LA_E_2744897.flac) so
+# the picker shows only that. A legacy flat layout (label encoded in a
+# spoof__*/bonafide__* filename prefix) is still read as a fallback, that is how
+# the on-demand Hugging Face eval cache under samples/_hf_cache/ is stored.
 SAMPLES_DIR  = os.path.join(_REPO_ROOT, "samples")
 _SAMPLE_KEYS = {"2019 LA": "2019_la", "2021 LA": "2021_la", "2021 DF": "2021_df"}
+_LABEL_DIRS  = (("bonafide", LABEL_BONAFIDE), ("spoof", LABEL_SPOOF))
 
 
 def _sample_dir(corpus: str, subset: Optional[str] = None) -> str:
@@ -304,12 +309,28 @@ def _label_for(fn: str) -> int:
     return LABEL_SPOOF if fn.startswith("spoof") else LABEL_BONAFIDE
 
 
+def _is_clip(fn: str) -> bool:
+    return fn.lower().endswith((".flac", ".wav"))
+
+
 def _scan_clips(d: str) -> List[Tuple[str, int]]:
+    """(path, label) for the clips under ``d``.
+
+    Preferred layout: labelled subfolders ``d/bonafide/`` and ``d/spoof/`` (label
+    from the folder). Falls back to a flat scan with the label inferred from the
+    filename prefix (legacy bundles + the Hugging Face eval cache)."""
     if not os.path.isdir(d):
         return []
+    labelled: List[Tuple[str, int]] = []
+    for sub, lab in _LABEL_DIRS:
+        subdir = os.path.join(d, sub)
+        if os.path.isdir(subdir):
+            labelled += [(os.path.join(subdir, fn), lab)
+                         for fn in sorted(os.listdir(subdir)) if _is_clip(fn)]
+    if labelled:
+        return labelled
     return [(os.path.join(d, fn), _label_for(fn))
-            for fn in sorted(os.listdir(d))
-            if fn.lower().endswith((".flac", ".wav"))]
+            for fn in sorted(os.listdir(d)) if _is_clip(fn)]
 
 
 def bundled_samples(corpus: str, subset: Optional[str] = None
@@ -330,8 +351,8 @@ def bundled_samples(corpus: str, subset: Optional[str] = None
 def bundle_samples(corpus: str, samples: List[Tuple[str, int]],
                    subset: Optional[str] = None, n_per_class: int = 10) -> None:
     """Copy a few bonafide + spoof clips from the live corpus into
-    samples/<corpus>/<subset>/ (once). Idempotent: does nothing if that folder
-    already holds clips."""
+    samples/<corpus>/<subset>/<bonafide|spoof>/ (once), keeping each clip's real
+    utterance name. Idempotent: does nothing if that folder already holds clips."""
     import shutil
     d = _sample_dir(corpus, subset)
     if _scan_clips(d):
@@ -340,11 +361,12 @@ def bundle_samples(corpus: str, samples: List[Tuple[str, int]],
     spoof = [p for p, e in samples if e == LABEL_SPOOF][:n_per_class]
     if not bona and not spoof:
         return
-    os.makedirs(d, exist_ok=True)
     for tag, paths in (("bonafide", bona), ("spoof", spoof)):
-        for i, p in enumerate(paths):
+        subdir = os.path.join(d, tag)
+        os.makedirs(subdir, exist_ok=True)
+        for p in paths:
             try:
-                shutil.copy(p, os.path.join(d, f"{tag}__{i}_{os.path.basename(p)}"))
+                shutil.copy(p, os.path.join(subdir, os.path.basename(p)))
             except OSError:
                 pass
 

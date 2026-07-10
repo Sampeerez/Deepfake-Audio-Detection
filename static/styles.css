@@ -191,6 +191,16 @@ section[data-testid="stSidebar"] > div:first-child {
 [data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {
     font-size: 1.35rem !important;
 }
+/* While the sidebar is COLLAPSED, the fixed expand chip floats at the top-left
+   over the content, so it used to hide the page title (worst on phones, where
+   the sidebar starts collapsed). Push the page body down just enough to clear
+   the chip. Scoped to the collapsed state via aria-expanded, so the normal
+   expanded desktop layout keeps its tight top spacing. The chip is
+   position:fixed, so it stays reachable no matter how far the page is scrolled,
+   the user never has to scroll back to the top to reopen the sidebar. */
+section[data-testid="stSidebar"][aria-expanded="false"] ~ div [data-testid="stMainBlockContainer"] {
+    padding-top: 3.6rem !important;
+}
 
 /* The sidebar must NEVER scroll: its content is only navigation plus short
    status panels. Instead of scrolling, the max-height compaction layers (at
