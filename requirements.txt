@@ -17,7 +17,8 @@ xgboost>=2.0
 torch>=2.0
 transformers>=4.36           # wav2vec 2.0 SSL detector (raw-waveform backbone)
 pytest>=7.0
-streamlit>=1.30
+streamlit==1.58.0            # pinned: the cloud must render EXACTLY like local
+                             # (widget heights/DOM drift between releases)
 matplotlib>=3.7
 imageio-ffmpeg>=0.4.9
 streamlit-sortables>=0.2     # drag-to-reorder sources in Signal Explorer

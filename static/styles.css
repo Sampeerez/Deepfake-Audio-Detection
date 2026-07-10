@@ -157,17 +157,54 @@ section[data-testid="stSidebar"] > div:first-child {
     pointer-events: auto !important;
     z-index: 1000 !important;
 }
-/* The header is collapsed to height:0, so the "expand" control (shown when the
-   sidebar is closed) would otherwise sit jammed against the very top edge. Push
-   it well down so it lines up with the page content/title. */
+/* The expand control (shown when the sidebar is closed) lives inside the
+   height-0 header, so position it explicitly: pinned top-left at the SAME
+   height as the in-sidebar collapse control (their centres line up), and
+   styled as a visible glass chip with a ~44px touch target so it is easy to
+   find and tap at any resolution, including phones. */
 [data-testid="collapsedControl"],
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="stExpandSidebarButton"] {
-    top: 5.5rem !important;
-    margin-top: 0.5rem !important;
-    /* transform is honoured regardless of how the control is positioned, so it
-       reliably pushes the arrow down even if `top` has no effect in this build. */
-    transform: translateY(3rem) !important;
+    position: fixed !important;
+    top: 0.6rem !important;
+    left: 0.6rem !important;
+    margin: 0 !important;
+    transform: none !important;
+    width: 2.75rem !important;
+    height: 2.75rem !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: rgba(10,22,62,0.65) !important;
+    border: 1px solid rgba(79,139,249,0.45) !important;
+    border-radius: 0.7rem !important;
+    box-shadow: 0 4px 16px rgba(7,15,43,0.6) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+[data-testid="collapsedControl"]:hover,
+[data-testid="stSidebarCollapsedControl"]:hover,
+[data-testid="stExpandSidebarButton"]:hover {
+    background: rgba(79,139,249,0.28) !important;
+    border-color: rgba(79,139,249,0.85) !important;
+}
+[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {
+    font-size: 1.35rem !important;
+}
+
+/* The sidebar must NEVER scroll: its content is only navigation plus short
+   status panels. Instead of scrolling, the max-height compaction layers (at
+   the END of this stylesheet, so they win the cascade over the base nav rules)
+   shrink the rhythm until everything fits the viewport. */
+section[data-testid="stSidebar"] > div:first-child,
+[data-testid="stSidebarContent"] {
+    overflow: hidden !important;
+}
+/* Streamlit reserves ~6rem of bottom padding in the sidebar user-content for
+   scroll room; the sidebar never scrolls here, reclaim it. */
+[data-testid="stSidebarUserContent"] {
+    padding-top: 0.75rem !important;
+    padding-bottom: 1.25rem !important;
 }
 
 /* Remove the sidebar resize/drag handle, the 8px-wide `cursor: col-resize`
@@ -936,9 +973,18 @@ hr { border-color: rgba(79,139,249,0.1) !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DROPDOWN-ONLY SELECTBOXES, wrap in st.container(key="nosearch_…") to block
-   type-to-filter so the control behaves as a pure dropdown (still clickable).
+   DROPDOWN-ONLY SELECTBOXES. Every selectbox app-wide behaves as a pure
+   dropdown: no type-to-filter, no text caret (the option lists are short, a
+   typing affordance only invites the mobile keyboard and an I-beam cursor).
+   The legacy nosearch_* wrappers below keep working and add nothing new.
    ═══════════════════════════════════════════════════════════════════════════ */
+[data-baseweb="select"] input {
+    pointer-events: none !important;
+    caret-color: transparent !important;
+    cursor: default !important;
+}
+[data-baseweb="select"],
+[data-baseweb="select"] * { cursor: default !important; }
 [class*="st-key-nosearch"] [data-baseweb="select"] input {
     pointer-events: none !important;
     caret-color: transparent !important;
@@ -1325,20 +1371,17 @@ summary:focus-visible,
     outline-offset: 2px !important;
     border-radius: 0.4rem;
 }
-/* Selectboxes: baseweb strips the native outline, so keyboard users had no way
-   to see which dropdown held focus (WCAG 2.4.7). Re-assert the same saber ring
-   used everywhere else; it also shows briefly on mouse open, which is the
-   standard, acceptable trade-off for composite widgets. */
-[data-baseweb="select"]:focus-within {
-    outline: 3px solid var(--saber, #4F8BF9) !important;
-    outline-offset: 2px !important;
-    border-radius: 0.4rem;
-}
-/* …EXCEPT dropdown-only (nosearch) selects: they cannot be typed into and always
-   show their current value, so the focus ring + caret just read as a stray click
-   artefact. Opt them out (more specific than the rule above, so it always wins). */
+/* Selectboxes are dropdown-only (no typing possible), so a focus ring + caret
+   just read as a stray click artefact: no outline, and keep the focused border
+   neutral instead of the accent/saber tint. */
+[data-baseweb="select"]:focus-within,
+[data-baseweb="select"] input:focus-visible,
 [class*="st-key-nosearch"] [data-baseweb="select"]:focus-within {
     outline: none !important;
+}
+[data-baseweb="select"]:focus-within > div {
+    border-color: rgba(79,139,249,0.45) !important;
+    box-shadow: none !important;
 }
 
 /* Honour the OS "reduce motion" preference: stop the ambient/decorative
@@ -1364,6 +1407,59 @@ summary:focus-visible,
    ═══════════════════════════════════════════════════════════════════════════ */
 .hero-banner h1 { font-size: clamp(1.85rem, 5.2vw, 3.1rem); }
 
+/* ── Container-query layer ────────────────────────────────────────────────
+   Streamlit columns become query containers: their width comes from the flex
+   layout (never from their content), so inline-size containment is safe, and
+   it lets cramped-slot rules react to the COLUMN width instead of the
+   viewport, a control can be squeezed at any screen size. */
+[data-testid="stColumn"] { container-type: inline-size; }
+
+/* Icon buttons (Clear, Random, Analyze, …): never let the label wrap into a
+   vertical letter-stack; below a usable width drop the label entirely, the
+   material icon alone IS the button (the tooltip still names it). */
+[data-testid="stButton"] button { overflow: hidden; }
+[data-testid="stButton"] button:has([data-testid="stIconMaterial"]) [data-testid="stMarkdownContainer"] p {
+    white-space: nowrap !important;
+}
+@container (max-width: 8.75rem) {
+    [data-testid="stButton"] button:has([data-testid="stIconMaterial"]) [data-testid="stMarkdownContainer"] {
+        display: none !important;
+    }
+}
+
+/* File uploader: contents may never spill out of the dropzone. Instructions
+   truncate with an ellipsis first, and disappear in very narrow slots (the
+   browse button alone remains, still fully functional). */
+[data-testid="stFileUploaderDropzone"] { min-width: 0 !important; overflow: hidden !important; }
+[data-testid="stFileUploaderDropzoneInstructions"] { min-width: 0; overflow: hidden; }
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-testid="stFileUploaderDropzoneInstructions"] small,
+[data-testid="stFileUploaderDropzoneInstructions"] div {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@container (max-width: 20rem) {
+    [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
+    [data-testid="stFileUploaderDropzone"] { justify-content: center !important; }
+}
+
+/* Train on / Evaluate on / Score on box: when its column gets narrow the
+   side-by-side row (with vertical dividers) turns into a weird wrapped blob,
+   stack the three controls vertically with horizontal dividers instead. */
+@container (max-width: 34rem) {
+    [class*="st-key-evalgrp_"] {
+        flex-direction: column !important;
+        width: 100% !important;
+        row-gap: 0.45rem !important;
+    }
+    [class*="st-key-evalgrp_"] > [data-testid="stElementContainer"]:not(:first-child) {
+        border-left: none !important;
+        padding-left: 0 !important;
+        margin-left: 0 !important;
+        border-top: 1px solid rgba(79,139,249,0.22);
+        padding-top: 0.45rem;
+    }
+}
+
 @media (max-width: 1440px) {
     :root { --sidebar-w: 16rem; }
     .hero-banner   { padding: 1.45rem 2.1rem 1.4rem; }
@@ -1385,6 +1481,27 @@ summary:focus-visible,
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] { display: inline-flex !important; }
 }
+/* Viewport fallback for the Train/Evaluate/Score instances that do NOT live
+   inside a column (e.g. the Full-comparison launcher row), plus stacking that
+   launcher row itself: box on top, full-width button below. */
+@media (max-width: 760px) {
+    [class*="st-key-evalgrp_"] {
+        flex-direction: column !important;
+        width: 100% !important;
+        row-gap: 0.45rem !important;
+    }
+    [class*="st-key-evalgrp_"] > [data-testid="stElementContainer"]:not(:first-child) {
+        border-left: none !important;
+        padding-left: 0 !important;
+        margin-left: 0 !important;
+        border-top: 1px solid rgba(79,139,249,0.22);
+        padding-top: 0.45rem;
+    }
+    [class*="st-key-lb_row"] { flex-direction: column !important; gap: 0.6rem !important; }
+    [class*="st-key-lb_row"] > * { width: 100% !important; flex: none !important; }
+    [class*="st-key-lb_run_btn"] button { min-height: 3rem !important; width: 100% !important; }
+}
+
 @media (max-width: 680px) {
     :root { --sidebar-w: 15rem; }
     [data-testid="stMainBlockContainer"] {
@@ -1431,5 +1548,27 @@ summary:focus-visible,
     .app-footer    { margin-top: 1.4rem; padding-top: 0.8rem; }
     .sec-head      { margin: 0.45rem 0 0.3rem; }
     .sec-sub       { margin-bottom: 0.65rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR COMPACTION, the sidebar never scrolls (overflow hidden above), so on
+   short viewports the rhythm shrinks until nav + status panels fit. These
+   layers sit LAST in the stylesheet so they beat the base nav rules (equal
+   specificity, later wins).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-height: 940px) {
+    [data-testid="stSidebarNav"]::before { padding: 0.9rem 1.1rem 0.75rem; margin-bottom: 0.35rem; }
+    [data-testid="stSidebarNav"] ul { padding-top: 0.15rem !important; }
+    [data-testid="stSidebarNavLink"] { padding: 0.42rem 0.95rem !important; margin: 0.12rem 0.6rem !important; }
+    .side-status { line-height: 1.65; padding: 0.5rem 0.9rem 0.45rem; margin-bottom: 0.55rem; }
+    [data-testid="stSidebarUserContent"] { padding-top: 0.4rem !important; padding-bottom: 0.75rem !important; }
+}
+@media (max-height: 720px) {
+    [data-testid="stSidebarNav"]::before { padding: 0.65rem 1.1rem 0.55rem; margin-bottom: 0.2rem; }
+    [data-testid="stSidebarNavLink"] { padding: 0.3rem 0.95rem !important; margin: 0.08rem 0.6rem !important; }
+    [data-testid="stSidebarNavLink"] span,
+    [data-testid="stSidebarNavLink"] p { font-size: 0.94rem !important; }
+    /* The status panels are informational only, never worth clipping the nav. */
+    .side-status { display: none; }
 }
 </style>

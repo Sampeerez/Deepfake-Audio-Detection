@@ -97,6 +97,25 @@ st.markdown("""
 [class*="st-key-da_test_upload"] [data-testid="stFileUploadDropzone"] button {
     margin-top: 1px !important;
 }
+/* Below ~1150px the 7-column control row squeezes the selects until their value
+   disappears: wrap it instead. The uploader takes its own full line, the
+   decorative OR divider hides, and the selects + buttons share the next line. */
+@media (max-width: 1150px) {
+    [data-testid="stHorizontalBlock"]:has([class*="st-key-da_test_upload"]) {
+        flex-wrap: wrap !important;
+        row-gap: 0.55rem !important;
+    }
+    [data-testid="stHorizontalBlock"]:has([class*="st-key-da_test_upload"]) > [data-testid="stColumn"] {
+        min-width: 7rem !important;
+    }
+    [data-testid="stHorizontalBlock"]:has([class*="st-key-da_test_upload"]) > [data-testid="stColumn"]:first-child {
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+    }
+    [data-testid="stHorizontalBlock"]:has([class*="st-key-da_test_upload"]) > [data-testid="stColumn"]:nth-child(2) {
+        display: none !important;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
