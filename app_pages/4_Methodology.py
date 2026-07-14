@@ -199,6 +199,7 @@ st.markdown(
     '<a class="toc-chip" href="#m-pipeline"><b>02</b>Pipeline &amp; Methods</a>'
     '<a class="toc-chip" href="#m-attacks"><b>03</b>Spoofing attacks</a>'
     '<a class="toc-chip" href="#m-protocol"><b>04</b>Evaluation protocol</a>'
+    '<a class="toc-chip" href="#m-cloning"><b>05</b>Voice cloning</a>'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -460,5 +461,64 @@ st.markdown(
     'telephone codec &amp; transmission variability and <strong>DF</strong> adds lossy '
     'compression / &ldquo;in-the-wild&rdquo; audio; both are eval-only and scored by EER, '
     'making them the toughest cross-domain test of a detector trained on 2019.</p></div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
+
+# ── 05 · Voice cloning (the attack side) ─────────────────────────────────── #
+section_header("05", "Voice cloning: the attack side",
+               "The offensive counterpart to detection. If a voice can be cloned "
+               "from a few seconds of audio, detection is not optional.",
+               anchor="m-cloning")
+st.markdown(
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin:.4rem 0;">'
+    '<div class="method-card"><div class="mc-num">I</div><h5>OmniVoice engine</h5><ul>'
+    '<li><strong>Zero-shot cloning</strong> from a single short reference clip, no '
+    'per-speaker training</li>'
+    '<li><strong>600+ languages</strong> (k2-fsa/OmniVoice, Xiaomi Next-gen Kaldi, 2026)</li>'
+    '<li>Optional <strong>reference transcript</strong> sharpens fidelity; ASR '
+    'auto-transcribes it otherwise</li>'
+    '<li>Language auto-detected from the text, or forced from the full list</li>'
+    '</ul></div>'
+    '<div class="method-card"><div class="mc-num">II</div><h5>Generation controls</h5><ul>'
+    '<li><strong>Inference steps</strong> &amp; <strong>guidance scale</strong>, quality '
+    'vs speed and how closely the text is followed</li>'
+    '<li><strong>Speed</strong> or a <strong>fixed duration</strong> for pacing</li>'
+    '<li><strong>Denoise</strong>, reference <strong>pre-processing</strong> and output '
+    '<strong>post-processing</strong></li>'
+    '<li><strong>Instruct</strong>, a free-form hint to steer delivery</li>'
+    '</ul></div>'
+    '<div class="method-card"><div class="mc-num">III</div><h5>Runs off-box</h5><ul>'
+    '<li>Streamlit Cloud is <strong>CPU-only</strong> and cannot host a TTS model</li>'
+    '<li>Synthesis is delegated to a <strong>Hugging Face Space</strong> (ZeroGPU) over '
+    '<code>gradio_client</code></li>'
+    '<li>An <strong>HF token</strong> draws on your own quota; the Space is swappable '
+    '(duplicated or local) with no code change</li>'
+    '<li>Reference cleaned at <strong>24&nbsp;kHz</strong>, high-pass, silence-trim, '
+    'peak-normalise, before it is sent</li>'
+    '</ul></div>'
+    '<div class="method-card"><div class="mc-num">IV</div><h5>Closes the loop</h5><ul>'
+    '<li>Clone your own voice, then send the result straight to <strong>Detection '
+    'Analysis</strong></li>'
+    '<li>The fusion verdict flags it as <strong>spoof</strong>, attack and defence in '
+    'one flow</li>'
+    '<li>Also opens in <strong>Signal Explorer</strong> to inspect the synthetic '
+    'artefacts</li>'
+    '<li>The whole point: detection exists <em>because</em> cloning is this easy</li>'
+    '</ul></div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+st.markdown("<div style='height:0.9rem'></div>", unsafe_allow_html=True)
+st.markdown(
+    '<div class="info-card"><div class="ic-title">Responsible use'
+    '<span class="ic-tag">ethics</span></div>'
+    '<p class="ic-body">The cloner is an <strong>educational demonstration</strong> of '
+    'why synthetic-speech detection matters, meant to be used only on your <strong>own '
+    'voice</strong> or one you have explicit consent to use. It deliberately makes the '
+    'attack tangible so the value of the detectors is obvious: the same few seconds of '
+    'audio that clone a voice are all an attacker needs, and the fusion detector on the '
+    'next page is what tells the copy from the original.</p></div>',
     unsafe_allow_html=True,
 )

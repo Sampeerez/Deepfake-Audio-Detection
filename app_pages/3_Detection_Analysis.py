@@ -843,6 +843,9 @@ with tab_test:
         do_analyze = st.button("Analyze", type="primary", icon=":material/radar:",
                                width="stretch", key="da_analyze_btn",
                                disabled=not _has_audio)
+        # Arriving from the Voice Cloner: score the clip immediately, no click.
+        if _has_audio and st.session_state.pop("da_auto_analyze", False):
+            do_analyze = True
 
     # Clear button
     with _c_clr:
@@ -920,8 +923,7 @@ with tab_analyse:
   if corpus_ok:
     has_cnn = "cnn_model" in st.session_state
     with st.container(border=True):
-        st.markdown('<div class="section-label">Detector</div>', unsafe_allow_html=True)
-        st.markdown('<div style="height:0.1rem;"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-label" style="margin-bottom:1rem;">Detector</div>', unsafe_allow_html=True)
         src_opts = ["Classic models"]
         if any(e["kind"] == "cnn" for e in pre_models):
             src_opts.append("Deep networks")

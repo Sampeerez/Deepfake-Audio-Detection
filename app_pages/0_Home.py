@@ -287,6 +287,11 @@ _ICON_LD = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
             'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
             '<rect x="9" y="2" width="6" height="12" rx="3"/>'
             '<path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>')
+_ICON_VC = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+            '<rect x="9" y="2" width="6" height="12" rx="3"/>'
+            '<path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'
+            '<path d="M18 6l3-2M18 10h3M18 14l3 2"/></svg>')
 
 st.markdown(
     '<div class="sec-head"><h3 class="sh-title">Explore the Benchmark</h3>'
@@ -308,7 +313,7 @@ def _nav_tile(col, key, cls, icon, title, desc, page, extra=""):
                 st.switch_page(page)
 
 
-t1, t2, t3 = st.columns(3, gap="medium")
+t1, t2, t3, t4 = st.columns(4, gap="medium")
 _nav_tile(t1, "se", "", _ICON_SE, "Signal Explorer",
           "See &amp; compare audio at the feature level, waveform, STFT, "
           "MFCC, LFCC, CQCC.", "app_pages/1_Signal_Explorer.py")
@@ -318,6 +323,10 @@ _nav_tile(t2, "bench", "", _ICON_BENCH, "Benchmark",
 _nav_tile(t3, "det", "", _ICON_DET, "Detection Analysis",
           "ROC &amp; DET curves and the decision threshold, or drop your own "
           "clip for a live verdict.", "app_pages/3_Detection_Analysis.py")
+_nav_tile(t4, "vc", "", _ICON_VC, "Voice Cloner",
+          "The other side of the coin, clone your own voice from a few "
+          "seconds of audio and see how easy the attack is.",
+          "app_pages/6_Voice_Cloner.py")
 
 st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
 (m_col,) = st.columns(1)

@@ -285,6 +285,7 @@ pg = st.navigation([
     st.Page("app_pages/1_Signal_Explorer.py",    title="Signal Explorer",    icon=":material/graphic_eq:", url_path="signal_explorer"),
     st.Page("app_pages/2_Benchmark.py",          title="Benchmark",          icon=":material/science:", url_path="benchmark"),
     st.Page("app_pages/3_Detection_Analysis.py", title="Detection Analysis", icon=":material/insights:", url_path="detection_analysis"),
+    st.Page("app_pages/6_Voice_Cloner.py",       title="Voice Cloner",       icon=":material/record_voice_over:", url_path="voice_cloner"),
     st.Page("app_pages/4_Methodology.py",        title="Methodology",        icon=":material/menu_book:", url_path="methodology"),
     st.Page("app_pages/5_Settings.py",           title="Settings",           icon=":material/settings:", url_path="settings"),
 ])

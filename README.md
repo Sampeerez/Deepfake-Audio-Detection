@@ -122,7 +122,8 @@ verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 | **Signal Explorer** | Visualize waveform + every spectral view (STFT-dB, CNN input, MFCC, LFCC, CQCC), or pit a **real voice against a deepfake** side by side. |
 | **Benchmark** | Three modes: **Classic** (DSP × classifier), **Deep Networks** (train live, loss curves per epoch) and **Full comparison** (all 21 models, leaderboard). |
 | **Detection Analysis** | **Test an audio**: drop a clip (or pick a bundled corpus sample), every model scores it in parallel, weighted-fusion verdict. **Analyse on a split**: *why* a detector gets its EER, with score distributions, ROC/DET curves, interactive threshold. |
-| **Methodology** | The full reference: corpora, DSP front-ends, classifiers, architectures, metrics. |
+| **Voice Cloner** | The attack side: clone **your own voice** from a few seconds of audio (zero-shot, 600+ languages via OmniVoice), then send the fake straight to Detection Analysis and watch the detectors flag it. |
+| **Methodology** | The full reference: corpora, DSP front-ends, classifiers, architectures, metrics, and the cloning attack. |
 | **Settings** | **Light / Dark Side** theme, animated background, accessibility, and a few easter eggs. |
 
 </div>
@@ -290,6 +291,7 @@ Deepfake-Audio-Detection/
 │   ├── 3_Detection_Analysis.py # Test an audio + Analyse on a split
 │   ├── 4_Methodology.py        # Full reference
 │   ├── 5_Settings.py           # Theme, background, accessibility
+│   ├── 6_Voice_Cloner.py       # Zero-shot voice cloning (OmniVoice via HF Space)
 │   └── modes/                  # _mode_classic / _mode_cnn / _mode_full
 ├── src/
 │   ├── data_loader.py          # Protocol parsers + PyTorch Datasets (spectrogram & raw wave)
@@ -436,7 +438,7 @@ eval sets (A07-A19, 2021 LA/DF) are never touched by training or selection.
 
 **DSP & audio** · librosa, SciPy, PyWavelets, soundfile &nbsp;|&nbsp;
 **ML** · scikit-learn, XGBoost, PyTorch, Transformers &nbsp;|&nbsp;
-**App** · Streamlit, Altair, Matplotlib, pandas
+**App** · Streamlit, Altair, Matplotlib, pandas, gradio_client
 
 </div>
 

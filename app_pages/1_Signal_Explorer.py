@@ -38,17 +38,6 @@ from src.ui_helpers import (  # noqa: E402
 
 extractor = get_extractor()
 
-# Push the upload "Clear" button flush against the right edge (compact, not full
-# width), overrides the generic right-align helper that stretches widgets.
-st.markdown(
-    "<style>"
-    "[class*='st-key-alignr_clear']{display:flex;justify-content:flex-end;}"
-    "[class*='st-key-alignr_clear'] [data-testid='stElementContainer']{width:auto !important;}"
-    "[class*='st-key-alignr_clear'] button{width:auto !important;}"
-    "</style>",
-    unsafe_allow_html=True,
-)
-
 _PLACEHOLDER = -1   # sentinel index meaning "no file selected"
 
 # Up to three audio sources; each is a slot with a stable key prefix.
@@ -369,13 +358,17 @@ def _upload_picker(key_prefix: str):
         return None, None, None
 
     # Confirm the active file straight away (right after the upload AND after
-    # navigating back, when the native uploader chip is gone).
-    st.caption(f"Using uploaded file: **{name}**")
-    # Clear resets both the stored payload and the uploader widget (see callback).
-    with st.container(key=f"alignr_clear_{key_prefix}"):
+    # navigating back, when the native uploader chip is gone). Caption on the
+    # left, a normally-sized Clear button on the right (a columns layout is robust,
+    # the old flex hack clipped the button against the panel's rounded corner).
+    _cap_col, _clr_col = st.columns([4, 1], vertical_alignment="center")
+    with _cap_col:
+        st.caption(f"Using uploaded file: **{name}**")
+    with _clr_col:
+        # Clear resets both the stored payload and the uploader widget (callback).
         st.button("Clear", key=f"{key_prefix}_upload_clear",
                   icon=":material/close:", help="Forget this uploaded file",
-                  on_click=_clear_upload)
+                  on_click=_clear_upload, width="stretch")
 
     try:
         return _decode_upload(name, blob), "uploaded", name
