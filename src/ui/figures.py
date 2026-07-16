@@ -90,6 +90,38 @@ def compute_signal_stats(y: np.ndarray, sr: int) -> Dict:
     }
 
 
+def warm_figure_backend(extractor) -> None:
+    """Trigger numba's JIT compilation of the librosa transforms the fig_*
+    builders rely on (STFT, MFCC/mel, and the expensive constant-Q), plus the
+    extractor's own spectrogram/LFCC paths, on a throwaway signal.
+
+    The first time any of these runs in a fresh process, numba compiles it, a
+    one-off ~1 to 2.5 s stall that otherwise lands on the first visitor who opens
+    a spectrogram in Signal Explorer or Detection Analysis. This is pure compute
+    (no matplotlib, no pyplot global state), so it is safe to run on a background
+    thread at boot; by the time a real figure is requested the transforms are
+    already compiled and it renders in ~100 ms. Best-effort, never raises."""
+    try:
+        sr = int(extractor.sample_rate)
+        y = (0.01 * np.random.default_rng(0).standard_normal(int(1.5 * sr))
+             ).astype(np.float32)
+        librosa.amplitude_to_db(
+            np.abs(librosa.stft(y, n_fft=extractor.n_fft,
+                                hop_length=extractor.hop_length)), ref=np.max)
+        librosa.feature.mfcc(y=y, sr=sr, n_mfcc=extractor.n_mfcc,
+                             n_fft=extractor.n_fft,
+                             hop_length=extractor.hop_length,
+                             n_mels=extractor.n_mels)
+        librosa.cqt(y, sr=sr, hop_length=extractor.hop_length,
+                    n_bins=extractor.cqcc_n_bins,
+                    bins_per_octave=extractor.cqcc_bins_per_octave)
+        # Extractor paths used by the CNN-input and LFCC figures.
+        extractor.get_spectrogram_matrix(y)
+        extractor._stft_magnitude(y)
+    except Exception:
+        pass
+
+
 # ===========================================================================
 # Plotting helpers, all return a plt.Figure for st.pyplot()
 # ===========================================================================

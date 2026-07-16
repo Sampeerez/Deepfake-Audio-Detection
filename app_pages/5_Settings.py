@@ -149,7 +149,6 @@ st.markdown(themed("""
                 0 0 48px var(--saber-glow);
     animation: saberPulse 2.4s ease-in-out infinite;
 }
-.saber-hint { font-size: 0.74rem; color: #8FA3CE; margin-top: 0.15rem; }
 
 /* Cantina rumour (Konami) with little keycaps. The extra bottom margin keeps
    the wrapped line off the viewport card's bottom border. */
@@ -239,8 +238,7 @@ with _c2:
                 label_visibility="collapsed",
                 help="Colour of the lightsaber blade accents across the app and the dancing audio bars on the home page.",
             )
-        st.markdown('<div class="saber-demo" aria-hidden="true"></div>'
-                    '<div class="saber-hint">Live preview, this is your blade and audio colour.</div>',
+        st.markdown('<div class="saber-demo" aria-hidden="true"></div>',
                     unsafe_allow_html=True)
 
 

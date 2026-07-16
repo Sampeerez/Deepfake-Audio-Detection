@@ -46,7 +46,8 @@ st.set_page_config(
 )
 
 from src.ui_helpers import (  # noqa: E402
-    apply_mpl_theme, build_page_css, preload_wav2vec_background, theme_mode,
+    apply_mpl_theme, build_page_css, preload_figure_backend,
+    preload_wav2vec_background, theme_mode,
 )
 
 # Start loading wav2vec 2.0 (raw-waveform SSL detector) in the background the
@@ -55,6 +56,11 @@ from src.ui_helpers import (  # noqa: E402
 # immediately, the model finishes loading on a background thread) and runs
 # exactly once per server process no matter how many sessions rerun this file.
 preload_wav2vec_background()
+
+# Likewise compile librosa's numba transforms in the background now, so the first
+# spectrogram opened in Signal Explorer / Detection Analysis renders instantly
+# instead of stalling ~1 to 2.5 s on a one-time JIT compile mid-view.
+preload_figure_backend()
 
 # ── Light Side / Dark Side ───────────────────────────────────────────────────
 # Read the chosen side (default Dark Side) and apply the matching palette to both
@@ -101,25 +107,25 @@ _NATIVE_THEME = {
               "backgroundColor": "#D5DEEE",
               "secondaryBackgroundColor": "#FFFFFF", "textColor": "#1B2438"},
 }
-_theme_changed = False
+# Set the native config to match the chosen side, but DO NOT force an extra
+# st.rerun() to apply it this instant. The visible page is themed by the injected
+# CSS below (build_page_css + _LIGHT_PATCH cover the app background, text and every
+# native widget), so the side flips cleanly on the same rerun that changed it. The
+# config only matters for the one thing CSS cannot reach, the st.dataframe canvas,
+# and it takes effect on the NEXT rerun's NewSession. Since the side can only be
+# changed on Settings (which has no dataframe), by the time you navigate to a
+# dataframe page that navigation is itself the next rerun, so the grid is already
+# correct and nothing is ever seen stale. Forcing the rerun here was what made a
+# theme Save double-render and remount the tree, leaving the page jarringly
+# scrolled, so it is deliberately gone.
 try:
     from streamlit import config as _st_config
 
     for _opt, _val in _NATIVE_THEME[_theme].items():
         if _st_config.get_option(f"theme.{_opt}") != _val:
             _st_config.set_option(f"theme.{_opt}", _val)
-            _theme_changed = True
 except Exception:  # noqa: BLE001, never let theming break the app
-    _theme_changed = False
-# Outside the try: st.rerun() raises a control-flow exception that the guard
-# above must not swallow. NEVER rerun on a session's FIRST script run: at that
-# point st.navigation has not routed the URL yet, and the rerun would land the
-# visitor on the default page instead of the deep link they opened (only the
-# multi-user stale-config case even reaches here on a first run; it
-# self-corrects on the next interaction and is documented in the README).
-if _theme_changed and st.session_state.get("_nav_routed"):
-    st.rerun()
-st.session_state["_nav_routed"] = True
+    pass
 
 # Global CSS injected here (not per page): it always occupies the same position
 # in the element tree, so Streamlit reconciles it across pages and there is no

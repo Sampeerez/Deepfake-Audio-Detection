@@ -155,7 +155,9 @@ if choice not in _MODES:
     st.title("Benchmark")
     st.caption("Three ways to compare deepfake detectors, pick one to start. "
                "You can go back to switch any time.")
-    cols = st.columns(3, gap="medium")
+    _mode_wrap = st.container(key="bench_modes")
+    with _mode_wrap:
+        cols = st.columns(3, gap="medium")
     for col, (key, label, icon, desc) in zip(cols, _OPTIONS):
         with col:
             st.markdown(

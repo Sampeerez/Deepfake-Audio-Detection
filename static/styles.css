@@ -1459,6 +1459,42 @@ summary:focus-visible,
     [data-testid="stFileUploaderDropzone"] { justify-content: center !important; }
 }
 
+/* Voice Cloner fine-tuning toggle row: desktop keeps Fixed duration + the three
+   cleanup toggles on one aligned row. Checkbox labels never break mid-word. On
+   the tablet band (a docked sidebar squeezes the content while the viewport is
+   still wide enough that Streamlit will not stack the columns) the row reflows
+   to 2x2 so the labels stop being crushed; below 640px Streamlit stacks the
+   columns to a single column natively, so no rule is needed there. */
+[class*="st-key-vc_ft_toggles"] [data-testid="stCheckbox"] label {
+    overflow-wrap: normal; word-break: normal;
+}
+.vc-toggle-pad { height: 1.8rem; }
+@media (min-width: 641px) and (max-width: 992px) {
+    [class*="st-key-vc_ft_toggles"] [data-testid="stHorizontalBlock"] {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 0.6rem 1rem !important;
+    }
+    [class*="st-key-vc_ft_toggles"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        width: auto !important; min-width: 0 !important;
+    }
+    .vc-toggle-pad { display: none; }
+}
+
+/* Benchmark mode picker: three markdown cards with no intrinsic min-width, so
+   Streamlit's flex columns cram their titles onto two lines once a docked
+   sidebar narrows the content. A real auto-fit grid flows them 3 -> 2 -> 1 with
+   the available width (3 across on desktop, 2 then 1 as it narrows) with no hard
+   breakpoint, so they stay comfortable at every size. */
+[class*="st-key-bench_modes"] [data-testid="stHorizontalBlock"] {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
+    gap: 1rem !important;
+}
+[class*="st-key-bench_modes"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    width: auto !important; min-width: 0 !important;
+}
+
 /* Train on / Evaluate on / Score on box: when its column gets narrow the
    side-by-side row (with vertical dividers) turns into a weird wrapped blob,
    stack the three controls vertically with horizontal dividers instead.

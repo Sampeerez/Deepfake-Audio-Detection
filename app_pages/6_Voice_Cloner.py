@@ -360,6 +360,20 @@ def _write_reference(blob: bytes, name) -> str:
     return fh.name
 
 
+def _clear_reference():
+    """Forget the captured voice AND reset the input widgets.
+
+    Both st.tabs bodies run every rerun, so clearing only the mirrored payload
+    keys is not enough: whichever widget (recorder or uploader) still holds a
+    file re-writes vc_ref_bytes on the very next run, and Clear appears to do
+    nothing. Popping the widget keys here, in an on_click callback (before the
+    widgets re-instantiate), makes them come back empty. Same fix pattern as
+    Signal Explorer's _clear_upload."""
+    for _k in ("vc_ref_bytes", "vc_ref_name", "vc_out_bytes", "vc_out_name",
+               "vc_out_lang", "vc_recorder", "vc_ref_upload"):
+        st.session_state.pop(_k, None)
+
+
 # ── Title + intro (plain, like the other pages) ─────────────────────────── #
 st.title("Voice Cloner")
 st.markdown(
@@ -424,11 +438,8 @@ with st.container(border=True):
             with _c_play:
                 st.audio(_ref_signal, sample_rate=_sr)
             with _c_clear:
-                if st.button("Clear", icon=":material/close:", width="stretch",
-                             key="vc_clear"):
-                    for _k in ("vc_ref_bytes", "vc_ref_name", "vc_out_bytes"):
-                        st.session_state.pop(_k, None)
-                    st.rerun()
+                st.button("Clear", icon=":material/close:", width="stretch",
+                          key="vc_clear", on_click=_clear_reference)
             st.caption(f"Voice captured from **{_ref_name}** ({_dur:.1f} s)")
             if _dur < _MIN_REF_SECONDS:
                 mini_note(
@@ -489,31 +500,35 @@ if _ref_signal is not None:
             _speed = st.slider("Speed", 0.5, 1.5, 1.0, 0.05, key="vc_speed")
             st.caption("Above 1 faster, below 1 slower. Default 1.0.")
 
-        # Give Fixed duration room and a spacer, then pull the three cleanup
-        # toggles together so they read as one group, apart from duration.
-        _c4, _sp, _c5, _c6, _c7 = st.columns([1.7, 0.3, 1, 1, 1], gap="small")
-        with _c4:
-            _duration = st.number_input(
-                "Fixed duration (s)", min_value=0.0, value=0.0, step=0.5,
-                key="vc_duration")
-            st.caption("Force the clip length. 0 lets Speed decide.")
-        # Drop the toggles down so they line up with the duration input field
-        # instead of floating up level with its label.
-        _pad = "<div style='height:1.8rem'></div>"
-        with _c5:
-            st.markdown(_pad, unsafe_allow_html=True)
-            _denoise = st.checkbox("Denoise", value=True, key="vc_denoise")
-            st.caption("Clean noise from the output.")
-        with _c6:
-            st.markdown(_pad, unsafe_allow_html=True)
-            _preprocess = st.checkbox("Preprocess reference", value=True,
-                                      key="vc_pre")
-            st.caption("Trim silence from your recording first.")
-        with _c7:
-            st.markdown(_pad, unsafe_allow_html=True)
-            _postprocess = st.checkbox("Postprocess output", value=True,
-                                       key="vc_post")
-            st.caption("Remove long silences from the result.")
+        # Fixed duration, then the three cleanup toggles as one group (a medium
+        # gap sets duration apart from them). Wrapped in a keyed container so a
+        # media query can reflow it to 2x2 on the tablet band, where a docked
+        # sidebar squeezes the content while the viewport is still "wide" enough
+        # that Streamlit will not stack the columns; desktop keeps one row.
+        with st.container(key="vc_ft_toggles"):
+            _c4, _c5, _c6, _c7 = st.columns([1.6, 1, 1, 1], gap="medium")
+            with _c4:
+                _duration = st.number_input(
+                    "Fixed duration (s)", min_value=0.0, value=0.0, step=0.5,
+                    key="vc_duration")
+                st.caption("Force the clip length. 0 lets Speed decide.")
+            # Pad drops each toggle down to line up with the duration input
+            # field; CSS hides it once the row wraps.
+            _pad = "<div class='vc-toggle-pad'></div>"
+            with _c5:
+                st.markdown(_pad, unsafe_allow_html=True)
+                _denoise = st.checkbox("Denoise", value=True, key="vc_denoise")
+                st.caption("Clean noise from the output.")
+            with _c6:
+                st.markdown(_pad, unsafe_allow_html=True)
+                _preprocess = st.checkbox("Preprocess reference", value=True,
+                                          key="vc_pre")
+                st.caption("Trim silence from your recording first.")
+            with _c7:
+                st.markdown(_pad, unsafe_allow_html=True)
+                _postprocess = st.checkbox("Postprocess output", value=True,
+                                           key="vc_post")
+                st.caption("Remove long silences from the result.")
 
     # Always clickable: gating "disabled" on the text made the first click
     # only commit the text_area (it commits on blur) and a second click was

@@ -746,6 +746,28 @@ def preload_wav2vec_background() -> bool:
     return True
 
 
+@st.cache_resource(show_spinner=False)
+def preload_figure_backend() -> bool:
+    """Compile librosa's numba transforms on a background thread at boot, so the
+    first spectrogram a visitor opens in Signal Explorer / Detection Analysis
+    renders in ~100 ms instead of stalling ~1 to 2.5 s on a one-time JIT compile.
+
+    Compute only (no matplotlib / pyplot), so it is thread-safe. cache_resource
+    guards it to exactly once per server process. Best-effort, failures are
+    swallowed (the transforms simply compile lazily on first real use instead)."""
+    import threading
+
+    def _warm():
+        try:
+            from src.ui.figures import warm_figure_backend
+            warm_figure_backend(get_extractor())
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm, daemon=True, name="figure-warmup").start()
+    return True
+
+
 def load_pretrained_cnn():
     """Backward-compatible helper: load the first available deep network entry (or the
     legacy single checkpoint) and return (model, meta)."""

@@ -33,7 +33,7 @@ from src.ui_helpers import (  # noqa: E402
     label_badge, mini_note, show_empty_state,
     sidebar_panel, fig_cnn_input, fig_cqcc, fig_lfcc, fig_mfcc, fig_stft_db,
     fig_waveform, get_extractor, get_samples, get_samples_2021_la,
-    get_samples_2021_df, split_by_label, BONAFIDE_COLOR, SPOOF_COLOR,
+    get_samples_2021_df, split_by_label, theme_mode, BONAFIDE_COLOR, SPOOF_COLOR,
 )
 
 extractor = get_extractor()
@@ -415,8 +415,13 @@ def _audio_picker(key_prefix: str, title_html: str, idx: int = 0, n: int = 1):
 # ===========================================================================
 
 @st.cache_data(show_spinner=False, max_entries=96)
-def _view_png(view: str, source_id: str, label: str, y: np.ndarray) -> bytes:
-    """Render one representation to PNG bytes (cached → no flicker on rerun)."""
+def _view_png(view: str, source_id: str, label: str, y: np.ndarray,
+              theme: str) -> bytes:
+    """Render one representation to PNG bytes (cached → no flicker on rerun).
+
+    ``theme`` is part of the cache key (Dark/Light Side): the fig_* builders read
+    the active matplotlib palette at call time, so without it a theme switch
+    would return the previously-rendered PNG in the old colours."""
     ext = get_extractor()
     builders = {
         "Waveform":   lambda: fig_waveform(y, ext.sample_rate,
@@ -437,9 +442,11 @@ def _view_png(view: str, source_id: str, label: str, y: np.ndarray) -> bytes:
 
 def _render_views(y: np.ndarray, label: str, views: list, source_id: str) -> None:
     """Render each selected visualisation for one audio signal."""
+    _theme = theme_mode()
     for view in views:
         with st.spinner(f"Projecting the hologram, {view}…"):
-            st.image(_view_png(view, source_id, str(label), y), width="stretch")
+            st.image(_view_png(view, source_id, str(label), y, _theme),
+                     width="stretch")
 
 
 def _show_signal_stats(y: np.ndarray, n_metrics: int = 5) -> None:

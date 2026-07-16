@@ -149,6 +149,22 @@ _CSS_BASE = """
 }
 [class*="st-key-navt_"]:hover .nav-tile .nt-icon { transform: scale(1.08) rotate(-4deg); background: rgba(79,139,249,0.22); }
 [class*="st-key-navt_"]:hover .nav-tile.nt-ref .nt-icon { background: rgba(156,39,176,0.2); }
+
+/* Tablet band: the four tool tiles become a real 2x2 grid rather than four
+   narrow columns whose titles wrap (a docked sidebar leaves little room). CSS
+   Grid is used instead of flex-basis because Streamlit's horizontal block
+   carries negative margins that make percentage bases resolve wider than the
+   visible row. Below 641px Streamlit stacks them to a single column natively. */
+@media (min-width: 641px) and (max-width: 1200px) {
+    [class*="st-key-home_tools_row"] [data-testid="stHorizontalBlock"] {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 1rem !important;
+    }
+    [class*="st-key-home_tools_row"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        width: auto !important; min-width: 0 !important;
+    }
+}
 </style>
 """
 
@@ -313,20 +329,21 @@ def _nav_tile(col, key, cls, icon, title, desc, page, extra=""):
                 st.switch_page(page)
 
 
-t1, t2, t3, t4 = st.columns(4, gap="medium")
-_nav_tile(t1, "se", "", _ICON_SE, "Signal Explorer",
-          "See &amp; compare audio at the feature level, waveform, STFT, "
-          "MFCC, LFCC, CQCC.", "app_pages/1_Signal_Explorer.py")
-_nav_tile(t2, "bench", "", _ICON_BENCH, "Benchmark",
-          "Classic models, deep networks, or run everything at once, ranked by "
-          "minDCF &middot; EER.", "app_pages/2_Benchmark.py")
-_nav_tile(t3, "det", "", _ICON_DET, "Detection Analysis",
-          "ROC &amp; DET curves and the decision threshold, or drop your own "
-          "clip for a live verdict.", "app_pages/3_Detection_Analysis.py")
-_nav_tile(t4, "vc", "", _ICON_VC, "Voice Cloner",
-          "The other side of the coin, clone your own voice from a few "
-          "seconds of audio and see how easy the attack is.",
-          "app_pages/6_Voice_Cloner.py")
+with st.container(key="home_tools_row"):
+    t1, t2, t3, t4 = st.columns(4, gap="medium")
+    _nav_tile(t1, "se", "", _ICON_SE, "Signal Explorer",
+              "See &amp; compare audio at the feature level, waveform, STFT, "
+              "MFCC, LFCC, CQCC.", "app_pages/1_Signal_Explorer.py")
+    _nav_tile(t2, "bench", "", _ICON_BENCH, "Benchmark",
+              "Classic models, deep networks, or run everything at once, ranked "
+              "by minDCF &middot; EER.", "app_pages/2_Benchmark.py")
+    _nav_tile(t3, "det", "", _ICON_DET, "Detection Analysis",
+              "ROC &amp; DET curves and the decision threshold, or drop your own "
+              "clip for a live verdict.", "app_pages/3_Detection_Analysis.py")
+    _nav_tile(t4, "vc", "", _ICON_VC, "Voice Cloner",
+              "The other side of the coin, clone your own voice from a few "
+              "seconds of audio and see how easy the attack is.",
+              "app_pages/6_Voice_Cloner.py")
 
 st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
 (m_col,) = st.columns(1)

@@ -847,15 +847,19 @@ with tab_test:
         if _has_audio and st.session_state.pop("da_auto_analyze", False):
             do_analyze = True
 
-    # Clear button
-    with _c_clr:
-        do_clear = st.button("Clear", icon=":material/close:", width="stretch",
-                             key="da_clear_btn")
-
-    if do_clear:
-        for _k in ["da_test_bytes", "da_test_name", "da_test_rows"]:
+    # Clear button. An on_click callback that also resets the upload and sample
+    # widgets: clearing only the payload keys is not enough, because on the next
+    # run the file_uploader (or the sample selectbox) still holds its value and
+    # immediately re-seeds da_test_bytes, so Clear appears to do nothing. Popping
+    # the widget keys makes them come back empty.
+    def _clear_da_test():
+        for _k in ("da_test_bytes", "da_test_name", "da_test_rows",
+                   "da_test_upload", "da_test_sample"):
             st.session_state.pop(_k, None)
-        st.rerun()
+
+    with _c_clr:
+        st.button("Clear", icon=":material/close:", width="stretch",
+                  key="da_clear_btn", on_click=_clear_da_test)
 
     # Handle uploaded file (if file_uploader was used, not the sample selector).
     if uploaded is not None:
