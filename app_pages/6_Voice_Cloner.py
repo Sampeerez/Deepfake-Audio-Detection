@@ -36,17 +36,8 @@ import streamlit as st  # noqa: E402
 from src.features import AudioLoadError  # noqa: E402
 from src.ui_helpers import get_extractor, mini_note  # noqa: E402
 
-# The cloning engine: OmniVoice, a live Hugging Face Space that accepts an
-# UPLOADED reference clip (not a URL) and clones zero-shot in 600+ languages.
-# It can be redirected via the OMNIVOICE_SPACE secret, e.g. to a Space you
-# duplicated to your own account, or to a copy running LOCALLY on your own GPU
-# ("http://127.0.0.1:7860"). gradio_client talks to any Gradio server the same
-# way, remote or local, and a local server needs no HF token or ZeroGPU quota.
 _OMNIVOICE_SPACE = "k2-fsa/OmniVoice"
 
-# A small map of common languages to ISO codes, used ONLY to label the result
-# nicely when the language is auto-detected. The picker itself offers the full
-# OmniVoice language set below.
 _LANGUAGES = {
     "Arabic": "ar", "Chinese": "zh", "Danish": "da", "Dutch": "nl",
     "English": "en", "Finnish": "fi", "French": "fr", "German": "de",
@@ -58,10 +49,6 @@ _LANGUAGES = {
 _CODE_TO_NAME = {v: k for k, v in _LANGUAGES.items()}
 _AUTO = "Auto-detect"
 
-# The complete set of languages OmniVoice supports, as the exact display names
-# its own demo uses (generated from the model's lang_map). The selectbox is
-# type-to-search, so 600+ entries stay easy: just type "Spanish". Keep
-# "Auto-detect" as the default, the model reads the language from the text.
 _ALL_LANGUAGES = [
     'Abadi', 'Abkhazian', 'Abron', 'Abua', 'Adamawa Fulfulde', 'Adyghe',
     'Afade', 'Afrikaans', 'Agwagwune', 'Aja (Benin)', 'Akebu', 'Alago',
@@ -196,11 +183,10 @@ _ALL_LANGUAGES = [
     'Zaza', 'Zulu', 'Ömie',
 ]
 
-_MAX_REF_SECONDS = 30      # cap the reference so the Space is not overloaded
-_MIN_REF_SECONDS = 3.0     # below this the clone quality drops sharply
+_MAX_REF_SECONDS = 30
+_MIN_REF_SECONDS = 3.0
 _MAX_TEXT_CHARS = 600
 
-# Discovered clone endpoint per Space id, so we call view_api at most once each.
 _ENDPOINT_CACHE = {}
 
 
@@ -302,8 +288,6 @@ def _synthesize(hf_token, ref_wav_path, text, lang_name, ref_text, instruct,
 
     audio_path, status = _parse_out(out)
     if not audio_path:
-        # The model ran but declined (bad reference, empty text, etc.); surface
-        # its own message instead of a blank failure.
         raise RuntimeError(status or "The engine returned no audio.")
     return audio_path
 
@@ -327,12 +311,9 @@ def _write_reference(blob: bytes, name) -> str:
         y, _ = librosa.load(_io.BytesIO(blob), sr=24000, mono=True)
         sr_out = 24000
     except Exception:
-        # Fallback to the shared decoder (bundled ffmpeg) for odd containers.
         y = get_extractor().load_audio_bytes(blob, name)
         sr_out = get_extractor().sample_rate
 
-    # High-pass at 70 Hz: strips handling rumble, mains hum foot and DC offset
-    # that a phone/laptop mic adds, none of which belongs to the voice print.
     try:
         from scipy.signal import butter, sosfilt
         sos = butter(4, 70, btype="highpass", fs=sr_out, output="sos")
@@ -340,8 +321,6 @@ def _write_reference(blob: bytes, name) -> str:
     except Exception:
         pass
 
-    # Trim leading/trailing silence (gently, so quiet consonants survive), but
-    # keep the raw signal if trimming would gut it.
     try:
         y_trim, _ = librosa.effects.trim(y, top_db=35)
         if y_trim.size >= sr_out * 0.5:
@@ -374,7 +353,6 @@ def _clear_reference():
         st.session_state.pop(_k, None)
 
 
-# ── Title + intro (plain, like the other pages) ─────────────────────────── #
 st.title("Voice Cloner")
 st.markdown(
     "A few seconds of real audio are **enough to clone a voice**. Record or "
@@ -390,7 +368,6 @@ st.caption(
 )
 
 
-# ── 1. The reference voice ───────────────────────────────────────────────── #
 extractor = get_extractor()
 _sr = extractor.sample_rate
 
@@ -448,7 +425,6 @@ with st.container(border=True):
                     "faithfully.", warn=True)
 
 
-# ── 2. Make the voice speak (only once a reference exists) ───────────────── #
 if _ref_signal is not None:
     with st.container(border=True):
         st.markdown('<div class="section-label" style="margin-bottom:0.9rem;">'
@@ -479,10 +455,6 @@ if _ref_signal is not None:
             placeholder="Optional delivery hint, e.g. 'speak slowly and "
                         "calmly'...")
 
-    # ── Fine-tuning: visible and self-explanatory (no hidden expander) ────── #
-    # Every OmniVoice generation knob, laid out with a one-line plain-language
-    # note under each so its use is clear at a glance. Defaults match the Space,
-    # so leaving everything untouched clones exactly like OmniVoice's own demo.
     with st.container(border=True):
         st.markdown('<div class="section-label" style="margin-bottom:0.2rem;">'
                     'Fine-tuning</div>', unsafe_allow_html=True)
@@ -500,11 +472,6 @@ if _ref_signal is not None:
             _speed = st.slider("Speed", 0.5, 1.5, 1.0, 0.05, key="vc_speed")
             st.caption("Above 1 faster, below 1 slower. Default 1.0.")
 
-        # Fixed duration, then the three cleanup toggles as one group (a medium
-        # gap sets duration apart from them). Wrapped in a keyed container so a
-        # media query can reflow it to 2x2 on the tablet band, where a docked
-        # sidebar squeezes the content while the viewport is still "wide" enough
-        # that Streamlit will not stack the columns; desktop keeps one row.
         with st.container(key="vc_ft_toggles"):
             _c4, _c5, _c6, _c7 = st.columns([1.6, 1, 1, 1], gap="medium")
             with _c4:
@@ -512,8 +479,6 @@ if _ref_signal is not None:
                     "Fixed duration (s)", min_value=0.0, value=0.0, step=0.5,
                     key="vc_duration")
                 st.caption("Force the clip length. 0 lets Speed decide.")
-            # Pad drops each toggle down to line up with the duration input
-            # field; CSS hides it once the row wraps.
             _pad = "<div class='vc-toggle-pad'></div>"
             with _c5:
                 st.markdown(_pad, unsafe_allow_html=True)
@@ -530,16 +495,10 @@ if _ref_signal is not None:
                                            key="vc_post")
                 st.caption("Remove long silences from the result.")
 
-    # Always clickable: gating "disabled" on the text made the first click
-    # only commit the text_area (it commits on blur) and a second click was
-    # needed to actually clone. We validate the text in the handler instead.
     _do_clone = st.button(
         "Clone voice", type="primary", icon=":material/graphic_eq:",
         width="stretch", key="vc_clone_btn")
 
-    # ── Synthesis ────────────────────────────────────────────────────────── #
-    # Accept the token under any of the usual names (and the env var), so a token
-    # set in Streamlit Cloud secrets is picked up regardless of exact key casing.
     _hf_token = (_secret("HF_TOKEN") or _secret("HUGGINGFACE_TOKEN")
                  or _secret("HF_API_TOKEN") or os.environ.get("HF_TOKEN"))
 
@@ -547,8 +506,6 @@ if _ref_signal is not None:
     if _do_clone and not _clean_text:
         st.warning("Type some text for the voice to say first.")
     elif _do_clone:
-        # OmniVoice takes a display name ("Spanish") or "Auto". Resolve a nice
-        # label for the result header from the one picker.
         if _lang_choice == _AUTO:
             _lang_name = "Auto"
             _lang_lbl = _CODE_TO_NAME.get(_detect_language(_clean_text),
@@ -600,7 +557,6 @@ if _ref_signal is not None:
                 pass
 
 
-# ── 3. Result: play, and send onward ─────────────────────────────────────── #
 _out_bytes = st.session_state.get("vc_out_bytes")
 if _out_bytes is not None:
     with st.container(border=True):
@@ -614,7 +570,6 @@ if _out_bytes is not None:
         with _c_se:
             if st.button("View in Signal Explorer", icon=":material/graphic_eq:",
                          width="stretch", key="vc_to_signal"):
-                # Load it into Signal Explorer's first slot as an uploaded clip.
                 st.session_state["a_upload_name"] = "cloned_voice.wav"
                 st.session_state["a_upload_bytes"] = _out_bytes
                 st.session_state["a_source"] = "Upload"
@@ -622,7 +577,6 @@ if _out_bytes is not None:
         with _c_da:
             if st.button("Test in Detection Analysis", icon=":material/radar:",
                          width="stretch", key="vc_to_detect"):
-                # Hand it to the detector page and have it analyse on arrival.
                 st.session_state["da_test_bytes"] = _out_bytes
                 st.session_state["da_test_name"] = "cloned_voice.wav"
                 st.session_state.pop("da_test_rows", None)

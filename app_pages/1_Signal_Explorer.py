@@ -38,21 +38,19 @@ from src.ui_helpers import (  # noqa: E402
 
 extractor = get_extractor()
 
-_PLACEHOLDER = -1   # sentinel index meaning "no file selected"
+_PLACEHOLDER = -1
 
-# Up to three audio sources; each is a slot with a stable key prefix.
-SLOTS           = ["a", "b", "c"]
-MAX_SLOTS       = len(SLOTS)
+SLOTS = ["a", "b", "c"]
+MAX_SLOTS = len(SLOTS)
 SLOT_DOT_COLORS = [BONAFIDE_COLOR, SPOOF_COLOR, "#AB47BC"]
 
-# view name → one-line description
 VIEW_META = {
-    "Waveform":  "Time-domain amplitude, envelope, silences, clipping",
+    "Waveform": "Time-domain amplitude, envelope, silences, clipping",
     "STFT": "Full spectrogram, synthesis artefacts across all bands",
     "CNN Input": "z-scored STFT-dB, exactly as the deep network sees it (128×300)",
-    "MFCC":      "Mel-scale cepstrum, perceptual spectral envelope",
-    "LFCC":      "Linear-frequency cepstrum, strong anti-spoofing baseline",
-    "CQCC":      "Constant-Q cepstrum, fine log-frequency resolution",
+    "MFCC": "Mel-scale cepstrum, perceptual spectral envelope",
+    "LFCC": "Linear-frequency cepstrum, strong anti-spoofing baseline",
+    "CQCC": "Constant-Q cepstrum, fine log-frequency resolution",
 }
 ALL_VIEWS = list(VIEW_META.keys())
 
@@ -63,12 +61,8 @@ _CORPUS_INFO = {
     "2021 DF": "Eval-only split · ≈459 k files · in-the-wild deepfakes",
 }
 
-# Widget keys re-asserted to survive unmount; upload payload lives in plain
-# (non-widget) keys that persist on their own.
-_PICKER_SUFFIXES   = ("_source", "_corpus", "_subset", "_class", "_file_idx")
-_GLOBAL_KEYS       = ("se_views",)
-# What to mirror into the cross-page memory dict (NOT the file_uploader widget
-# object key, only its decoded payload).
+_PICKER_SUFFIXES = ("_source", "_corpus", "_subset", "_class", "_file_idx")
+_GLOBAL_KEYS = ("se_views",)
 _REMEMBER_SUFFIXES = _PICKER_SUFFIXES + ("_upload_name", "_upload_bytes")
 
 
@@ -81,7 +75,7 @@ def _persist_state() -> None:
 
 
 def _remember() -> None:
-    """Mirror selections into a plain dict that SURVIVES page navigation.
+    """Mirror selections into a plain dict that survives page navigation.
 
     The re-assert trick only works across reruns of THIS page; when you leave
     the page the widgets unmount and Streamlit garbage-collects their keys. So
@@ -123,8 +117,6 @@ def _add_source() -> None:
         MAX_SLOTS, int(st.session_state.get("se_n", 1)) + 1)
 
 
-# Keys that make up one source slot's DATA (everything except the raw
-# file_uploader widget object, which Streamlit won't let us reassign).
 _SLOT_DATA_SUFFIXES = _PICKER_SUFFIXES + ("_upload_name", "_upload_bytes")
 
 
@@ -136,7 +128,7 @@ def _slot_data(prefix: str) -> dict:
 def _set_slot_data(prefix: str, data: dict) -> None:
     for suf in _SLOT_DATA_SUFFIXES:
         st.session_state.pop(prefix + suf, None)
-    st.session_state.pop(prefix + "_upload", None)   # forget any stale upload widget
+    st.session_state.pop(prefix + "_upload", None)
     for suf, val in data.items():
         st.session_state[prefix + suf] = val
 
@@ -155,11 +147,11 @@ def _remove_source(i: int) -> None:
     """Remove ANY source (not just the last): shift the rest left to close the gap."""
     n = int(st.session_state.get("se_n", 1))
     if n <= 1:
-        _set_slot_data(SLOTS[0], {})          # clearing the only source resets it
+        _set_slot_data(SLOTS[0], {})
         return
-    for k in range(i, n - 1):                 # shift k+1 → k
+    for k in range(i, n - 1):
         _set_slot_data(SLOTS[k], _slot_data(SLOTS[k + 1]))
-    _set_slot_data(SLOTS[n - 1], {})          # empty the now-unused last slot
+    _set_slot_data(SLOTS[n - 1], {})
     st.session_state["se_n"] = n - 1
 
 
@@ -175,9 +167,6 @@ def _source_toolbar(i: int, n: int) -> None:
                  on_click=_remove_source, args=(i,), help="Remove this source")
 
 
-# ===========================================================================
-# Audio loading helpers
-# ===========================================================================
 
 @st.cache_data(show_spinner=False, max_entries=32)
 def _cached_corpus_audio(path: str) -> np.ndarray:
@@ -200,13 +189,9 @@ def _load_corpus_signal(path: str):
 
 @st.cache_data(show_spinner=False, max_entries=16)
 def _decode_upload(name: str, blob: bytes) -> np.ndarray:
-    # Shared decoder (librosa + bundled-ffmpeg fallback) lives on the extractor.
     return get_extractor().load_audio_bytes(blob, name)
 
 
-# ===========================================================================
-# Source picker
-# ===========================================================================
 
 def _corpus_picker(key_prefix: str, n: int = 1):
     """Render corpus file picker. Returns (signal, label_str, path) or Nones.
@@ -217,14 +202,11 @@ def _corpus_picker(key_prefix: str, n: int = 1):
     corpus_key = f"{key_prefix}_corpus"
     subset_key = f"{key_prefix}_subset"
 
-    # nosearch_* container → CSS turns these into pure dropdowns (no typing).
     with st.container(key=f"nosearch_{key_prefix}_meta"):
         c_corpus, c_subset, c_class = st.columns([1.1, 1, 1.2])
         with c_corpus:
             corpus = st.selectbox("Corpus", _CORPUS_OPTIONS, key=corpus_key)
 
-        # 2019 has real splits; 2021 corpora are eval-only. Rendering a
-        # single-option selectbox keeps the layout identical across corpora.
         subset_opts = ["train", "dev", "eval"] if corpus == "2019 LA" else ["eval"]
         if st.session_state.get(subset_key) not in subset_opts:
             st.session_state[subset_key] = subset_opts[0]
@@ -250,14 +232,8 @@ def _corpus_picker(key_prefix: str, n: int = 1):
             samples = get_samples_2021_df()
 
     if samples:
-        bundle_samples(corpus, samples, subset)   # cache a few clips for the web demo
+        bundle_samples(corpus, samples, subset)
     else:
-        # No live corpus index (web demo): use the clips committed under
-        # samples/<corpus>/<subset>/ directly, a local dir scan, instant, no
-        # network. Hugging Face streaming is reserved for Detection Analysis's
-        # "Analyse on a split" tab, where downloading real eval data to SCORE
-        # models against is the actual point; Signal Explorer only needs a
-        # clip to look at, so it must never wait on a remote fetch.
         samples = bundled_samples(corpus, subset)
 
     if not samples:
@@ -267,35 +243,30 @@ def _corpus_picker(key_prefix: str, n: int = 1):
 
     want_bona = cls.startswith("bonafide")
     bonafide, spoof = split_by_label(samples)
-    pool       = bonafide if want_bona else spoof
+    pool = bonafide if want_bona else spoof
     pool_shown = pool[:500]
-    names      = [os.path.basename(p) for p in pool_shown]
+    names = [os.path.basename(p) for p in pool_shown]
     pool_total = len(pool)
 
     if not pool_shown:
         st.warning(f"No {cls.split()[0]} files in the '{subset}' subset.")
         return None, None, None
 
-    # Keep widget state valid for the current corpus/subset/class pool.
     state_key = f"{key_prefix}_file_idx"
-    stored    = st.session_state.get(state_key, _PLACEHOLDER)
+    stored = st.session_state.get(state_key, _PLACEHOLDER)
     if not isinstance(stored, int) or (stored != _PLACEHOLDER and stored >= len(pool_shown)):
         st.session_state[state_key] = _PLACEHOLDER
 
-    # Narrower file column when panels are squeezed (2 to 3 sources) so the
-    # Clear/Random buttons keep their labels instead of being clipped.
     _ratios = [1.7, 1.05, 1.2] if n >= 3 else \
               ([2.4, 1.05, 1.1] if n == 2 else [3.0, 1.05, 1.05])
     col_file, col_clear, col_rand = st.columns(_ratios)
     with col_clear:
         st.markdown('<div style="height:1.75rem;"></div>', unsafe_allow_html=True)
-        # Callback runs before the rerun → clears the selectbox cleanly.
         st.button("Clear", key=f"{key_prefix}_clearsrc", icon=":material/close:",
                   help="Clear the selected audio file", width="stretch",
                   on_click=lambda k=state_key: st.session_state.update({k: _PLACEHOLDER}))
     with col_rand:
         st.markdown('<div style="height:1.75rem;"></div>', unsafe_allow_html=True)
-        # Setting state BEFORE the selectbox below renders, no extra rerun.
         if st.button("Random", key=f"{key_prefix}_rand", icon=":material/casino:",
                      help="Pick a random sample", width="stretch"):
             st.session_state[state_key] = random.randint(0, len(pool_shown) - 1)
@@ -331,11 +302,6 @@ def _upload_picker(key_prefix: str):
     upload_key = f"{key_prefix}_upload"
 
     def _clear_upload():
-        # Clearing must remove the payload from THREE places, or it comes back:
-        #   1) the plain session keys (the decoded file),
-        #   2) the file_uploader widget itself (else it re-populates 1 next run),
-        #   3) the cross-page memory dict `_se_memory` (else _restore() at the top
-        #      of the next run re-seeds 1 from it, this was why Clear "did nothing").
         st.session_state.pop(name_key, None)
         st.session_state.pop(bytes_key, None)
         st.session_state.pop(upload_key, None)
@@ -349,7 +315,7 @@ def _upload_picker(key_prefix: str):
         type=["flac", "wav", "mp3", "ogg", "m4a"], key=upload_key,
     )
     if uploaded is not None:
-        st.session_state[name_key]  = uploaded.name
+        st.session_state[name_key] = uploaded.name
         st.session_state[bytes_key] = uploaded.getvalue()
 
     name = st.session_state.get(name_key)
@@ -357,15 +323,10 @@ def _upload_picker(key_prefix: str):
     if blob is None:
         return None, None, None
 
-    # Confirm the active file straight away (right after the upload AND after
-    # navigating back, when the native uploader chip is gone). Caption on the
-    # left, a normally-sized Clear button on the right (a columns layout is robust,
-    # the old flex hack clipped the button against the panel's rounded corner).
     _cap_col, _clr_col = st.columns([4, 1], vertical_alignment="center")
     with _cap_col:
         st.caption(f"Using uploaded file: **{name}**")
     with _clr_col:
-        # Clear resets both the stored payload and the uploader widget (callback).
         st.button("Clear", key=f"{key_prefix}_upload_clear",
                   icon=":material/close:", help="Forget this uploaded file",
                   on_click=_clear_upload, width="stretch")
@@ -383,9 +344,6 @@ def _audio_picker(key_prefix: str, title_html: str, idx: int = 0, n: int = 1):
     Returns (signal, label_str, source_id) or Nones.
     """
     with st.container(border=True, key=f"srcbox_{key_prefix}"):
-        # Title on the left, the ◀ ▶ ✕ icons on the SAME row to the right (only
-        # when there is more than one source). Sharing the row avoids the empty
-        # gap a separate top element would leave above the title.
         if n > 1:
             _t, _b = st.columns([2.4, 1], vertical_alignment="center")
             _t.markdown(f'<div class="section-label">{title_html}</div>',
@@ -403,16 +361,13 @@ def _audio_picker(key_prefix: str, title_html: str, idx: int = 0, n: int = 1):
             default=_default(f"{key_prefix}_source", "Corpus"),
             label_visibility="collapsed",
         )
-        if source is None:          # segmented control allows deselection
+        if source is None:
             source = "Corpus"
         if source == "Upload":
             return _upload_picker(key_prefix)
         return _corpus_picker(key_prefix, n)
 
 
-# ===========================================================================
-# Rendering helpers
-# ===========================================================================
 
 @st.cache_data(show_spinner=False, max_entries=96)
 def _view_png(view: str, source_id: str, label: str, y: np.ndarray,
@@ -424,13 +379,13 @@ def _view_png(view: str, source_id: str, label: str, y: np.ndarray,
     would return the previously-rendered PNG in the old colours."""
     ext = get_extractor()
     builders = {
-        "Waveform":   lambda: fig_waveform(y, ext.sample_rate,
+        "Waveform": lambda: fig_waveform(y, ext.sample_rate,
                                            title="Waveform", label=label),
-        "STFT":  lambda: fig_stft_db(y, ext),
-        "CNN Input":  lambda: fig_cnn_input(y, ext),
-        "MFCC":       lambda: fig_mfcc(y, ext),
-        "LFCC":       lambda: fig_lfcc(y, ext),
-        "CQCC":       lambda: fig_cqcc(y, ext),
+        "STFT": lambda: fig_stft_db(y, ext),
+        "CNN Input": lambda: fig_cnn_input(y, ext),
+        "MFCC": lambda: fig_mfcc(y, ext),
+        "LFCC": lambda: fig_lfcc(y, ext),
+        "CQCC": lambda: fig_cqcc(y, ext),
     }
     fig = builders[view]()
     buf = io.BytesIO()
@@ -456,11 +411,11 @@ def _show_signal_stats(y: np.ndarray, n_metrics: int = 5) -> None:
     """
     stats = compute_signal_stats(y, extractor.sample_rate)
     items = [
-        ("Duration",   f"{stats['duration_s']:.2f} s"),
+        ("Duration", f"{stats['duration_s']:.2f} s"),
         ("RMS (dBFS)", f"{stats['rms_db']:.1f} dB"),
-        ("Centroid",   f"{stats['centroid_hz']:.0f} Hz"),
-        ("ZCR",        f"{stats['zcr']:.4f}"),
-        ("RMS",        f"{stats['rms']:.4f}"),
+        ("Centroid", f"{stats['centroid_hz']:.0f} Hz"),
+        ("ZCR", f"{stats['zcr']:.4f}"),
+        ("RMS", f"{stats['rms']:.4f}"),
     ][:max(1, n_metrics)]
     cols = st.columns(len(items))
     for col, (label, value) in zip(cols, items):
@@ -490,11 +445,8 @@ def _views_picker() -> list:
     return views or []
 
 
-# ===========================================================================
-# Page layout
-# ===========================================================================
 
-_restore()        # reseed from cross-page memory (after returning to the page)
+_restore()
 _persist_state()
 
 st.title("Signal Explorer")
@@ -527,12 +479,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Equal-height source panels: stretch the flex column chain so the short Upload
-# slot fills to the tallest Corpus slot. align-items:stretch on the horizontal
-# block propagates the row height into each column; the chain of flex containers
-# below carries it all the way down to srcbox_. The JS iframe below also runs
-# setHeight imperatively on every render to handle cases where CSS alone isn't
-# enough (e.g. first-render timing in Streamlit).
 st.markdown("""
 <style>
 [class*="st-key-srccols"] [data-testid="stHorizontalBlock"] {
@@ -557,7 +503,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Source panel(s) ──────────────────────────────────────────────────────── #
 sigs, lbls, srcs = [], [], []
 with st.container(key="srccols"):
     cfg_cols = st.columns(n_sources, gap="medium")
@@ -574,9 +519,6 @@ with st.container(key="srccols"):
             lbls.append(lbl)
             srcs.append(src)
 
-# ── JS height equalizer, runs on every render so the Upload panel matches the
-#    Corpus panel height immediately without requiring a page navigation.
-#    Uses setTimeout chains (not setInterval) to avoid accumulation across reruns.
 with st.container(key="seqh_host"):
     st.iframe(
         """<script>
@@ -598,7 +540,6 @@ with st.container(key="seqh_host"):
         height=1,
     )
 
-# ── Add source, removal & reordering now live on each source's toolbar ───── #
 st.button(
     "Add audio source", icon=":material/add:", type="primary",
     width="stretch", on_click=_add_source, disabled=n_sources >= MAX_SLOTS,
@@ -609,7 +550,6 @@ st.button(
 views = _views_picker()
 st.divider()
 
-# ── Results ──────────────────────────────────────────────────────────────── #
 if not any(s is not None for s in sigs):
     show_empty_state(
         "No audio selected",
@@ -635,14 +575,13 @@ else:
     if not views:
         st.info("Select one or more representations above to visualise the signals.")
 
-# ── Sidebar: live session summary (rendered last, when selections exist) ── #
 
 
 def _slot_row(label: str, source_id, cls) -> tuple:
     if source_id is None:
         return (label, "—")
     name = os.path.basename(str(source_id))
-    tag  = "spoof" if cls and "spoof" in str(cls) else \
+    tag = "spoof" if cls and "spoof" in str(cls) else \
            "bonafide" if cls and "bonafide" in str(cls) else "upload"
     return (label, f"{name} · {tag}")
 
@@ -655,5 +594,4 @@ with st.sidebar:
     rows.append(("Views", ", ".join(views) if views else "—"))
     sidebar_panel("Session", rows)
 
-# Persist selections so they survive leaving and re-entering the page.
 _remember()

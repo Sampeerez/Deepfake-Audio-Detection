@@ -39,10 +39,10 @@ def get_extractor() -> FeatureExtractor:
 def get_samples(subset: str) -> List[Tuple[str, int]]:
     if _forced_demo():
         return []
-    config    = load_config()
-    root_dir  = config["dataset"]["path_la2019"]
+    config = load_config()
+    root_dir = config["dataset"]["path_la2019"]
     proto_dir = os.path.join(root_dir, config["dataset"]["protocols_dir"])
-    proto     = config["dataset"]["protocols"].get(subset)
+    proto = config["dataset"]["protocols"].get(subset)
     if not proto:
         return []
     try:
@@ -57,9 +57,9 @@ def get_samples_2021_la() -> List[Tuple[str, int]]:
     if _forced_demo():
         return []
     config = load_config()
-    cfg    = config.get("dataset_2021", {}).get("la", {})
+    cfg = config.get("dataset_2021", {}).get("la", {})
     eval_dir = cfg.get("eval_dir", "")
-    keys     = cfg.get("keys", "")
+    keys = cfg.get("keys", "")
     try:
         return parse_protocol_2021(keys, [eval_dir])
     except (FileNotFoundError, ValueError) as exc:
@@ -72,10 +72,10 @@ def get_samples_2021_df() -> List[Tuple[str, int]]:
     """Load and cache the full ASVspoof 2021 DF eval split (all 3 partitions)."""
     if _forced_demo():
         return []
-    config    = load_config()
-    cfg       = config.get("dataset_2021", {}).get("df", {})
+    config = load_config()
+    cfg = config.get("dataset_2021", {}).get("df", {})
     eval_dirs = cfg.get("eval_dirs", [])
-    keys      = cfg.get("keys", "")
+    keys = cfg.get("keys", "")
     try:
         return parse_protocol_2021(keys, eval_dirs)
     except (FileNotFoundError, ValueError) as exc:
@@ -92,13 +92,13 @@ def corpus_available_2021_df() -> bool:
 
 
 def corpus_configured_2021_la() -> bool:
-    """Lightweight check (single stat call), does NOT load audio index."""
+    """Lightweight check (single stat call), does not load audio index."""
     cfg = load_config().get("dataset_2021", {}).get("la", {})
     return os.path.isfile(cfg.get("keys", ""))
 
 
 def corpus_configured_2021_df() -> bool:
-    """Lightweight check (single stat call), does NOT load audio index."""
+    """Lightweight check (single stat call), does not load audio index."""
     cfg = load_config().get("dataset_2021", {}).get("df", {})
     return os.path.isfile(cfg.get("keys", ""))
 
@@ -107,38 +107,21 @@ def split_by_label(
     samples: List[Tuple[str, int]],
 ) -> Tuple[List[str], List[str]]:
     bonafide = [p for p, e in samples if e == LABEL_BONAFIDE]
-    spoof    = [p for p, e in samples if e == LABEL_SPOOF]
+    spoof = [p for p, e in samples if e == LABEL_SPOOF]
     return bonafide, spoof
 
 
 def corpus_available() -> bool:
     return len(get_samples("train")) > 0
 
-# ===========================================================================
-# Public / CPU demo mode + pretrained model registry (Streamlit Cloud)
-# ===========================================================================
-# On the free public cloud there is no GPU and the multi-GB ASVspoof corpus is
-# not on disk, so training / full-benchmark features cannot run. Instead the whole
-# pretrained zoo, the two CNNs and the classic LR / SVM / XGBoost over every DSP
-# front-end, is COMMITTED to the repo under models/ (the weights are small, a few
-# MB total) and loaded directly from disk on CPU. Only the multi-GB DATASETS still
-# stream from Hugging Face (HF_EVAL_DATASETS); the model weights do NOT.
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Pretrained weights live HERE, committed to the repo (the trainer also writes a
-# legacy single checkpoint at the repo root, used by src/pipeline.py).
-MODELS_DIR      = os.path.join(_REPO_ROOT, "models")
+MODELS_DIR = os.path.join(_REPO_ROOT, "models")
 CHECKPOINT_PATH = os.path.join(_REPO_ROOT, "asvspoof_model_checkpoint.pth")
 
-# ── Weight source ───────────────────────────────────────────────────────────
-# Models are loaded straight from the committed models/ folder, no runtime
-# download. Leave HF_BASE_URL EMPTY to keep it that way. Only set it to a Hugging
-# Face "resolve/main" folder if you ever prefer to stream the weights instead of
-# committing them (then each model's URL is derived from this one base). The
-# DATASETS are unrelated and always come from HF (see HF_EVAL_DATASETS).
 HF_BASE_URL = ""
-MODEL_URL   = HF_BASE_URL
+MODEL_URL = HF_BASE_URL
 
 
 def _hf_url(file: str) -> str:
@@ -149,30 +132,20 @@ def _hf_url(file: str) -> str:
     return f"{base}/{file}"
 
 
-# Build the registry of every servable detector. Fields:
-#   kind  : "cnn" (torch .pth) or "classic" (joblib-dumped sklearn/xgb estimator)
-#   clf   : classifier name (classic only) for get_classic_model / row matching
-#   feat  : FeatureExtractor option key for classic models (CNNs read the STFT
-#           spectrogram directly, so feat is None for them)
-#   front : human-readable front-end, for the comparison table
 _CLF_DEFS = [
-    ("lr",  "logistic_regression", "Logistic Regression"),
-    ("svm", "svm_lineal",          "SVM (RBF)"),
-    ("xgb", "xgboost",             "XGBoost"),
+    ("lr", "logistic_regression", "Logistic Regression"),
+    ("svm", "svm_lineal", "SVM (RBF)"),
+    ("xgb", "xgboost", "XGBoost"),
 ]
-# (key suffix, FeatureExtractor option, label), every DSP front-end.
 _FEAT_DEFS = [
-    ("rms",  "1", "RMS"),
+    ("rms", "1", "RMS"),
     ("mfcc", "2", "MFCC"),
     ("lfcc", "3", "LFCC"),
-    ("dwt",  "4", "DWT"),
+    ("dwt", "4", "DWT"),
     ("cqcc", "6", "CQCC"),
 ]
 
 PRETRAINED_REGISTRY: List[Dict] = [
-    # Deep spectrogram models. "arch" is the canonical key consumed by
-    # src.models.model_for_arch (single source of truth for class dispatch);
-    # it is also what gets stored in each checkpoint's "arch" field.
     {"key": "cnn5", "name": "5-Block CNN", "kind": "cnn", "arch": "cnn",
      "clf": None, "feat": None, "front": "STFT-dB spectrogram",
      "file": "cnn5.pth", "url": _hf_url("cnn5.pth")},
@@ -188,12 +161,6 @@ PRETRAINED_REGISTRY: List[Dict] = [
     {"key": "crnn", "name": "CRNN", "kind": "cnn", "arch": "crnn",
      "clf": None, "feat": None, "front": "STFT-dB spectrogram",
      "file": "crnn.pth", "url": _hf_url("crnn.pth")},
-    # Self-supervised raw-waveform detector (fine-tuned wav2vec 2.0 base + linear
-    # head). "raw" kind: no DSP front-end, no spectrogram, it eats the 16 kHz
-    # waveform directly. Inference-only (it is evaluated, never trained, by the
-    # Full-comparison sweep). On the web demo it is too large to commit to GitHub
-    # (≈469 MB), so it is fetched from a PUBLIC Hugging Face model repo on demand
-    # (hf_repo / hf_file), no local heavy file, no HF_BASE_URL needed.
     {"key": "wav2vec2", "name": "wav2vec 2.0 (SSL)", "kind": "raw", "clf": None,
      "feat": None, "front": "Self-supervised raw-waveform",
      "file": "wav2vec2.pth", "url": _hf_url("wav2vec2.pth"),
@@ -203,14 +170,14 @@ for _ck, _cname, _clabel in _CLF_DEFS:
     for _fk, _fopt, _flabel in _FEAT_DEFS:
         _file = f"{_ck}_{_fk}.joblib"
         PRETRAINED_REGISTRY.append({
-            "key":   f"{_ck}_{_fk}",
-            "name":  f"{_clabel} · {_flabel}",
-            "kind":  "classic",
-            "clf":   _cname,
-            "feat":  _fopt,
+            "key": f"{_ck}_{_fk}",
+            "name": f"{_clabel} · {_flabel}",
+            "kind": "classic",
+            "clf": _cname,
+            "feat": _fopt,
             "front": _flabel,
-            "file":  _file,
-            "url":   _hf_url(_file),
+            "file": _file,
+            "url": _hf_url(_file),
         })
 
 
@@ -222,7 +189,7 @@ def running_on_gpu() -> bool:
 
 
 def demo_mode() -> bool:
-    """Public-demo mode: the heavy ASVspoof corpus is NOT on disk (the case on
+    """Public-demo mode: the heavy ASVspoof corpus is not on disk (the case on
     Streamlit Community Cloud). Corpus-dependent sections degrade to notices;
     the pretrained multi-model file analysis remains fully usable.
 
@@ -248,7 +215,7 @@ def _hf_cached(repo: str, fname: str) -> bool:
         from huggingface_hub import hf_hub_download
         hf_hub_download(repo_id=repo, filename=fname, local_files_only=True)
         return True
-    except Exception:                       # not cached / hub unavailable
+    except Exception:
         return False
 
 
@@ -280,24 +247,14 @@ def model_downloaded(entry: Dict) -> bool:
 
 
 def models_trained() -> bool:
-    """True once EVERY registry model has been trained and saved to disk, used
+    """True once every registry model has been trained and saved to disk, used
     to switch the Benchmark from 'train everything' to 'evaluate the saved zoo'."""
     return bool(PRETRAINED_REGISTRY) and all(
         model_downloaded(e) for e in PRETRAINED_REGISTRY)
 
-# ── Bundled sample clips (so Signal Explorer always has audio to show) ─────── #
-# A handful of real clips per corpus/subset are committed under
-# samples/<key>/<subset>/<bonafide|spoof>/ so the explorer works even without
-# the multi-GB datasets (e.g. on the cloud). For whatever folder is still empty
-# they are auto-populated from the live corpus the first time it is browsed
-# locally. The label comes from the CONTAINING FOLDER (bonafide/ vs spoof/), and
-# each clip keeps its real ASVspoof utterance name (e.g. LA_E_2744897.flac) so
-# the picker shows only that. A legacy flat layout (label encoded in a
-# spoof__*/bonafide__* filename prefix) is still read as a fallback, that is how
-# the on-demand Hugging Face eval cache under samples/_hf_cache/ is stored.
-SAMPLES_DIR  = os.path.join(_REPO_ROOT, "samples")
+SAMPLES_DIR = os.path.join(_REPO_ROOT, "samples")
 _SAMPLE_KEYS = {"2019 LA": "2019_la", "2021 LA": "2021_la", "2021 DF": "2021_df"}
-_LABEL_DIRS  = (("bonafide", LABEL_BONAFIDE), ("spoof", LABEL_SPOOF))
+_LABEL_DIRS = (("bonafide", LABEL_BONAFIDE), ("spoof", LABEL_SPOOF))
 
 
 def _sample_dir(corpus: str, subset: Optional[str] = None) -> str:
@@ -357,7 +314,7 @@ def bundle_samples(corpus: str, samples: List[Tuple[str, int]],
     d = _sample_dir(corpus, subset)
     if _scan_clips(d):
         return
-    bona  = [p for p, e in samples if e == LABEL_BONAFIDE][:n_per_class]
+    bona = [p for p, e in samples if e == LABEL_BONAFIDE][:n_per_class]
     spoof = [p for p, e in samples if e == LABEL_SPOOF][:n_per_class]
     if not bona and not spoof:
         return
@@ -370,13 +327,6 @@ def bundle_samples(corpus: str, samples: List[Tuple[str, int]],
             except OSError:
                 pass
 
-# ── Eval clips streamed from public Hugging Face datasets ──────────────────── #
-# On the corpus-less web demo the EVAL splits are far too large to commit, so we
-# pull a small, balanced sample on demand from public HF datasets (the dev/train
-# splits keep using the committed samples/ tree above). We use the lightweight
-# datasets-server /rows API, no `datasets` dependency and no multi-GB parquet
-# download, read each row's label + presigned audio URL, and cache a capped
-# number of clips locally so browsing and scoring reuse them.
 HF_EVAL_DATASETS: Dict[str, Dict[str, str]] = {
     "2019 LA": {"id": "Bisher/ASVspoof_2019_LA",
                 "config": "default", "split": "test", "label_col": "key"},
@@ -385,10 +335,10 @@ HF_EVAL_DATASETS: Dict[str, Dict[str, str]] = {
     "2021 DF": {"id": "SpeechAntiSpoofingBenchmarks/ASVspoof2021_DF",
                 "config": "default", "split": "test", "label_col": "label"},
 }
-HF_EVAL_PER_CLASS = 50          # clips PER CLASS to cache (web-demo friendly default)
-HF_PAGE_CEILING   = 80          # max /rows pages (×100 rows) scanned per request
-_HF_CACHE_DIR     = os.path.join(SAMPLES_DIR, "_hf_cache")
-_DS_ROWS_URL      = "https://datasets-server.huggingface.co/rows"
+HF_EVAL_PER_CLASS = 50
+HF_PAGE_CEILING = 80
+_HF_CACHE_DIR = os.path.join(SAMPLES_DIR, "_hf_cache")
+_DS_ROWS_URL = "https://datasets-server.huggingface.co/rows"
 
 
 def _hf_headers() -> Dict:
@@ -462,14 +412,12 @@ def _hf_eval_impl(corpus: str, n_per_class: int) -> List[Tuple[str, int]]:
 
     cache_dir = os.path.join(_HF_CACHE_DIR, _SAMPLE_KEYS.get(corpus, corpus), "eval")
     cached = _scan_clips(cache_dir)
-    if len(cached) >= 2 * n_per_class:                   # already populated → reuse
+    if len(cached) >= 2 * n_per_class:
         return cached
 
     base = (f"{_DS_ROWS_URL}?dataset={quote(spec['id'], safe='')}"
             f"&config={spec['config']}&split={spec['split']}")
 
-    # Read rows across random windows: ASVspoof is ~90% spoof, so sequential
-    # pages can be all-spoof. Random offsets give both classes quickly.
     collected: Dict[int, List[str]] = {LABEL_BONAFIDE: [], LABEL_SPOOF: []}
     try:
         first = _hf_get_json(base + "&offset=0&length=100")
@@ -482,14 +430,14 @@ def _hf_eval_impl(corpus: str, n_per_class: int) -> List[Tuple[str, int]]:
 
     def _ingest(payload):
         for row in payload.get("rows", []):
-            r   = row.get("row", {})
+            r = row.get("row", {})
             lab = r.get(spec["label_col"])
             if lab not in (LABEL_BONAFIDE, LABEL_SPOOF):
                 continue
             if len(collected[lab]) >= n_per_class:
                 continue
             audio = r.get("audio")
-            src   = (audio[0].get("src") if isinstance(audio, list) and audio
+            src = (audio[0].get("src") if isinstance(audio, list) and audio
                      else None)
             if src:
                 collected[lab].append(src)
@@ -504,9 +452,6 @@ def _hf_eval_impl(corpus: str, n_per_class: int) -> List[Tuple[str, int]]:
     for lab, srcs in collected.items():
         tag = "bonafide" if lab == LABEL_BONAFIDE else "spoof"
         for i, src in enumerate(srcs):
-            # Embed the corpus in the filename: the DSP/spectrogram caches key on
-            # the file stem, so a bare bonafide__0.flac would collide across
-            # corpora. Keep the label prefix so _label_for() still works.
             fname = f"{tag}__{ckey}__{i}.flac"
             tasks.append((src, os.path.join(cache_dir, fname), lab))
 
@@ -528,13 +473,7 @@ def hf_eval_samples(corpus: str,
     return _hf_eval_impl(corpus, n_per_class)
 
 
-# ── Browseable HF index (list MANY clips, download only the chosen one) ─────── #
-# hf_eval_samples downloads its whole balanced set up front, fine for scoring,
-# but it means the Signal Explorer only ever shows ~50 clips per class and pays
-# the download cost immediately. For browsing we instead pull a large INDEX of
-# rows (label + presigned audio URL, NO audio) and fetch a single clip lazily
-# when the user actually selects it. Much faster, far more files to pick from.
-HF_BROWSE_PER_CLASS = 500        # how many clips per class to list for browsing
+HF_BROWSE_PER_CLASS = 500
 
 
 def _hf_listing_impl(corpus: str, max_per_class: int):
@@ -561,25 +500,21 @@ def _hf_listing_impl(corpus: str, max_per_class: int):
 
     def _ingest(payload):
         for row in payload.get("rows", []):
-            r   = row.get("row", {})
+            r = row.get("row", {})
             lab = r.get(spec["label_col"])
             if lab not in (LABEL_BONAFIDE, LABEL_SPOOF):
                 continue
             if len(collected[lab]) >= max_per_class:
                 continue
             audio = r.get("audio")
-            src   = (audio[0].get("src") if isinstance(audio, list) and audio
+            src = (audio[0].get("src") if isinstance(audio, list) and audio
                      else None)
             if not src or src in seen:
                 continue
             seen.add(src)
-            # The presigned audio URLs all share the same basename (e.g.
-            # "audio.wav"), so key the display name on the absolute row index:
-            # this keeps every listed clip distinct (and its download path
-            # unique in hf_fetch_clip) instead of collapsing to one file.
-            ridx  = row.get("row_idx")
-            tail  = os.path.basename(src.split("?")[0]) or "clip"
-            stem  = f"{ridx}__{tail}" if ridx is not None else f"{len(seen)}__{tail}"
+            ridx = row.get("row_idx")
+            tail = os.path.basename(src.split("?")[0]) or "clip"
+            stem = f"{ridx}__{tail}" if ridx is not None else f"{len(seen)}__{tail}"
             collected[lab].append((lab, src, stem))
 
     _ingest(first)
@@ -603,16 +538,13 @@ def hf_fetch_clip(corpus: str, src: str, fname: str, label: int) -> Optional[str
     """Download ONE listed clip into the browse cache and return its local path
     (or None on failure). Idempotent: reuses the file if already fetched."""
     import hashlib
-    ckey      = _SAMPLE_KEYS.get(corpus, corpus)
+    ckey = _SAMPLE_KEYS.get(corpus, corpus)
     cache_dir = os.path.join(_HF_CACHE_DIR, ckey, "browse")
     os.makedirs(cache_dir, exist_ok=True)
-    tag  = "bonafide" if label == LABEL_BONAFIDE else "spoof"
-    # Key the cached filename on a hash of the full presigned URL: the URL
-    # basenames are all identical, so hashing the unique URL is what guarantees
-    # distinct clips never overwrite/alias one another on disk.
+    tag = "bonafide" if label == LABEL_BONAFIDE else "spoof"
     digest = hashlib.sha1(src.encode("utf-8")).hexdigest()[:16]
-    ext    = ".wav" if src.split("?")[0].lower().endswith(".wav") else ".flac"
-    dst    = os.path.join(cache_dir, f"{tag}__{ckey}__{digest}{ext}")
+    ext = ".wav" if src.split("?")[0].lower().endswith(".wav") else ".flac"
+    dst = os.path.join(cache_dir, f"{tag}__{ckey}__{digest}{ext}")
     res = _hf_download((src, dst, label))
     return res[0] if res else None
 
@@ -659,9 +591,6 @@ def load_pretrained_classic(file: str, url: str, name: str):
     path = os.path.join(MODELS_DIR, file)
     _download_if_missing(url, path, name)
     with st.spinner(f"Consulting the Jedi Archives, loading {name}…"):
-        # The committed XGBoost .joblib were pickled with an older xgboost; the
-        # newer runtime prints a cosmetic "save_model from that version" warning
-        # on unpickle. The model loads and scores identically, mute the noise.
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=".*save_model.*")
             return joblib.load(path)
@@ -695,7 +624,7 @@ def load_pretrained_raw(file: str, url: str, name: str,
                             "from Hugging Face (first run only)…"):
                 path = hf_hub_download(repo_id=hf_repo, filename=hf_file)
         else:
-            _download_if_missing(url, path, name)     # raises the helpful error
+            _download_if_missing(url, path, name)
     with st.spinner(f"Consulting the Jedi Archives, loading {name} on CPU…"):
         ckpt = torch.load(path, map_location=torch.device("cpu"))
         state = ckpt.get("model_state_dict", ckpt)

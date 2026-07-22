@@ -86,9 +86,6 @@ st.caption(
     "Results accumulate across runs so you can compare configurations."
 )
 
-# On the corpus-less web demo we DON'T bail out anymore: the page renders exactly
-# like local, but training is disabled, you can still evaluate every pretrained
-# model on eval clips streamed from Hugging Face (see eval_corpora_for).
 _web = not corpus_available()
 if _web:
     demo_corpus_notice(
@@ -99,7 +96,7 @@ if _web:
         "Hugging Face, the same view you get locally.",
     )
 
-config    = load_config()
+config = load_config()
 extractor = get_extractor()
 
 FEATURE_LABELS = FeatureExtractor.OPTION_NAMES
@@ -128,14 +125,11 @@ MODEL_BLURBS = {
 
 SPLIT_DEV, SPLIT_EVAL, SPLIT_BOTH = "Dev", "Eval", "Dev + Eval"
 SPLIT_HELP = {
-    SPLIT_DEV:  "Score on the dev split, same attacks (A01-A06) as training.",
+    SPLIT_DEV: "Score on the dev split, same attacks (A01-A06) as training.",
     SPLIT_EVAL: "Score on the eval split, 13 unseen attacks (A07-A19): the generalisation test.",
     SPLIT_BOTH: "Score on dev and eval, adds an extra eval row per model.",
 }
 
-# Right column tweaks: the Evaluate/Score box fills the full column width (its
-# two groups pushed to the edges), and the tall Run-experiment button makes the
-# right rows line up with Classifier / Advanced on the left.
 st.markdown("""
 <style>
 [class*="st-key-evalgrp_exp"] { width: 100% !important; justify-content: space-between; }
@@ -144,17 +138,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Configuration panel (main area) ──────────────────────────────────────── #
 with st.container(border=True):
     st.markdown('<div class="section-label">Experiment configuration</div>',
                 unsafe_allow_html=True)
 
     _is_busy = op_in_progress()
 
-    # Row 1: Feature+Classifier | Train on / Evaluate on / Score on controls
     _r1l, _r1r = st.columns(2, gap="large")
     with _r1l:
-        # nosearch_* container → CSS blocks type-to-filter (pure dropdown).
         _fc, _mc = st.columns(2, gap="small")
         with _fc:
             with st.container(key="nosearch_feature"):
@@ -177,7 +168,6 @@ with st.container(border=True):
         corpus, score_split = eval_score_controls("exp", train_label=_train_lbl)
         _busy = op_busy_notice()
 
-    # Row 2: Advanced + Clear | Train models + Evaluate (same row → natural alignment)
     _r2l, _r2r = st.columns(2, gap="large")
     with _r2l:
         with st.container(key="advbtn_exp"):
@@ -199,7 +189,6 @@ with st.container(border=True):
                               width="stretch", disabled=_is_busy)
 
     with _r2r:
-        # Check if evaluation is possible: session-fitted models OR HF pretrained.
         _needed = list(MODEL_OPTIONS[model_option])
         _fitted_info = st.session_state.get("fitted_classic_models", {})
         _fitted_match = (
@@ -232,12 +221,10 @@ if clear_btn:
     st.session_state.pop("fitted_classic_models", None)
     st.rerun()
 
-# The 3-step pipeline overview lives on the Benchmark home page now; here we
-# only keep the config summaries used by the run caption and the sidebar.
 _subset_txt = "full dataset" if subset == 0 else f"{int(subset):,} files / subset"
 _split_base = {SPLIT_DEV: "dev", SPLIT_EVAL: "eval",
                SPLIT_BOTH: "dev + eval"}[score_split]
-_split_txt  = f"{_split_base} · {corpus}"
+_split_txt = f"{_split_base} · {corpus}"
 
 COL_SPLIT = "Split"
 
@@ -248,19 +235,16 @@ def _tag_rows(results: list, base_split: str) -> list:
     for row in results:
         row = dict(row)
         if "[EVAL]" in row.get(COL_MODEL, ""):
-            row[COL_MODEL]    = row[COL_MODEL].replace("[EVAL]", "").strip()
+            row[COL_MODEL] = row[COL_MODEL].replace("[EVAL]", "").strip()
             row[COL_FEATURES] = row[COL_FEATURES].replace("[EVAL]", "").strip()
             _c = str(row.get("Corpus", "")).strip()
-            row[COL_SPLIT]    = f"eval · {_c}" if _c else "eval"
+            row[COL_SPLIT] = f"eval · {_c}" if _c else "eval"
         else:
             row[COL_SPLIT] = base_split
         tagged.append(row)
     return tagged
 
 
-# ── Execution ────────────────────────────────────────────────────────────── #
-# Run experiment: train classifiers + score on 2019 LA dev (always).
-# A run is fully determined by (extractor, classifier, subset, seed).
 _run_sig = (feature_option, model_option, int(subset), int(seed))
 if run_btn and _run_sig in st.session_state.get("run_signatures", set()):
     st.info(
@@ -273,13 +257,13 @@ if run_btn and _run_sig in st.session_state.get("run_signatures", set()):
     run_btn = False
 
 if run_btn:
-    train_samples   = get_samples("train")
+    train_samples = get_samples("train")
     primary_samples, primary_name = get_samples("dev"), "dev"
     if subset > 0:
-        train_samples   = stratified_subsample(train_samples,   int(subset), int(seed))
+        train_samples = stratified_subsample(train_samples, int(subset), int(seed))
         primary_samples = stratified_subsample(primary_samples, int(subset), int(seed) + 1)
 
-    log      = io.StringIO()
+    log = io.StringIO()
     progress = st.progress(0.0, text="Extracting train features...")
     _fitted: dict = {}
 
@@ -299,7 +283,7 @@ if run_btn:
                 MODEL_OPTIONS[model_option],
                 x_train, y_train, x_primary, y_primary,
                 FEATURE_LABELS[feature_option], ms_dsp, int(seed),
-                eval_sets=[],           # no eval corpus here; use Evaluate button
+                eval_sets=[],
                 model_sink=lambda n, m: _fitted.update({n: m}),
             )
         progress.progress(1.0)
@@ -312,15 +296,13 @@ if run_btn:
     results = _tag_rows(results, primary_name)
     st.session_state.setdefault("experiment_rows", []).extend(results)
     st.session_state.setdefault("run_signatures", set()).add(_run_sig)
-    # Store fitted models so the Evaluate button can score them on eval corpora.
     st.session_state["fitted_classic_models"] = {
-        "models":       _fitted,
-        "feature":      feature_option,
+        "models": _fitted,
+        "feature": feature_option,
         "model_option": model_option,
     }
 
 if eval_btn:
-    # Resolve models: prefer session-fitted, fall back to HF pretrained.
     _fitted_info = st.session_state.get("fitted_classic_models", {})
     _fitted_match = (
         _fitted_info.get("feature") == feature_option
@@ -345,9 +327,7 @@ if eval_btn:
             st.error("No models available for evaluation.")
             st.stop()
 
-    # Honour the "Score on" choice (Dev / Eval / Dev + Eval), previously the
-    # Evaluate button always scored the eval corpus regardless of the selector.
-    _targets = []   # (kind, label, samples)
+    _targets = []
     if score_split in (SPLIT_DEV, SPLIT_BOTH):
         _dev = get_samples("dev")
         if _dev:
@@ -380,11 +360,9 @@ if eval_btn:
                     _models_to_eval, _x_ev, _y_ev,
                     FEATURE_LABELS[feature_option], corpus_label=_lbl,
                 )
-                # score_fitted_classic always stamps [EVAL]; for a DEV target strip
-                # it so _tag_rows files the row under the dev split, not eval.
                 if _kind == "dev":
                     for _r in _scored:
-                        _r[COL_MODEL]    = _r.get(COL_MODEL, "").replace("[EVAL]", "").strip()
+                        _r[COL_MODEL] = _r.get(COL_MODEL, "").replace("[EVAL]", "").strip()
                         _r[COL_FEATURES] = _r.get(COL_FEATURES, "").replace("[EVAL]", "").strip()
                         _r["Corpus"] = ""
                 _eval_results += _scored
@@ -398,7 +376,6 @@ if eval_btn:
         st.session_state.setdefault("experiment_rows", []).extend(_eval_results)
         st.rerun()
 
-# ── Results area ─────────────────────────────────────────────────────────── #
 rows = st.session_state.get("experiment_rows", [])
 
 if not rows:
@@ -419,12 +396,11 @@ else:
         df_num[col] = pd.to_numeric(df_num[col], errors="coerce")
     valid = df_num.dropna(subset=[COL_EER])
 
-    # ── Best configuration banner (by minDCF, primary metric, then EER) ──── #
     best_idx = None
     if not valid.empty:
         best_idx = valid.sort_values([COL_MIN_DCF, COL_EER],
                                      na_position="last").index[0]
-        best     = df.loc[best_idx]
+        best = df.loc[best_idx]
         st.markdown(
             '<div class="best-banner">'
             '<span class="bb-tag">Best configuration</span>'
@@ -438,8 +414,6 @@ else:
             unsafe_allow_html=True,
         )
 
-    # No "last run" metric strip, those figures are columns of the results
-    # table below (and the best run is highlighted), so it would be redundant.
     tab_res, tab_charts = st.tabs(["Results table", "Charts"])
 
     with tab_res:
@@ -509,16 +483,14 @@ else:
             st.markdown("**Accuracy, informative only**")
             st.altair_chart(_hbar(COL_ACCURACY, "Accuracy"), width="stretch")
 
-# ── Sidebar: live session summary (rendered last, when results exist) ───── #
 
 with st.sidebar:
-    # Single panel: the current configuration plus how many runs are collected.
     sidebar_panel("Experiment", [
-        ("Corpus",   corpus),
-        ("Scoring",  _split_txt),
+        ("Corpus", corpus),
+        ("Scoring", _split_txt),
         ("Sampling", _subset_txt),
-        ("Seed",     str(int(seed))),
-        ("Cache",    "on" if use_cache else "off"),
-        ("Threads",  str(int(workers))),
-        ("Runs",     str(len(rows))),
+        ("Seed", str(int(seed))),
+        ("Cache", "on" if use_cache else "off"),
+        ("Threads", str(int(workers))),
+        ("Runs", str(len(rows))),
     ])

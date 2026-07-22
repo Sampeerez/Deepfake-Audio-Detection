@@ -37,9 +37,6 @@ def demo_corpus_notice(title: str = "Disabled in the web demo",
     )
 
 
-# ===========================================================================
-# Reusable UI components
-# ===========================================================================
 
 def show_empty_state(title: str, message: str, icon: str = "◌") -> None:
     """Centred empty-state card: sober glyph in a dashed ring, heading, text."""
@@ -119,9 +116,6 @@ def app_footer(left: str, right: str) -> None:
     )
 
 
-# Evaluation corpus options. Only 2019 LA has a dev split (seen attacks); the
-# 2021 corpora are eval-only, so the available "Score on" options DEPEND on the
-# corpus (see score_options_for / dev_corpus).
 EVAL_CORPUS_CHOICES = ["2019 LA", "2021 LA", "2021 DF"]
 
 
@@ -164,7 +158,6 @@ def eval_score_controls(
     """
     ck, sk = f"{prefix}_corpus", f"{prefix}_split"
     _train_key = f"{prefix}_train_on"
-    # Defaults (and self-heal any stale/invalid persisted value).
     if st.session_state.get(ck) not in EVAL_CORPUS_CHOICES:
         st.session_state[ck] = "2019 LA"
     if st.session_state.get(sk) not in ("Dev", "Eval", "Dev + Eval"):
@@ -176,11 +169,7 @@ def eval_score_controls(
         if st.session_state.get(_train_key) is None:
             st.session_state[_train_key] = "2019 LA"
 
-    # The two controls live in one flex-row, fit-content frame (CSS) so the
-    # "Score on" sits right NEXT TO "Evaluate on" and the blue box stays short.
     with st.container(key=f"evalgrp_{prefix}"):
-        # Fixed "Train on" / "Trained on", same segmented_control format as the
-        # other two. on_change prevents the user from deselecting the single option.
         st.segmented_control(
             train_label, ["2019 LA"],
             key=_train_key, disabled=disabled, on_change=_keep_train_on,
@@ -189,11 +178,6 @@ def eval_score_controls(
             "Evaluate on", EVAL_CORPUS_CHOICES, key=ck, disabled=disabled)
         corpus = corpus or "2019 LA"
 
-        # "Score on" always renders the same 3 options so the box never shifts.
-        # When the selected corpus has no dev split, Dev/Dev+Eval are visually
-        # disabled via injected CSS (pointer-events:none), the style element is
-        # collapsed to zero height by PAGE_CSS but its rules still apply globally.
-        # Session state is also reset to "Eval" so no stale selection leaks through.
         if corpus != "2019 LA":
             if st.session_state.get(sk) in ("Dev", "Dev + Eval"):
                 st.session_state[sk] = "Eval"
@@ -211,7 +195,7 @@ def eval_score_controls(
             "Score on", ["Dev", "Eval", "Dev + Eval"], key=sk, disabled=disabled)
         score = score or "Dev + Eval"
         if corpus != "2019 LA":
-            score = "Eval"   # enforce even if CSS failed and user clicked Dev
+            score = "Eval"
     return corpus, score
 
 
@@ -245,8 +229,6 @@ def op_busy_notice() -> bool:
     return op_in_progress()
 
 
-# Geometric symbols for the banner (no emoji): a small node-graph for the CNN
-# and a bar-chart for the full comparison.
 _OP_ICON_CNN = ('<svg viewBox="0 0 24 24" width="14" height="14" fill="none" '
                 'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
                 'stroke-linejoin="round"><circle cx="5" cy="6" r="1.8"/>'
@@ -273,13 +255,9 @@ def _op_banner_render() -> None:
         return
 
     from src.jobs import progress as _progress
-    pr  = _progress()
+    pr = _progress()
     pct = int(round(pr["frac"] * 100))
     sym = _OP_ICON_CNN if kind == "cnn" else _OP_ICON_FULL
-    # Called inside a `with st.sidebar:` block (see app.py), a fragment may only
-    # write to its own parent container, so we do NOT open st.sidebar here. The
-    # whole banner is a click target (invisible overlay button) that jumps to the
-    # page where the job runs.
     with st.container(key="opbanner"):
         st.markdown(
             f'<div class="op-banner"><div class="ob-head">'
@@ -294,7 +272,7 @@ def _op_banner_render() -> None:
         if st.button("open", key="opbanner_go", width="stretch"):
             st.session_state["bench_choice"] = "cnn" if kind == "cnn" else "full"
             if kind == "cnn":
-                st.session_state["cnn_focus_curves"] = True   # open Training curves
+                st.session_state["cnn_focus_curves"] = True
             st.switch_page("app_pages/2_Benchmark.py")
 
 
@@ -311,8 +289,8 @@ def _op_banner_idle() -> None:
 def op_banner_fragment() -> None:
     """Global background-job banner, pinned to the bottom of the sidebar.
 
-    Appears on EVERY page (rendered before the page script runs, so it survives
-    st.stop()). It auto-refreshes every 2 s ONLY while a job is running; when the
+    Appears on every page (rendered before the page script runs, so it survives
+    st.stop()). It auto-refreshes every 2 s only while a job is running; when the
     job finishes it triggers ONE full app rerun so app.py collects the result.
 
     The 2 s timer (run_every) is attached only in the running state: an idle app

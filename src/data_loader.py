@@ -13,8 +13,8 @@ Official protocol format, 5 space-separated columns per line:
     LA_0079     LA_T_1271820   -  A01             spoof
 
 Binary label convention used throughout this project:
-    0 -> bonafide (real human speech)
-    1 -> spoof    (deepfake / synthesised or voice-converted utterance)
+    0 = bonafide (real human speech)
+    1 = spoof (deepfake / synthesised or voice-converted utterance)
 """
 
 import os
@@ -26,9 +26,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-# Canonical binary labels (immutable project-wide constants).
 LABEL_BONAFIDE: int = 0
-LABEL_SPOOF:    int = 1
+LABEL_SPOOF: int = 1
 
 
 def _spec_augment(
@@ -59,15 +58,15 @@ def _spec_augment(
     m = matrix.copy()
     freq_bins, time_frames = m.shape
     fill = float(m.mean())
-    rng  = np.random.default_rng()   # OS-seeded → truly random per sample
+    rng = np.random.default_rng()
 
     for _ in range(n_time_masks):
-        t  = int(rng.integers(0, time_mask_max + 1))
+        t = int(rng.integers(0, time_mask_max + 1))
         t0 = int(rng.integers(0, max(1, time_frames - t)))
         m[:, t0: t0 + t] = fill
 
     for _ in range(n_freq_masks):
-        f  = int(rng.integers(0, freq_mask_max + 1))
+        f = int(rng.integers(0, freq_mask_max + 1))
         f0 = int(rng.integers(0, max(1, freq_bins - f)))
         m[f0: f0 + f, :] = fill
 
@@ -108,8 +107,6 @@ def parse_protocol(
             f"ASVspoof 2019 LA corpus is correctly extracted."
         )
 
-    # LA corpus audio is distributed in FLAC (lossless PCM compression that
-    # preserves vocoder quantisation artefacts crucial for detection).
     audio_dir = os.path.join(dataset_dir, f"ASVspoof2019_LA_{subset}", "flac")
 
     samples: List[Tuple[str, int]] = []
@@ -126,7 +123,6 @@ def parse_protocol(
                     f"(expected 5 columns): '{line.strip()}'"
                 )
 
-            # fields = [speaker_id, audio_id, env, attack_id, key]
             audio_id, key = fields[1], fields[4].lower()
 
             if key == "bonafide":
@@ -143,8 +139,6 @@ def parse_protocol(
                 os.path.join(audio_dir, f"{audio_id}.flac")
             )
 
-            # Robustness: skip missing files instead of aborting the whole
-            # experiment (useful with partially downloaded corpora).
             if not os.path.isfile(abs_path):
                 skipped += 1
                 continue
@@ -162,17 +156,17 @@ def parse_protocol(
         )
 
     n_bonafide = sum(1 for _, e in samples if e == LABEL_BONAFIDE)
-    n_spoof    = len(samples) - n_bonafide
+    n_spoof = len(samples) - n_bonafide
     print(f"[DATA] Subset '{subset}': {len(samples)} audio files "
           f"({n_bonafide} bonafide / {n_spoof} spoof).")
     return samples
 
 
 def read_attack_ids(protocol_path: str) -> Dict[str, str]:
-    """Map ``audio_id -> attack_id`` (e.g. ``LA_T_1271820 -> 'A01'``) from an
-    ASVspoof 2019 protocol. Bonafide rows map to ``'-'``.
+    """Map ``audio_id`` to ``attack_id`` (e.g. ``LA_T_1271820`` to ``'A01'``)
+    from an ASVspoof 2019 protocol. Bonafide rows map to ``'-'``.
 
-    Used to carve an UNSEEN-ATTACK validation split out of the training set:
+    Used to carve an unseen-attack validation split out of the training set:
     train/dev share the same attacks (A01-A06), so a model selected on dev (the
     default) overfits the seen attacks. Holding out a couple of attack families
     for early stopping gives model selection a real generalisation signal."""
@@ -206,7 +200,7 @@ def split_unseen_attacks(
     Returns ``(train_samples, val_samples)``; if no sample matches a held-out
     attack (e.g. the map is empty) ``val`` falls back to a random bonafide-only
     slice so the caller always gets a usable, non-empty validation set."""
-    rng  = random.Random(seed)
+    rng = random.Random(seed)
     hold = set(holdout_attacks or [])
     train: List[Tuple[str, int]] = []
     val_spoof: List[Tuple[str, int]] = []
@@ -222,7 +216,7 @@ def split_unseen_attacks(
 
     rng.shuffle(bona)
     n_val_bona = max(1, int(len(bona) * bonafide_val_frac)) if bona else 0
-    val   = val_spoof + bona[:n_val_bona]
+    val = val_spoof + bona[:n_val_bona]
     train = train + bona[n_val_bona:]
     rng.shuffle(train)
     rng.shuffle(val)
@@ -267,7 +261,6 @@ def parse_protocol_2021(
             f"Check 'dataset_2021' paths in config.yaml."
         )
 
-    # Pass 1, build label lookup.
     label_map: Dict[str, int] = {}
     with open(metadata_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -275,14 +268,13 @@ def parse_protocol_2021(
             if len(fields) < 6:
                 continue
             audio_id = fields[1]
-            key      = fields[5].lower()
+            key = fields[5].lower()
             if key == "bonafide":
                 label_map[audio_id] = LABEL_BONAFIDE
             elif key == "spoof":
                 label_map[audio_id] = LABEL_SPOOF
 
-    # Pass 2, scan flac/ subdirectories; O(1) dict lookup per file.
-    samples:  List[Tuple[str, int]] = []
+    samples: List[Tuple[str, int]] = []
     no_label = 0
 
     for audio_dir in audio_dirs:
@@ -293,7 +285,7 @@ def parse_protocol_2021(
         for entry in os.scandir(flac_dir):
             if not entry.name.endswith(".flac"):
                 continue
-            audio_id = entry.name[:-5]          # strip .flac extension
+            audio_id = entry.name[:-5]
             if audio_id not in label_map:
                 no_label += 1
                 continue
@@ -310,8 +302,8 @@ def parse_protocol_2021(
         )
 
     n_bonafide = sum(1 for _, e in samples if e == LABEL_BONAFIDE)
-    n_spoof    = len(samples) - n_bonafide
-    tag        = os.path.basename(audio_dirs[0]) if audio_dirs else "?"
+    n_spoof = len(samples) - n_bonafide
+    tag = os.path.basename(audio_dirs[0]) if audio_dirs else "?"
     print(f"[DATA] 2021 ({tag}): {len(samples):,} files  "
           f"({n_bonafide:,} bonafide / {n_spoof:,} spoof).")
     return samples
@@ -339,15 +331,15 @@ def stratified_subsample(
     if limit <= 0 or limit >= len(samples):
         return samples
 
-    rng      = random.Random(seed)
+    rng = random.Random(seed)
     bonafide = [s for s in samples if s[1] == LABEL_BONAFIDE]
-    spoof    = [s for s in samples if s[1] == LABEL_SPOOF]
+    spoof = [s for s in samples if s[1] == LABEL_SPOOF]
     rng.shuffle(bonafide)
     rng.shuffle(spoof)
 
-    ratio      = len(bonafide) / len(samples)
+    ratio = len(bonafide) / len(samples)
     n_bonafide = max(1, round(limit * ratio))
-    n_spoof    = max(1, limit - n_bonafide)
+    n_spoof = max(1, limit - n_bonafide)
 
     result = bonafide[:n_bonafide] + spoof[:n_spoof]
     rng.shuffle(result)
@@ -359,8 +351,8 @@ def stratified_subsample(
 class ASVspoofTorchDataset(Dataset):
     """PyTorch Dataset with on-the-fly (lazy) audio loading.
 
-    Decoupled design: this class does NOT know which spectral representation
-    is computed.  It receives an extraction *callback* (normally
+    Decoupled design: this class does not know which spectral representation
+    is computed. It receives an extraction *callback* (normally
     ``FeatureExtractor.get_spectrogram_matrix``) that maps a 1-D waveform
     to the 2-D matrix consumed by the CNN.  Swapping STFT for Mel or a
     wavelet scalogram requires only injecting a different callback, no
@@ -401,32 +393,29 @@ class ASVspoofTorchDataset(Dataset):
                                  config so it self-invalidates when it changes.
             cache_dir:           Root cache directory (default "cache").
         """
-        self.samples             = samples
+        self.samples = samples
         self.extraction_callback = extraction_callback
-        self.sample_rate         = sample_rate
-        self.augment             = augment
-        self.cache_tag           = cache_tag
-        self.cache_dir           = cache_dir
+        self.sample_rate = sample_rate
+        self.augment = augment
+        self.cache_tag = cache_tag
+        self.cache_dir = cache_dir
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def _spectrogram(self, path: str) -> np.ndarray:
-        """Return the BASE (un-augmented) spectrogram, using the disk cache."""
+        """Return the base (un-augmented) spectrogram, using the disk cache."""
         cache_path = None
         if self.cache_tag:
-            stem       = os.path.splitext(os.path.basename(path))[0]
+            stem = os.path.splitext(os.path.basename(path))[0]
             cache_path = os.path.join(self.cache_dir, "spectrograms",
                                       f"{stem}_{self.cache_tag}.npy")
             if os.path.isfile(cache_path):
                 try:
                     return np.load(cache_path)
-                except Exception:            # corrupt/partial cache → recompute
+                except Exception:
                     pass
 
-        # Decode FLAC -> float32 vector in [-1, 1] (mono). Some 2021 DF files
-        # have non-standard FLAC encoding libsndfile cannot decode; substitute
-        # 3 s of silence so training continues without aborting the epoch.
         try:
             signal, _ = librosa.load(path, sr=self.sample_rate, mono=True)
         except Exception:
@@ -435,11 +424,9 @@ class ASVspoofTorchDataset(Dataset):
 
         base = np.asarray(self.extraction_callback(signal), dtype=np.float32)
 
-        if cache_path is not None:           # atomic write (workers run in parallel)
+        if cache_path is not None:
             try:
                 os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-                # tmp must end in .npy, else np.save appends it and the replace
-                # would miss the real file.
                 tmp = f"{cache_path}.{os.getpid()}.tmp.npy"
                 np.save(tmp, base)
                 os.replace(tmp, cache_path)
@@ -450,16 +437,14 @@ class ASVspoofTorchDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         path, label = self.samples[idx]
         matrix = self._spectrogram(path)
-        if self.augment:                     # masking applied fresh each epoch
+        if self.augment:
             matrix = _spec_augment(matrix)
-        # Conv2d expects (channels, height, width): add the single channel axis
-        # (grayscale spectral "image").
         tensor = torch.from_numpy(matrix).unsqueeze(0).float()
         return tensor, torch.tensor(float(label), dtype=torch.float32)
 
 
 class ASVspoofRawWaveDataset(Dataset):
-    """PyTorch Dataset yielding the RAW 16 kHz waveform (no spectral transform).
+    """PyTorch Dataset yielding the raw 16 kHz waveform (no spectral transform).
 
     Used by the self-supervised wav2vec 2.0 detector, which consumes the audio
     samples directly. Clips are cropped / zero-padded to a fixed ``max_samples``
@@ -474,7 +459,7 @@ class ASVspoofRawWaveDataset(Dataset):
         sample_rate: int,
         max_samples: int,
     ) -> None:
-        self.samples     = samples
+        self.samples = samples
         self.sample_rate = sample_rate
         self.max_samples = int(max_samples)
 
@@ -489,9 +474,9 @@ class ASVspoofRawWaveDataset(Dataset):
             print(f"[WARNING] Could not decode '{path}', substituting silence.")
             signal = np.zeros(self.max_samples, dtype=np.float32)
         signal = np.asarray(signal, dtype=np.float32)
-        if len(signal) >= self.max_samples:          # centre-independent head crop
+        if len(signal) >= self.max_samples:
             signal = signal[: self.max_samples]
-        else:                                        # right zero-pad to the window
+        else:
             signal = np.pad(signal, (0, self.max_samples - len(signal)))
         return (torch.from_numpy(signal).float(),
                 torch.tensor(float(label), dtype=torch.float32))

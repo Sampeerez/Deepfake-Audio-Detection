@@ -24,20 +24,12 @@ from src.ui.styles import BONAFIDE_COLOR, NEUTRAL_COLOR, SPOOF_COLOR  # noqa: E4
 
 _EPS = 1e-10
 
-# ── matplotlib figure palettes ────────────────────────────────────────────── #
-# Two themes: Dark Side (default, matches the dark chrome) and Light Side. The
-# data-semantic colours (BONAFIDE/SPOOF above) stay constant across both so the
-# charts read the same; only the canvas/text/grid flip.
-_DARK_FIG  = {"bg": "#161C2D", "axes": "#1E2640", "grid": "#263050",
+_DARK_FIG = {"bg": "#161C2D", "axes": "#1E2640", "grid": "#263050",
               "text": "#C5CDE8", "edge": "#2E3A58"}
 _LIGHT_FIG = {"bg": "#FFFFFF", "axes": "#F4F7FD", "grid": "#D5DEEF",
               "text": "#27324C", "edge": "#B7C3DC"}
 
-# Active palette: module globals so the fig_* helpers below pick up the current
-# theme at call time (they read these names when a figure is built). app.py calls
-# apply_mpl_theme() once per rerun before any page draws; default to dark so any
-# figure built at import time still renders correctly.
-_FIG_BG   = _DARK_FIG["bg"]
+_FIG_BG = _DARK_FIG["bg"]
 _FIG_AXES = _DARK_FIG["axes"]
 _FIG_GRID = _DARK_FIG["grid"]
 _FIG_TEXT = _DARK_FIG["text"]
@@ -53,40 +45,37 @@ def apply_mpl_theme(theme: str = "dark") -> None:
     _FIG_BG, _FIG_AXES = pal["bg"], pal["axes"]
     _FIG_GRID, _FIG_TEXT, _FIG_EDGE = pal["grid"], pal["text"], pal["edge"]
     plt.rcParams.update({
-        "figure.facecolor":  _FIG_BG,
-        "axes.facecolor":    _FIG_AXES,
-        "axes.edgecolor":    _FIG_EDGE,
-        "axes.labelcolor":   _FIG_TEXT,
-        "xtick.color":       _FIG_TEXT,
-        "ytick.color":       _FIG_TEXT,
-        "text.color":        _FIG_TEXT,
-        "grid.color":        _FIG_GRID,
-        "grid.alpha":        0.55,
-        "font.size":         9,
-        "legend.facecolor":  _FIG_AXES,
-        "legend.edgecolor":  _FIG_EDGE,
-        "figure.dpi":        110,
+        "figure.facecolor": _FIG_BG,
+        "axes.facecolor": _FIG_AXES,
+        "axes.edgecolor": _FIG_EDGE,
+        "axes.labelcolor": _FIG_TEXT,
+        "xtick.color": _FIG_TEXT,
+        "ytick.color": _FIG_TEXT,
+        "text.color": _FIG_TEXT,
+        "grid.color": _FIG_GRID,
+        "grid.alpha": 0.55,
+        "font.size": 9,
+        "legend.facecolor": _FIG_AXES,
+        "legend.edgecolor": _FIG_EDGE,
+        "figure.dpi": 110,
     })
 
 
 apply_mpl_theme("dark")
-# ===========================================================================
-# Signal statistics
-# ===========================================================================
 
 def compute_signal_stats(y: np.ndarray, sr: int) -> Dict:
     """Return a dict with key audio statistics for display as metric cards."""
-    duration   = len(y) / sr
-    rms        = float(np.sqrt(np.mean(y ** 2)))
-    rms_db     = float(20 * np.log10(rms + _EPS))   # dBFS: ~-30 to -6 for speech
-    zcr        = float(np.mean(librosa.feature.zero_crossing_rate(y)))
-    centroid   = float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
+    duration = len(y) / sr
+    rms = float(np.sqrt(np.mean(y ** 2)))
+    rms_db = float(20 * np.log10(rms + _EPS))
+    zcr = float(np.mean(librosa.feature.zero_crossing_rate(y)))
+    centroid = float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
     return {
-        "duration_s":   duration,
-        "rms":          rms,
-        "rms_db":       rms_db,
-        "zcr":          zcr,
-        "centroid_hz":  centroid,
+        "duration_s": duration,
+        "rms": rms,
+        "rms_db": rms_db,
+        "zcr": zcr,
+        "centroid_hz": centroid,
     }
 
 
@@ -115,16 +104,12 @@ def warm_figure_backend(extractor) -> None:
         librosa.cqt(y, sr=sr, hop_length=extractor.hop_length,
                     n_bins=extractor.cqcc_n_bins,
                     bins_per_octave=extractor.cqcc_bins_per_octave)
-        # Extractor paths used by the CNN-input and LFCC figures.
         extractor.get_spectrogram_matrix(y)
         extractor._stft_magnitude(y)
     except Exception:
         pass
 
 
-# ===========================================================================
-# Plotting helpers, all return a plt.Figure for st.pyplot()
-# ===========================================================================
 
 def _fig_style(ax: plt.Axes) -> None:
     """Apply a clean, dark-theme-consistent style to any axis."""
@@ -189,17 +174,13 @@ def _specshow(
 def fig_stft_db(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
     mag = np.abs(librosa.stft(y, n_fft=extractor.n_fft,
                               hop_length=extractor.hop_length, window="hann"))
-    db  = librosa.amplitude_to_db(mag, ref=np.max)
+    db = librosa.amplitude_to_db(mag, ref=np.max)
     return _specshow(db, extractor.sample_rate, extractor.hop_length,
                      "STFT Magnitude (dB)", y_axis="hz")
 
 
 def fig_cnn_input(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
     matrix = extractor.get_spectrogram_matrix(y)
-    # constrained_layout packs the axes + colorbar to fill the figure width (plain
-    # tight_layout left a right-hand gap with the colorbar); the figure is rendered
-    # with bbox_inches=None by the caller, so its 9×3.2 canvas matches the waveform's
-    # exactly → the two panels end up the same height with no empty strip.
     fig, ax = plt.subplots(figsize=(9, 3.2), layout="constrained")
     img = ax.imshow(matrix, aspect="auto", origin="lower", cmap="viridis")
     fig.colorbar(img, ax=ax, pad=0.01)
@@ -225,22 +206,22 @@ def fig_mfcc(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
 
 
 def fig_lfcc(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
-    power      = extractor._stft_magnitude(y) ** 2
+    power = extractor._stft_magnitude(y) ** 2
     band_energy = extractor._linear_filterbank @ power
-    log_energy  = np.log(band_energy + _EPS)
-    cepstrum    = dct(log_energy, type=2, axis=0, norm="ortho")[: extractor.n_lfcc]
+    log_energy = np.log(band_energy + _EPS)
+    cepstrum = dct(log_energy, type=2, axis=0, norm="ortho")[: extractor.n_lfcc]
     return _specshow(cepstrum, extractor.sample_rate, extractor.hop_length,
                      f"LFCC  ({extractor.n_lfcc} linear cepstral coefficients)",
                      cmap="coolwarm")
 
 
 def fig_cqcc(y: np.ndarray, extractor: FeatureExtractor) -> plt.Figure:
-    cqt        = librosa.cqt(y, sr=extractor.sample_rate,
+    cqt = librosa.cqt(y, sr=extractor.sample_rate,
                              hop_length=extractor.hop_length,
                              n_bins=extractor.cqcc_n_bins,
                              bins_per_octave=extractor.cqcc_bins_per_octave)
     log_energy = np.log(np.abs(cqt) ** 2 + _EPS)
-    cepstrum   = dct(log_energy, type=2, axis=0, norm="ortho")[: extractor.n_cqcc]
+    cepstrum = dct(log_energy, type=2, axis=0, norm="ortho")[: extractor.n_cqcc]
     return _specshow(cepstrum, extractor.sample_rate, extractor.hop_length,
                      f"CQCC  ({extractor.n_cqcc} constant-Q cepstral coefficients)",
                      cmap="coolwarm")
@@ -258,7 +239,7 @@ def fig_activation_grid(
         title:      Block title.
         max_maps:   Maximum channels to display.
     """
-    n    = min(activation.shape[0], max_maps)
+    n = min(activation.shape[0], max_maps)
     cols = 4
     rows = (n + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(10, 2.4 * rows))
@@ -291,9 +272,6 @@ def fig_activation_evolution(
     """
     blocks = list(acts)[:max_blocks]
     n = max(1, len(blocks))
-    # FIXED figure size regardless of block count: ResNet (4 blocks) and the
-    # 3-Block CNN (3 blocks) must render at the same aspect ratio so that, placed
-    # in equal-width columns, they end up exactly the same height.
     fig, axes = plt.subplots(1, n, figsize=(7.2, 2.1))
     axes = np.atleast_1d(axes).ravel()
     for i in range(len(axes)):
@@ -301,15 +279,12 @@ def fig_activation_evolution(
         if i < len(blocks):
             act = blocks[i]
             arr = act.numpy() if hasattr(act, "numpy") else np.asarray(act)
-            if arr.ndim == 4:        # (1, C, H, W) → drop batch
+            if arr.ndim == 4:
                 arr = arr[0]
-            heat = arr.mean(axis=0)  # mean over channels → (H, W)
+            heat = arr.mean(axis=0)
             ax.imshow(heat, aspect="auto", origin="lower", cmap="inferno")
             ax.set_title(f"Block {i + 1}", fontsize=8)
         ax.axis("off")
-    # Title INSIDE the canvas (rendered with bbox_inches=None, anything at y>1 is
-    # clipped). Keep a small top margin so it isn't cut, but sit it just above the
-    # heatmaps (rect top close to the title) so it hugs the images, not floats away.
     fig.suptitle(title, fontsize=9.5, fontweight="bold", y=0.90)
     fig.tight_layout(rect=[0, 0, 1, 0.84])
     return fig
@@ -346,7 +321,7 @@ def fig_overall_split_bar(n_bonafide: int, n_spoof: int) -> plt.Figure:
 
 def fig_corpus_overview(
     train_samples: List[Tuple[str, int]],
-    dev_samples:   List[Tuple[str, int]],
+    dev_samples: List[Tuple[str, int]],
 ) -> plt.Figure:
     """Stacked bar showing bonafide / spoof split for train and dev subsets."""
     labels = ["Train", "Dev"]
@@ -356,9 +331,9 @@ def fig_corpus_overview(
            for s in (train_samples, dev_samples)]
     totals = [b + s for b, s in zip(bon, spo)]
 
-    x   = np.arange(len(labels))
+    x = np.arange(len(labels))
     fig, ax = plt.subplots(figsize=(5, 3.6))
-    ax.bar(x, bon, label="Bonafide (real)",    color=BONAFIDE_COLOR, alpha=0.9, width=0.6)
+    ax.bar(x, bon, label="Bonafide (real)", color=BONAFIDE_COLOR, alpha=0.9, width=0.6)
     ax.bar(x, spo, bottom=bon, label="Spoof (deepfake)", color=SPOOF_COLOR, alpha=0.9, width=0.6)
 
     for i, (b, s, t) in enumerate(zip(bon, spo, totals)):
@@ -370,14 +345,12 @@ def fig_corpus_overview(
         ax.text(i, b + s / 2, f"{s:,}", ha="center", va="center",
                 fontsize=8, color="white", fontweight="600")
 
-    # Headroom so the total labels never collide with the top spine.
     ax.set_ylim(0, max(totals) * 1.15)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10)
     ax.set_ylabel("Audio files", fontsize=9)
     ax.set_title("Class distribution by subset", fontsize=10, fontweight="bold")
     ax.spines[["top", "right"]].set_visible(False)
-    # Legend BELOW the axes, never overlaps the bars.
     ax.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.1),
               ncol=2, frameon=False, handlelength=1.2, columnspacing=1.4)
     ax.grid(axis="y", alpha=0.2, linewidth=0.5)

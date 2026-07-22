@@ -28,9 +28,6 @@ PAGES = [
     "app_pages/5_Settings.py",
 ]
 
-# The three Benchmark modes (dispatched via runpy from 2_Benchmark.py). Smoke-run
-# directly so the suite also covers the mode files, including the Full-comparison
-# leaderboard table/chart, which renders from the committed leaderboard.json.
 MODES = [
     "app_pages/modes/_mode_classic.py",
     "app_pages/modes/_mode_cnn.py",
@@ -40,7 +37,6 @@ MODES = [
 
 @pytest.fixture(autouse=True)
 def _force_demo(monkeypatch):
-    # Corpus-less web-demo path: deterministic, no dataset/GPU/network needed.
     monkeypatch.setenv("DEEPFAKE_FORCE_DEMO", "1")
 
 
@@ -58,7 +54,7 @@ def test_settings_survives_app_seeded_state():
     at = AppTest.from_file(str(ROOT / "app_pages/5_Settings.py"),
                            default_timeout=90)
     at.session_state["sw_theme"] = "dark"
-    at.session_state["sw_saber"] = "Auto"     # legacy value from old sessions
+    at.session_state["sw_saber"] = "Auto"
     at.run()
     assert not at.exception, f"Settings raised: {at.exception}"
     assert at.session_state["sw_color_ctl"] in (

@@ -21,9 +21,6 @@ from src.models import (
 )
 
 
-# ---------------------------------------------------------------------------
-# A) Classic models
-# ---------------------------------------------------------------------------
 
 def _make_xy(n=100, dim=40, seed=42):
     rng = np.random.default_rng(seed)
@@ -35,7 +32,7 @@ def _make_xy(n=100, dim=40, seed=42):
 @pytest.mark.parametrize("name", CLASSIC_MODELS)
 def test_classic_model_probabilities(name):
     """Every classic model must fit and emit calibrated 2-column probabilities."""
-    n = 60 if name == "svm_lineal" else 100   # SVM calibration CV is slower
+    n = 60 if name == "svm_lineal" else 100
     X, y = _make_xy(n=n)
     model = get_classic_model(name, seed=42)
     model.fit(X, y)
@@ -66,9 +63,6 @@ def test_unknown_classic_model():
         get_classic_model("magic_neural_network")
 
 
-# ---------------------------------------------------------------------------
-# B) Deep spectrogram models
-# ---------------------------------------------------------------------------
 
 _DEEP_ARCHS = [CNN_5Block, CNN_5Block_SE, ResNet_SE, ResNeXt_SE, CRNN_Model]
 
@@ -77,7 +71,7 @@ _DEEP_ARCHS = [CNN_5Block, CNN_5Block_SE, ResNet_SE, ResNeXt_SE, CRNN_Model]
 def test_cnn_forward_shape(Arch):
     """Forward pass returns one raw logit per item in the batch."""
     model = Arch().eval()
-    x = torch.randn(4, 1, 128, 300)             # (batch, channel, freq, time)
+    x = torch.randn(4, 1, 128, 300)
     with torch.no_grad():
         out = model(x)
     assert out.shape == (4,)
@@ -96,7 +90,7 @@ def test_cnn_activation_taps(Arch, n_blocks):
     assert logits.shape == (2,)
     assert len(acts) == n_blocks
     for a in acts:
-        assert a.dim() == 4                     # (batch, channels, H, W)
+        assert a.dim() == 4
 
 
 @pytest.mark.parametrize("arch", ["cnn", "cnn_se", "resnet", "resnext", "crnn"])
@@ -112,7 +106,7 @@ def test_cnn_robust_to_input_size():
     """AdaptiveAvgPool decouples the head from the exact spectrogram size."""
     model = CNN_5Block().eval()
     with torch.no_grad():
-        out = model(torch.randn(1, 1, 128, 200))   # non-default time frames
+        out = model(torch.randn(1, 1, 128, 200))
     assert out.shape == (1,)
 
 
@@ -124,9 +118,6 @@ def test_cnn_probability_after_sigmoid():
     assert ((p >= 0.0) & (p <= 1.0)).all()
 
 
-# ---------------------------------------------------------------------------
-# C) Self-supervised raw-waveform detector (optional dependency)
-# ---------------------------------------------------------------------------
 
 def test_wav2vec2_forward_and_prob():
     """Wav2Vec2Classifier: (B,2) logits and a p(spoof) in [0,1] from raw audio.
@@ -138,7 +129,7 @@ def test_wav2vec2_forward_and_prob():
     from src.models import Wav2Vec2Classifier
 
     model = Wav2Vec2Classifier().eval()
-    wave = torch.randn(2, 8000)                 # 2 clips, 0.5 s @ 16 kHz
+    wave = torch.randn(2, 8000)
     with torch.no_grad():
         logits = model(wave)
         probs = model.prob_spoof(wave)
@@ -157,5 +148,4 @@ def test_wav2vec2_temperature_preserves_ranking():
     with torch.no_grad():
         raw = torch.softmax(model(wave), dim=-1)[:, 1]
         cal = model.prob_spoof(wave)
-    # Same argsort ordering despite the softened confidences.
     assert torch.equal(torch.argsort(raw), torch.argsort(cal))

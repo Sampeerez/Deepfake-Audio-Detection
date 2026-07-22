@@ -40,23 +40,17 @@ from src.reporting import (
 
 FEATURE_ORDER = ["1", "2", "3", "4", "6"]
 
-# One job at a time; persists across Streamlit reruns (module-level).
 _pool = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="bench")
 
-# Live progress shared with the UI (the worker can't call st). Read via progress().
-_lock  = threading.Lock()
+_lock = threading.Lock()
 _state = {"total": 0, "done": 0, "label": "Starting…"}
 
-# Per-stream progress so the leaderboard can show classic (CPU) and CNN (GPU)
-# side by side while they run in parallel.
 def _blank_stream():
     return {"done": 0, "total": 0, "label": "Waiting…", "items": []}
 
 
 _streams = {"classic": _blank_stream(), "cnn": _blank_stream()}
 
-# Cooperative cancellation: the UI sets this; the workers check it at safe
-# checkpoints (between extractors / before each CNN epoch) and stop early.
 _cancel = threading.Event()
 
 
@@ -81,7 +75,7 @@ def progress() -> Dict:
 def _reset_streams(classic_total: int, cnn_total: int) -> None:
     with _lock:
         _streams["classic"] = _blank_stream(); _streams["classic"]["total"] = classic_total
-        _streams["cnn"]     = _blank_stream(); _streams["cnn"]["total"]     = cnn_total
+        _streams["cnn"] = _blank_stream(); _streams["cnn"]["total"] = cnn_total
 
 
 def _stream(name: str, label=None, inc: int = 0, item: str = None) -> None:
@@ -100,7 +94,6 @@ def _step(label: str, inc: int = 0) -> None:
         _state["label"] = label
 
 
-# Live per-epoch records for a background CNN training (worker appends, UI polls).
 _cnn_epochs: List[Dict] = []
 
 
@@ -123,7 +116,7 @@ def _run_cnn(train_samples, dev_samples, extractor, params,
     def _cb(rec):
         with _lock:
             _cnn_epochs.append(dict(rec))
-            _state["done"]  = int(rec.get("epoch", _state["done"]))
+            _state["done"] = int(rec.get("epoch", _state["done"]))
             _state["label"] = (f"Epoch {rec.get('epoch')}/{max_ep} · "
                                f"val={rec.get('val_loss', 0):.4f}")
 
@@ -155,27 +148,18 @@ def _tag_split(results: List[Dict], base_split: str) -> List[Dict]:
     for r in results:
         r = dict(r)
         if "[EVAL]" in str(r.get(COL_MODEL, "")):
-            r[COL_MODEL]    = r[COL_MODEL].replace("[EVAL]", "").strip()
+            r[COL_MODEL] = r[COL_MODEL].replace("[EVAL]", "").strip()
             r[COL_FEATURES] = str(r.get(COL_FEATURES, "")).replace("[EVAL]", "").strip()
             _c = str(r.get("Corpus", "")).strip()
-            r["Split"]      = f"eval · {_c}" if _c else "eval"
+            r["Split"] = f"eval · {_c}" if _c else "eval"
         else:
             r["Split"] = base_split
         out.append(r)
     return out
 
 
-# ===========================================================================
-# Demo-model export (Full comparison, LOCAL)
-# ===========================================================================
-# As the full sweep runs locally it also PERSISTS the registry models (the two
-# CNNs as .pth, the XGBoost × DSP detectors as .joblib) and records their
-# dev/eval EER & minDCF, so the leaderboard the cloud demo serves is produced
-# straight from the UI, no external console script needed.
 _leaderboard: Dict[str, Dict] = {}
 
-# Distinctive token in each classifier's COL_MODEL display name, for picking its
-# rows out of run_classic_models' results (which trains all three per feature).
 _CLF_TOKEN = {"logistic_regression": "Logistic", "svm_lineal": "SVM",
               "xgboost": "XGBoost"}
 
@@ -193,7 +177,7 @@ def _train_protocol_path() -> str:
     """Absolute path of the ASVspoof 2019 LA *train* protocol, the source of the
     attack labels used to build the unseen-attack validation split."""
     from src.model_registry import load_config
-    c    = load_config()
+    c = load_config()
     root = c["dataset"]["path_la2019"]
     return os.path.join(root, c["dataset"]["protocols_dir"],
                         c["dataset"]["protocols"]["train"])
@@ -212,13 +196,11 @@ def _metrics_from_rows(rows: List[Dict], match: Callable[[Dict], bool]
     RAW result rows (before _tag_split), where [EVAL] is still in COL_MODEL."""
     dev = next((r for r in rows if match(r)
                 and "[EVAL]" not in str(r.get(COL_MODEL, ""))), {})
-    ev  = next((r for r in rows if match(r)
+    ev = next((r for r in rows if match(r)
                 and "[EVAL]" in str(r.get(COL_MODEL, ""))), {})
-    return {"eer_dev":  _as_float(dev, COL_EER), "mindcf_dev":  _as_float(dev, COL_MIN_DCF),
-            "eer_eval": _as_float(ev,  COL_EER), "mindcf_eval": _as_float(ev,  COL_MIN_DCF),
-            # Per-model operating point used by "Test an audio": the dev EER
-            # threshold (where FAR = FRR on the in-domain dev split).
-            "thr_dev":  _as_float(dev, COL_THRESHOLD)}
+    return {"eer_dev": _as_float(dev, COL_EER), "mindcf_dev": _as_float(dev, COL_MIN_DCF),
+            "eer_eval": _as_float(ev, COL_EER), "mindcf_eval": _as_float(ev, COL_MIN_DCF),
+            "thr_dev": _as_float(dev, COL_THRESHOLD)}
 
 
 def _record(key: str, metrics: Dict) -> None:
@@ -232,13 +214,12 @@ def _write_leaderboard(rows: Optional[List[Dict]] = None) -> None:
 
     `models` is merged with any existing entries (so a partial classic-only /
     CNN-only run keeps the rest). `rows` is the FULL set of per-model × split/corpus
-    result rows, the web demo renders them into the SAME filterable table as local;
+    result rows, the web demo renders them into the same filterable table as local;
     it is REPLACED when a fresh (non-empty) set is given, left untouched otherwise."""
     if not _leaderboard and not rows:
         return
     _, path, _ = _registry()
     board: Dict = {"models": {}, "rows": []}
-    # Read existing (migrating the legacy flat {key: metrics} format).
     for p in (path, os.path.join(os.path.dirname(path), "demo_leaderboard.json")):
         if os.path.isfile(p):
             try:
@@ -258,16 +239,14 @@ def _write_leaderboard(rows: Optional[List[Dict]] = None) -> None:
         board["rows"] = rows
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(board, fh, indent=2)
-    # load_leaderboard() is @st.cache_data: drop its cached copy so the Full
-    # comparison page reflects the freshly written file without an app restart.
     from src.leaderboard import load_leaderboard
     load_leaderboard.clear()
 
 
 def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
                    classic_paths=None, classic_keys=None):
-    classic_paths = classic_paths or {}   # (feat, clf_name) -> .joblib path
-    classic_keys  = classic_keys or {}    # (feat, clf_name) -> registry key
+    classic_paths = classic_paths or {}
+    classic_keys = classic_keys or {}
     rows = []
     for fk in FEATURE_ORDER:
         if _cancel.is_set():
@@ -275,9 +254,8 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
             break
         _step(f"Classic · {feat_labels[fk]}")
         _stream("classic", label=f"{feat_labels[fk]}, extracting…")
-        x_tr, y_tr, _  = extract_feature_matrix(train, ext, fk, "train", n_workers=4, use_cache=True)
+        x_tr, y_tr, _ = extract_feature_matrix(train, ext, fk, "train", n_workers=4, use_cache=True)
         x_pr, y_pr, ms = extract_feature_matrix(primary, ext, fk, pname, n_workers=4, use_cache=True)
-        # Extract features for each chosen eval corpus and score them all.
         eval_sets = []
         for label, samples in (eval_corpora or []):
             if samples:
@@ -285,8 +263,6 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
                     samples, ext, fk, f"eval[{label}]", n_workers=4, use_cache=True)
                 eval_sets.append((label, x_se, y_se))
 
-        # Persist EVERY classifier for this front-end to its .joblib as it is
-        # fitted (the sink fires inside run_classic_models after each fit).
         def _sink(name, model, _fk=fk):
             p = classic_paths.get((_fk, name))
             if p:
@@ -297,7 +273,6 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
         res = run_classic_models(MODEL_OPTIONS["4"], x_tr, y_tr, x_pr, y_pr,
                                  feat_labels[fk], ms, seed, eval_sets=eval_sets,
                                  model_sink=_sink)
-        # Record dev/eval metrics for each classifier of this front-end.
         for cname, token in _CLF_TOKEN.items():
             key = classic_keys.get((fk, cname))
             if key:
@@ -318,8 +293,6 @@ def _classic_sweep(ext, feat_labels, train, primary, eval_corpora, pname, seed,
     return rows
 
 
-# Every deep architecture trained by the Full-comparison sweep (single source
-# of truth for how many CNN slots the progress streams reserve).
 _CNN_ARCHS = ["cnn", "cnn_se", "resnet", "resnext", "crnn"]
 
 
@@ -361,10 +334,10 @@ def _aggregate_seed_rows(seed_results: List[List[Dict]], n_seeds: int) -> List[D
         g = groups[key]
         row = dict(g["template"])
         if g[COL_EER]:
-            row[COL_EER]   = f"{_mean(g[COL_EER]):.2f}"
+            row[COL_EER] = f"{_mean(g[COL_EER]):.2f}"
             row["EER std"] = f"{_stdev(g[COL_EER]):.2f}" if len(g[COL_EER]) > 1 else "0.00"
         if g[COL_MIN_DCF]:
-            row[COL_MIN_DCF]  = f"{_mean(g[COL_MIN_DCF]):.4f}"
+            row[COL_MIN_DCF] = f"{_mean(g[COL_MIN_DCF]):.4f}"
             row["minDCF std"] = (f"{_stdev(g[COL_MIN_DCF]):.4f}"
                                  if len(g[COL_MIN_DCF]) > 1 else "0.0000")
         if g[COL_ACCURACY]:
@@ -395,11 +368,11 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
     its lowest (unseen-attack) validation loss."""
     from src.models import arch_label
 
-    cnn_paths   = cnn_paths or {}
-    cnn_keys    = cnn_keys or {}
+    cnn_paths = cnn_paths or {}
+    cnn_keys = cnn_keys or {}
     arch_params = arch_params or {}
-    seed_list   = list(seeds) if seeds else [seed]
-    n_seeds     = len(seed_list)
+    seed_list = list(seeds) if seeds else [seed]
+    n_seeds = len(seed_list)
     rows = []
     for arch in _CNN_ARCHS:
         name = arch_label(arch)
@@ -408,25 +381,20 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
             break
         _step(f"CNN · {arch} ({n_seeds} seed{'s' if n_seeds > 1 else ''})")
         p = dict(base_params)
-        # More DataLoader workers → faster FLAC decode each epoch (the CNN's
-        # main cost, since spectrograms are re-extracted per epoch).
         p.update({"augment": True, "arch": arch,
                   "num_workers": max(int(base_params.get("num_workers", 2)), 6)})
-        # Per-architecture OPTIMAL hyper-parameters (epochs / patience / batch /
-        # lr …) override the shared defaults so each model trains at its best.
         p.update(arch_params.get(arch, {}))
         _ep = int(p.get("epochs", 1))
 
-        final_ckpt   = cnn_paths.get(arch)
+        final_ckpt = cnn_paths.get(arch)
         per_seed_cres: List[List[Dict]] = []
-        kept_tmps:     List[str] = []
-        best_tmp:      Optional[str] = None
-        best_val_loss  = float("inf")
+        kept_tmps: List[str] = []
+        best_tmp: Optional[str] = None
+        best_val_loss = float("inf")
 
         for si, sd in enumerate(seed_list):
             if _cancel.is_set():
                 break
-            # Fresh live chart per seed so the curves always show the current run.
             with _lock:
                 _cnn_epochs.clear()
             _stream("cnn", label=f"{name}, seed {si + 1}/{n_seeds} starting…")
@@ -452,8 +420,6 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
             if _cancel.is_set():
                 break
             per_seed_cres.append(cres)
-            # Seed selection: keep the checkpoint with the lowest unseen-attack
-            # validation loss (the generalising one), not just the last seed.
             _vl = min((r["val_loss"] for r in history
                        if isinstance(r.get("val_loss"), (int, float))
                        and math.isfinite(r["val_loss"])), default=float("inf"))
@@ -461,9 +427,8 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
                 kept_tmps.append(tmp_ckpt)
                 if _vl < best_val_loss:
                     best_val_loss = _vl
-                    best_tmp      = tmp_ckpt
+                    best_tmp = tmp_ckpt
 
-        # Promote the best seed's weights to the registry path; drop the rest.
         if final_ckpt and best_tmp and os.path.isfile(best_tmp):
             try:
                 os.replace(best_tmp, final_ckpt)
@@ -476,7 +441,7 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
                 except OSError:
                     pass
 
-        if not per_seed_cres:                 # cancelled before any seed finished
+        if not per_seed_cres:
             _stream("cnn", label="Cancelled")
             break
 
@@ -500,7 +465,7 @@ def _cnn_sweep(ext, base_params, train, primary, eval_corpora, seed,
 
 
 def _raw_sweep(ext, primary, eval_corpora, pname, base_params, raw_specs):
-    """Inference-only stage for the raw-waveform models (wav2vec 2.0): NEVER
+    """Inference-only stage for the raw-waveform models (wav2vec 2.0): never
     trained, just load each saved checkpoint and score the dev split + every eval
     corpus, recording its dev/eval EER & minDCF into the leaderboard. Runs after
     the CNN sweep so it has the GPU to itself. Rows are tagged like CNN rows so the
@@ -519,7 +484,7 @@ def _raw_sweep(ext, primary, eval_corpora, pname, base_params, raw_specs):
         _step(f"{name} (evaluating)")
         _stream("cnn", label=f"{name}, loading…")
         try:
-            ckpt  = torch.load(path, map_location="cpu")
+            ckpt = torch.load(path, map_location="cpu")
             state = ckpt.get("model_state_dict", ckpt)
             model = Wav2Vec2Classifier()
             model.load_state_dict(state)
@@ -543,7 +508,6 @@ def _raw_sweep(ext, primary, eval_corpora, pname, base_params, raw_specs):
 
         if not _cancel.is_set():
             _record(key, _metrics_from_rows(mres, lambda r: True))
-        # Tag the family so the leaderboard classifies wav2vec2 as SSL, not CNN.
         _tagged = _tag_split(mres, "dev")
         for _r in _tagged:
             _r["Type"] = "SSL"
@@ -570,31 +534,23 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
     _reset_streams(len(FEATURE_ORDER), n_cnn)
     with _lock:
         _leaderboard.clear()
-        _cnn_epochs.clear()   # reset so the full-comparison live view shows fresh curves
+        _cnn_epochs.clear()
         _state.update({"total": len(FEATURE_ORDER) + n_cnn,
                        "done": 0, "label": "Preparing data…"})
 
-    # Per-architecture optimal hyper-parameters from the YAML (epochs, patience,
-    # batch size, lr …) so the Full-comparison sweep trains each model at its best.
     arch_params = {}
-    cnn_seeds   = [seed]
+    cnn_seeds = [seed]
     ms_holdout: List[str] = []
     ms_bona_frac = 0.1
     if include_cnn:
         from src.model_registry import load_config
         _cfg = load_config()
-        arch_params  = dict(_cfg.get("cnn_arch_params", {}) or {})
-        # Multi-seed + unseen-attack validation settings (rigour knobs): training
-        # each CNN over several seeds and averaging removes single-run luck, while
-        # an unseen-attack holdout gives early stopping a real generalisation
-        # signal instead of the saturated, same-attack dev set.
+        arch_params = dict(_cfg.get("cnn_arch_params", {}) or {})
         _ms = _cfg.get("cnn_multiseed", {}) or {}
-        cnn_seeds    = list(_ms.get("seeds", [seed])) or [seed]
-        ms_holdout   = list(_ms.get("holdout_attacks", []) or [])
+        cnn_seeds = list(_ms.get("seeds", [seed])) or [seed]
+        ms_holdout = list(_ms.get("holdout_attacks", []) or [])
         ms_bona_frac = float(_ms.get("bonafide_val_frac", 0.1))
 
-    # Map the registry models to their on-disk paths so the sweeps can persist
-    # them (.pth / .joblib) and record their metrics for leaderboard.json.
     classic_paths = classic_keys = cnn_paths = cnn_keys = {}
     raw_specs: List[Tuple[str, str, str]] = []
     if export:
@@ -602,16 +558,12 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
         os.makedirs(models_dir, exist_ok=True)
         classic_paths = {(e["feat"], e["clf"]): os.path.join(models_dir, e["file"])
                          for e in reg if e["kind"] == "classic"}
-        classic_keys  = {(e["feat"], e["clf"]): e["key"]
+        classic_keys = {(e["feat"], e["clf"]): e["key"]
                          for e in reg if e["kind"] == "classic"}
-        # Key the maps by the canonical arch key (registry "arch" field) so the
-        # CNN sweep persists each architecture's checkpoint to the right file.
         cnn_paths = {e["arch"]: os.path.join(models_dir, e["file"])
                      for e in reg if e["kind"] == "cnn"}
-        cnn_keys  = {e["arch"]: e["key"]
+        cnn_keys = {e["arch"]: e["key"]
                      for e in reg if e["kind"] == "cnn"}
-        # Raw-waveform models (wav2vec 2.0): evaluated-only, and only if the
-        # checkpoint is actually on disk. They share the CNN progress stream.
         raw_specs = [(e["key"], os.path.join(models_dir, e["file"]), e["name"])
                      for e in reg if e["kind"] == "raw"
                      and os.path.isfile(os.path.join(models_dir, e["file"]))]
@@ -626,10 +578,6 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
             return stratified_subsample(samples, n, s) if (n and n > 0) else samples
 
         eval_corpora = eval_corpora or []
-        # Eval corpora can be enormous (2021 DF eval ≈ 600k trials), so when an
-        # explicit eval_subset is given it caps EVERY eval corpus (both streams)
-        # to a stratified, representative sample, the training sets keep their
-        # own (typically larger / full) subset. 0 ⇒ reuse each stream's subset.
         c_ev_n = eval_subset if eval_subset else classic_subset
         n_ev_n = eval_subset if eval_subset else cnn_subset
         c_tr = _sub(train, classic_subset, seed)
@@ -639,17 +587,12 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
         n_pr = _sub(primary, cnn_subset, seed + 1)
         n_ev = [(lbl, _sub(s, n_ev_n, seed + 2)) for lbl, s in eval_corpora]
 
-        # Carve an UNSEEN-ATTACK validation split out of the CNN training pool: the
-        # held-out attacks (e.g. A05/A06) leave training entirely and drive early
-        # stopping, so model selection rewards generalisation rather than memorising
-        # the train/dev-shared attacks. Empty holdout ⇒ fall back to dev (n_pr).
         cnn_val = None
         if include_cnn and ms_holdout:
             attack_ids = read_attack_ids(_train_protocol_path())
             n_tr, cnn_val = split_unseen_attacks(
                 n_tr, attack_ids, ms_holdout, ms_bona_frac, seed)
 
-        # Classic (CPU) and CNN (GPU) in parallel.
         with _cf.ThreadPoolExecutor(max_workers=2) as pool:
             f_c = pool.submit(_classic_sweep, ext, feat_labels, c_tr, c_pr, c_ev,
                               pname, seed, classic_paths, classic_keys)
@@ -658,18 +601,12 @@ def _run(ext, feat_labels, base_params, train, primary, eval_corpora, pname,
                                cnn_seeds, cnn_val)
                    if include_cnn else None)
             classic_rows = f_c.result()
-            cnn_rows     = f_n.result() if f_n is not None else []
+            cnn_rows = f_n.result() if f_n is not None else []
 
-        # Raw-waveform models are evaluated AFTER the CNN training, so they get the
-        # GPU to themselves (no VRAM contention on the 6 GB card). Their rows join
-        # the CNN stream for the in-page leaderboard.
         if include_cnn and raw_specs and not _cancel.is_set():
             cnn_rows = cnn_rows + _raw_sweep(ext, n_pr, n_ev, pname, base_params,
                                              raw_specs)
 
-    # Write the deployment leaderboard once the sweep finished cleanly. Persist the
-    # FULL set of rows (every model × split/corpus) with their model family tagged,
-    # so the web demo renders the IDENTICAL filterable table the local page shows.
     if export and not _cancel.is_set():
         persist_rows = []
         for r in classic_rows:
@@ -704,7 +641,6 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
     classic_rows: List[Dict] = []
     cnn_rows: List[Dict] = []
 
-    # ── Classic models ─────────────────────────────────────────────────────── #
     for fk in FEATURE_ORDER:
         if _cancel.is_set():
             _stream("classic", label="Cancelled")
@@ -745,14 +681,13 @@ def _run_eval_only(ext, feat_labels, eval_corpora, classic_subset,
                 item=f"{feat_labels[fk]} evaluated")
         _step(f"Classic · {feat_labels[fk]} done", inc=1)
 
-    # ── CNN models ─────────────────────────────────────────────────────────── #
     for e in [e for e in reg if e["kind"] == "cnn"]:
         if _cancel.is_set():
             _stream("cnn", label="Cancelled")
             break
-        arch_key   = e["arch"]
+        arch_key = e["arch"]
         arch_label = arch_label_for(arch_key)
-        path       = os.path.join(models_dir, e["file"])
+        path = os.path.join(models_dir, e["file"])
 
         if not os.path.isfile(path):
             _stream("cnn", label=f"{arch_label}, no saved model", inc=1)

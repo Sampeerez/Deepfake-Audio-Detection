@@ -50,7 +50,7 @@ st.markdown(themed("""
     background: linear-gradient(150deg, rgba(10,22,62,0.5), rgba(14,28,75,0.28));
     border: 1px solid rgba(79,139,249,0.16);
     border-radius: 1rem; padding: 1.4rem 1.3rem 1.2rem;
-    /* min-height (NOT a fixed height): the three cards still line up in the
+    /* min-height (not a fixed height): the three cards still line up in the
        common case, but text that wraps one line more (narrower window, other
        OS font metrics) grows the card instead of overflowing it. */
     min-height: 13rem; box-sizing: border-box;
@@ -135,17 +135,11 @@ st.markdown(themed("""
 </style>
 """), unsafe_allow_html=True)
 
-# Detect navigation via sidebar: if bench_choice was set from a previous visit,
-# but this load is not from a deliberate internal action, assume sidebar navigation
-# and clear bench_choice to show the home page. Don't pop _bench_action_source yet
-# so internal reruns within a mode keep it marked.
 _is_internal_action = st.session_state.get("_bench_action_source") == "internal"
 _current_choice = st.session_state.get("bench_choice")
-# Clear sidebar-nav marker only if we're actually at the home page (no choice)
 if not _current_choice:
     st.session_state.pop("_bench_action_source", None)
 elif not _is_internal_action:
-    # Sidebar nav happened while not in internal action: go back to home
     st.session_state.pop("bench_choice", None)
     st.session_state.pop("_bench_action_source", None)
 
@@ -164,7 +158,7 @@ if choice not in _MODES:
                 f'<div class="mode-card"><div class="mc-ic">{icon}</div>'
                 f'<div class="mc-title">{label}</div>'
                 f'<div class="mc-desc">{desc}</div></div>'
-                "<div style='height:0.7rem'></div>",   # space before the button
+                "<div style='height:0.7rem'></div>",
                 unsafe_allow_html=True,
             )
             if st.button(f"Open {label}", key=f"bench_open_{key}", width="stretch",
@@ -173,7 +167,6 @@ if choice not in _MODES:
                 st.session_state["_bench_action_source"] = "internal"
                 st.rerun()
 
-    # ── Fill the page: how a comparison works + what you have so far ───────── #
     st.markdown("<div style='height:1.4rem'></div>", unsafe_allow_html=True)
     st.markdown(
         '<div class="sec-head"><h3 class="sh-title">How the comparison works</h3>'
@@ -217,8 +210,6 @@ if choice not in _MODES:
         unsafe_allow_html=True,
     )
 else:
-    # In the CNN activation-map handoff view, _mode_cnn renders its own
-    # "← Back to CNN training" button, so don't also show the "← Modes" bar there.
     if not (choice == "cnn" and st.session_state.get("cnn_handoff")):
         c_back, _ = st.columns([1, 5])
         with c_back:

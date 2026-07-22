@@ -4,7 +4,7 @@ app_pages/5_Settings.py, Appearance & accessibility control panel.
 
 Staged-apply model
 ------------------
-Picking an option NEVER changes the app on its own: every control stages its
+Picking an option never changes the app on its own: every control stages its
 value in a private widget key (…_ctl) and nothing else. The app reads the
 PERSISTENT plain keys (sw_theme, sw_saber, …), which are only rewritten when the
 user presses "Save changes" (or "Restore defaults"). So the two commit buttons
@@ -36,32 +36,27 @@ _DEFAULTS = {
 }
 
 
-def _side_to_plain(w):   return "light" if w == "Light Side" else "dark"
-def _side_seed(p):       return _SIDE_LABELS.get(p, "Dark Side")
-def _color_norm(v):      return v if v in ACCENT_COLORS else "Red"
-def _ident(v):           return v
+def _side_to_plain(w): return "light" if w == "Light Side" else "dark"
+def _side_seed(p): return _SIDE_LABELS.get(p, "Dark Side")
+def _color_norm(v): return v if v in ACCENT_COLORS else "Red"
+def _ident(v): return v
 
 
-# One row per control: (widget key, [plain keys it commits to], widget→plain,
-# plain→widget seed). The FIRST plain key seeds the widget. This single table
-# drives seeding, the dirty check, Save and Restore, so a new setting is added
-# in exactly one place.
 _CONTROLS = [
-    ("sw_side_ctl",      ["sw_theme"],                   _side_to_plain, _side_seed),
-    ("sw_color_ctl",     ["sw_saber", "sw_audio_color"], _color_norm,    _color_norm),
-    ("sw_bg_ctl",        ["sw_bg"],                       _ident,         _ident),
-    ("sw_intensity_ctl", ["sw_bg_intensity"],             _ident,         _ident),
-    ("sw_ships_ctl",     ["sw_show_ships"],               bool,           bool),
-    ("sw_ds_ctl",        ["sw_show_deathstar"],           bool,           bool),
-    ("sw_rm_ctl",        ["sw_reduced_motion"],           bool,           bool),
-    ("sw_hc_ctl",        ["sw_contrast"],                 bool,           bool),
-    ("sw_ul_ctl",        ["sw_underline"],                bool,           bool),
-    ("sw_sp_ctl",        ["sw_text_spacing"],             bool,           bool),
-    ("sw_ts_ctl",        ["sw_text_scale"],               _ident,         _ident),
+    ("sw_side_ctl", ["sw_theme"], _side_to_plain, _side_seed),
+    ("sw_color_ctl", ["sw_saber", "sw_audio_color"], _color_norm, _color_norm),
+    ("sw_bg_ctl", ["sw_bg"], _ident, _ident),
+    ("sw_intensity_ctl", ["sw_bg_intensity"], _ident, _ident),
+    ("sw_ships_ctl", ["sw_show_ships"], bool, bool),
+    ("sw_ds_ctl", ["sw_show_deathstar"], bool, bool),
+    ("sw_rm_ctl", ["sw_reduced_motion"], bool, bool),
+    ("sw_hc_ctl", ["sw_contrast"], bool, bool),
+    ("sw_ul_ctl", ["sw_underline"], bool, bool),
+    ("sw_sp_ctl", ["sw_text_spacing"], bool, bool),
+    ("sw_ts_ctl", ["sw_text_scale"], _ident, _ident),
 ]
 
 
-# ── Staged-apply helpers ──────────────────────────────────────────────────────
 def _has_unsaved() -> bool:
     """True when any staged widget value differs from the committed plain key."""
     for ctl, plains, to_plain, _seed in _CONTROLS:
@@ -90,17 +85,14 @@ def _reset() -> None:
     st.toast("Defaults restored.", icon=":material/restart_alt:")
 
 
-# Seed each widget key from its saved value so the controls open on the saved
-# choice (setdefault only fills the first time the widget is created).
 for _ctl, _plains, _to_plain, _seed in _CONTROLS:
     _v = st.session_state.get(_plains[0], _DEFAULTS[_plains[0]])
     st.session_state.setdefault(_ctl, _seed(_v))
 
 
-# ── Page-local styling (themed so it swaps cleanly on the Light Side) ──────────
 st.markdown(themed("""
 <style>
-/* Section headers, NOT a glowing saber rule (too saturated on this dense page).
+/* Section headers, not a glowing saber rule (too saturated on this dense page).
    Instead a compact saber-coloured number chip with a soft glow: eye-catching but
    far less invasive, and it still tracks the chosen lightsaber colour.
    The chip darkens the saber colour under the white numeral (color-mix) so the
@@ -176,9 +168,6 @@ st.markdown(themed("""
 """), unsafe_allow_html=True)
 
 
-# Live blade preview: override --saber on THIS page's main area only, driven by
-# the STAGED colour, so the saber demo + section chips show the colour you are
-# about to save (the rest of the app keeps the saved colour until you Save).
 _staged_hex = ACCENT_COLORS.get(_color_norm(st.session_state.get("sw_color_ctl")), "#FF3B3B")
 _r, _g, _b = (int(_staged_hex[i:i + 2], 16) for i in (1, 3, 5))
 st.markdown(
@@ -188,7 +177,6 @@ st.markdown(
 )
 
 
-# ── Title (a normal page title, like every other page) ────────────────────────
 st.title("Settings")
 st.caption(
     "Choose your side of the Force, pick a lightsaber colour, command the viewport "
@@ -207,7 +195,6 @@ def _sec(num: str, title: str, sub: str) -> None:
     )
 
 
-# ── Appearance ────────────────────────────────────────────────────────────────
 _sec("01", "Appearance", "Your side of the Force and a lightsaber to match.")
 
 _c1, _c2 = st.columns(2, gap="large")
@@ -227,9 +214,6 @@ with _c2:
     with st.container(border=True, key="appbox_color"):
         st.markdown('<div class="section-label">Accent & Audio colour</div>',
                     unsafe_allow_html=True)
-        # nosearch_* container → CSS makes this a pure dropdown: no text caret, no
-        # type-to-filter, click to open and pick only (there are just 5 named
-        # colours, typing to search adds nothing but a stray focus caret).
         with st.container(key="nosearch_color"):
             st.selectbox(
                 "Accent & Audio colour",
@@ -242,7 +226,6 @@ with _c2:
                     unsafe_allow_html=True)
 
 
-# ── Viewport / background ─────────────────────────────────────────────────────
 _sec("02", "Viewport", "The space beyond the canopy.")
 
 with st.container(border=True):
@@ -294,7 +277,6 @@ with st.container(border=True):
     )
 
 
-# ── Accessibility ─────────────────────────────────────────────────────────────
 _sec("03", "Accessibility", "Make the app easier to read and calmer. "
      "Applies across every page when you save.")
 
@@ -336,7 +318,6 @@ with st.container(border=True, key="a11ygrid"):
     )
 
 
-# ── Save / reset ──────────────────────────────────────────────────────────────
 st.markdown('<div style="height:0.6rem;"></div>', unsafe_allow_html=True)
 _dirty = _has_unsaved()
 _s1, _s2, _s3 = st.columns([2.4, 1, 1], vertical_alignment="center")

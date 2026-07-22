@@ -2,7 +2,7 @@
 """
 app_pages/3_Detection_Analysis.py, Two complementary views:
 
-  • "Test an audio", drop your own .flac / .wav and have EVERY pretrained model
+  • "Test an audio", drop your own .flac / .wav and have every pretrained model
     (wav2vec 2.0, the deep spectrogram nets, 5-Block CNN ±SE, ResNet+SE,
     ResNeXt+SE, CRNN, and the classic ML × DSP detectors) score it in
     parallel on CPU: a live, side-by-side comparison with a consensus verdict.
@@ -49,18 +49,13 @@ from src.ui_helpers import (  # noqa: E402
 )
 
 FEATURE_LABELS = FeatureExtractor.OPTION_NAMES
-# Front-ends offered in the split analysis, the five trained ones (RMS, MFCC,
-# LFCC, DWT, CQCC). "Full Fusion" (option "5") is intentionally left out: it is not
-# part of the model zoo / leaderboard.
-FEATURE_ORDER  = ["1", "2", "3", "4", "6"]
-CLASSIFIERS    = {
+FEATURE_ORDER = ["1", "2", "3", "4", "6"]
+CLASSIFIERS = {
     "Logistic Regression": "logistic_regression",
-    "SVM (RBF)":           "svm_lineal",
-    "XGBoost":             "xgboost",
+    "SVM (RBF)": "svm_lineal",
+    "XGBoost": "xgboost",
 }
 
-# CSS: explicit height on Analyze/Clear buttons to match the file-uploader drop
-# zone height (label is collapsed, leaving only the drop zone ~56 px).
 st.markdown("""
 <style>
 [class*="st-key-da_analyze_btn"] button,
@@ -119,17 +114,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Weighted late-fusion that produces the headline verdict on "Test an audio".
-# The cross-domain benchmark (2019 eval + 2021 LA/DF) is unambiguous: the
-# self-supervised wav2vec 2.0 is by far the most reliable detector (~10.5% mean
-# eval EER, and the only model with a useful cross-domain minDCF), and among the
-# spectrogram nets the grouped-convolution ResNeXt+SE is the strongest AND the
-# most stable across seeds (best dev minDCF 0.24, EER std 0.04). The classic DSP
-# detectors collapse out of domain (minDCF ≈ 1.0), so they are NOT trusted for the
-# verdict, they stay visible in the full panel below. The verdict therefore fuses
-# just those two complementary views: raw-waveform SSL + the best spectrogram deep network.
-# Weights are renormalised at fusion time, and any member that fails to load is
-# skipped (so the verdict degrades gracefully to whatever loaded).
 FUSION_WEIGHTS = {"wav2vec2": 0.65, "resnext": 0.35}
 
 
@@ -145,19 +129,19 @@ def _fusion_verdict(rows):
             r = by_key[key]
             members.append({"key": key, "name": r["Model"], "weight": w,
                             "p": r["p(spoof)"], "thr": float(r.get("thr", 0.5))})
-    wsum  = sum(m["weight"] for m in members)
-    fused = (sum(m["weight"] * m["p"]   for m in members) / wsum) if wsum else float("nan")
-    fthr  = (sum(m["weight"] * m["thr"] for m in members) / wsum) if wsum else 0.5
+    wsum = sum(m["weight"] for m in members)
+    fused = (sum(m["weight"] * m["p"] for m in members) / wsum) if wsum else float("nan")
+    fthr = (sum(m["weight"] * m["thr"] for m in members) / wsum) if wsum else 0.5
     for m in members:
         m["wnorm"] = (m["weight"] / wsum) if wsum else 0.0
     return {"members": members, "fused": fused, "fused_thr": fthr,
             "verdict": "SPOOF" if (wsum and fused >= fthr) else "BONAFIDE"}
 
 extractor = get_extractor()
-device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dev_label = "CUDA GPU" if device.type == "cuda" else "CPU"
 
-corpus_ok  = corpus_available()
+corpus_ok = corpus_available()
 pre_models = available_pretrained_models()
 
 st.title("Detection Analysis")
@@ -166,7 +150,6 @@ st.markdown(
     "or pick a detector and explore how it separates bonafide from spoof on a corpus split."
 )
 
-# Nothing to run at all → a single clear notice.
 if not corpus_ok and not pre_models:
     demo_corpus_notice(
         "Detection Analysis unavailable",
@@ -178,9 +161,6 @@ if not corpus_ok and not pre_models:
     st.stop()
 
 
-# ── Split-analysis scorers (local; need the corpus) ──────────────────────── #
-# Train subset size for locally-trained classics in the eval-corpus split tab
-# (eval clip count is chosen separately now, so training size is fixed here).
 _CLASSIC_TRAIN_SUBSET = 800
 
 
@@ -254,7 +234,6 @@ def _score_raw_on_samples(model, mdev, samples, max_samples=64000):
     return scores, labels
 
 
-# ── Web-demo scorers: pretrained registry models on HF-streamed eval clips ─── #
 def _score_classic_on_samples(entry, samples):
     """Load a pretrained classic estimator and score it on (path, label) clips."""
     model = load_pretrained_model(entry)
@@ -280,32 +259,27 @@ def _render_split_results():
 
     scores = np.asarray(st.session_state["da_scores"], dtype=float)
     labels = np.asarray(st.session_state["da_labels"], dtype=int)
-    name   = st.session_state["da_name"]
+    name = st.session_state["da_name"]
 
-    # The EER / minDCF / ROC-DET curves and the binned histogram do NOT depend on
-    # the threshold, so compute them ONCE per analysed split and stash them in
-    # session state. Moving the slider then only recomputes the three cheap
-    # operating-point numbers, keeping the redraw snappy. Pre-binning the histogram
-    # (~80 rows instead of up to 10 000 raw points) is the other big win.
     _fp = (name, int(scores.size), float(np.round(scores.sum(), 4)))
     if st.session_state.get("_da_static_fp") != _fp:
-        _bona  = scores[labels == LABEL_BONAFIDE]
+        _bona = scores[labels == LABEL_BONAFIDE]
         _spoof = scores[labels == LABEL_SPOOF]
         _eer, _eer_thr = calculate_eer(scores.tolist(), labels.tolist())
-        _mindcf        = calculate_min_dcf(scores.tolist(), labels.tolist())
+        _mindcf = calculate_min_dcf(scores.tolist(), labels.tolist())
         _grid = np.linspace(0.0, 1.0, 401)
-        _far  = np.array([(_spoof < t).mean() if len(_spoof) else 0.0 for t in _grid])
-        _frr  = np.array([(_bona >= t).mean() if len(_bona)  else 0.0 for t in _grid])
+        _far = np.array([(_spoof < t).mean() if len(_spoof) else 0.0 for t in _grid])
+        _frr = np.array([(_bona >= t).mean() if len(_bona) else 0.0 for t in _grid])
         _tpr, _fpr = 1.0 - _far, _frr
         _order = np.argsort(_fpr)
         _trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
-        _auc  = float(_trapz(_tpr[_order], _fpr[_order]))
+        _auc = float(_trapz(_tpr[_order], _fpr[_order]))
         _edges = np.linspace(0.0, 1.0, 41)
-        _bc, _ = np.histogram(_bona,  bins=_edges)
+        _bc, _ = np.histogram(_bona, bins=_edges)
         _sc, _ = np.histogram(_spoof, bins=_edges)
         _hist = pd.DataFrame({
             "b0": np.concatenate([_edges[:-1], _edges[:-1]]),
-            "b1": np.concatenate([_edges[1:],  _edges[1:]]),
+            "b1": np.concatenate([_edges[1:], _edges[1:]]),
             "count": np.concatenate([_bc, _sc]).astype(int),
             "cls": ["Bonafide"] * (len(_edges) - 1) + ["Spoof"] * (len(_edges) - 1)})
         st.session_state["_da_static"] = {
@@ -339,7 +313,7 @@ def _render_split_results():
         "A clip is declared SPOOF when its score  p(spoof) ≥ threshold",
         0.0, 1.0, float(round(eer_thr, 3)), 0.005)
     t_far = float((spoof < thr).mean()) if len(spoof) else 0.0
-    t_frr = float((bona >= thr).mean()) if len(bona)  else 0.0
+    t_frr = float((bona >= thr).mean()) if len(bona) else 0.0
     t_acc = float(((scores >= thr).astype(int) == labels).mean())
 
     c1, c2, c3 = st.columns(3)
@@ -351,14 +325,11 @@ def _render_split_results():
               help="Correct decisions at this threshold.")
 
     st.divider()
-    # Only the threshold-dependent marks are rebuilt each move (tiny frames).
     op = pd.DataFrame({"FPR": [t_frr], "TPR": [1 - t_far],
                        "FAR_pct": [100 * t_far], "FRR_pct": [100 * t_frr]})
-    thr_df  = pd.DataFrame({"x": [float(thr)]})
+    thr_df = pd.DataFrame({"x": [float(thr)]})
     eerx_df = pd.DataFrame({"x": [float(eer_thr)]})
 
-    # Fixed plot height; clip=True on the moving marks so a point at a scale edge
-    # never makes Vega re-pad (which is what resized the charts as the slider moved).
     _H = 380
     g1, g2, g3 = st.columns(3, gap="medium")
     with g1:
@@ -367,10 +338,6 @@ def _render_split_results():
             f"<span style='color:{BONAFIDE_COLOR};font-weight:700;'>● Bonafide</span> "
             f"&nbsp;<span style='color:{SPOOF_COLOR};font-weight:700;'>● Spoof</span>",
             unsafe_allow_html=True)
-        # Two single-colour layers (one per class) so each bar is anchored to a
-        # zero baseline and they OVERLAY (translucent) instead of stacking, a
-        # colour-encoded bar with stack=None loses its 0-baseline and renders as
-        # thin floating dashes, which is what broke before.
         def _hbar(_d, _c):
             return alt.Chart(_d).mark_bar(opacity=0.6, color=_c).encode(
                 x=alt.X("b0:Q", bin="binned", title="p(spoof)",
@@ -416,27 +383,20 @@ def _render_split_results():
 
 
 
-# ===========================================================================
-# Single-clip inference shared by the multi-model tab
-# ===========================================================================
 def _open_in_signal_explorer(blob: bytes, fname: str) -> None:
     """Drop everything currently loaded in Signal Explorer and place THIS uploaded
     clip as its single source, then jump to that page so the user can browse every
     representation of the same audio. Mirrors Signal Explorer's session contract
     (slot prefixes a/b/c, plain upload keys, the cross-page `_se_memory` dict)."""
-    for p in ("a", "b", "c"):                       # wipe all existing slots
+    for p in ("a", "b", "c"):
         for k in [key for key in list(st.session_state) if key.startswith(f"{p}_")]:
             del st.session_state[k]
-    # Pre-select EVERY representation so the user sees them all without ticking
-    # any. Must match Signal Explorer's ALL_VIEWS exactly: an unknown view name
-    # here would corrupt the se_views pills state on arrival.
     _all_views = ["Waveform", "STFT", "CNN Input", "MFCC", "LFCC", "CQCC"]
-    st.session_state["se_n"]            = 1
-    st.session_state["se_views"]        = list(_all_views)
-    st.session_state["a_source"]        = "Upload"
-    st.session_state["a_upload_name"]   = fname or "uploaded.wav"
-    st.session_state["a_upload_bytes"]  = blob
-    # Seed the cross-page memory too, so Signal Explorer's _restore() keeps it.
+    st.session_state["se_n"] = 1
+    st.session_state["se_views"] = list(_all_views)
+    st.session_state["a_source"] = "Upload"
+    st.session_state["a_upload_name"] = fname or "uploaded.wav"
+    st.session_state["a_upload_bytes"] = blob
     mem = st.session_state.get("_se_memory")
     mem = mem if isinstance(mem, dict) else {}
     for k in [key for key in list(mem) if key[:2] in ("a_", "b_", "c_")]:
@@ -480,7 +440,7 @@ def _analyse_all_models(signal, entries, loaded, thresholds):
     predicts on its precomputed representation. Each model is judged against ITS
     OWN best threshold (``thresholds[key]``, the dev EER operating point from the
     leaderboard; 0.5 if unknown). Returns a list of result dicts."""
-    need_spec  = any(e["kind"] == "cnn" for e in entries)
+    need_spec = any(e["kind"] == "cnn" for e in entries)
     uniq_feats = sorted({e["feat"] for e in entries if e["kind"] == "classic"})
 
     feat_vecs, spec_np = {}, None
@@ -499,17 +459,13 @@ def _analyse_all_models(signal, entries, loaded, thresholds):
     rows = []
     for e in entries:
         model = loaded[e["key"]]
-        acts  = None
+        acts = None
         if e["kind"] == "cnn":
             model.eval()
             with torch.no_grad():
                 logit, acts = model.forward_with_activations(spec_tensor)
             prob = float(torch.sigmoid(logit).item())
         elif e["kind"] == "raw":
-            # wav2vec 2.0 eats the full raw waveform directly (no crop for a
-            # single clip); p(spoof) is its own softmax, not a sigmoid. The cached
-            # model may live on GPU (e.g. after a split analysis), so send the input
-            # to wherever its weights are instead of assuming CPU.
             _mdev = next(model.parameters()).device
             wave = torch.from_numpy(signal).unsqueeze(0).float().to(_mdev)
             with torch.no_grad():
@@ -518,13 +474,13 @@ def _analyse_all_models(signal, entries, loaded, thresholds):
             prob = float(model.predict_proba(feat_vecs[e["feat"]])[0, 1])
         _thr = float(thresholds.get(e["key"], 0.5))
         rows.append({
-            "key":     e["key"],
-            "Model":   e["name"],
+            "key": e["key"],
+            "Model": e["name"],
             "Front-end": e["front"],
             "p(spoof)": prob,
-            "thr":     _thr,
+            "thr": _thr,
             "Verdict": "SPOOF" if prob >= _thr else "BONAFIDE",
-            "_acts":   acts,
+            "_acts": acts,
         })
     return rows
 
@@ -533,19 +489,18 @@ def _render_test_results(rows, signal, blob, fname):
     """Render the full Test-an-audio results panel: fusion card, model chips,
     table/chart, signal views, and deep network activation maps. Each model's Verdict was
     already decided at its OWN best threshold in _analyse_all_models."""
-    probs   = [r["p(spoof)"] for r in rows]
-    mean_p  = float(np.mean(probs))
+    probs = [r["p(spoof)"] for r in rows]
+    mean_p = float(np.mean(probs))
     n_spoof = int(sum(r["Verdict"] == "SPOOF" for r in rows))
     n_total = len(rows)
 
-    fusion  = _fusion_verdict(rows)
+    fusion = _fusion_verdict(rows)
     _members = fusion["members"]
-    fused_p  = fusion["fused"]
-    v_color  = SPOOF_COLOR if fusion["verdict"] == "SPOOF" else BONAFIDE_COLOR
-    v_text   = ("SPOOF · deepfake" if fusion["verdict"] == "SPOOF"
+    fused_p = fusion["fused"]
+    v_color = SPOOF_COLOR if fusion["verdict"] == "SPOOF" else BONAFIDE_COLOR
+    v_text = ("SPOOF · deepfake" if fusion["verdict"] == "SPOOF"
                 else "BONAFIDE · real speech")
 
-    # Verdict panel (left) + fusion members as vertical chips (right)
     def _member_chip(m):
         p_val = m['p']
         m_name = m['name']
@@ -557,10 +512,6 @@ def _render_test_results(rows, signal, blob, fname):
                 f"<div style='font-size:0.8rem;color:#9EA8C0;margin-top:0.2rem;'>"
                 f"p={p_val:.2f}</div></div>")
     _member_chips = "".join(_member_chip(m) for m in _members)
-    # Verdict panel, centered, fusion members beside it. Fluid sizing: the panel
-    # shrinks (and the members wrap below it) on narrow windows instead of the
-    # old fixed 700px box forcing a horizontal overflow. themed() swaps the
-    # grey/blue text literals for readable ones on the Light Side.
     st.markdown(themed(
         f"<div style='display:flex;flex-wrap:wrap;gap:1.4rem 2rem;align-items:center;"
         f"margin:1.2rem auto 1.6rem;justify-content:center;'>"
@@ -569,7 +520,7 @@ def _render_test_results(rows, signal, blob, fname):
         f"border-radius:1rem;border:2px solid {v_color}59;"
         f"box-shadow:0 0 30px {v_color}55, inset 0 0 30px {v_color}1f;text-align:center;'>"
         f"<span style='display:block;font-size:0.7rem;font-weight:800;letter-spacing:0.16em;"
-        f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.4rem;'>Final verdict — weighted fusion</span>"
+        f"text-transform:uppercase;color:#9EA8C0;margin-bottom:0.4rem;'>Final verdict: weighted fusion</span>"
         f"<span style='font-size:clamp(1.9rem,4.2vw,3.2rem);font-weight:700;color:{v_color};"
         f"text-shadow:0 0 20px {v_color}aa;display:block;'>"
         f"{v_text}</span>"
@@ -611,10 +562,6 @@ def _render_test_results(rows, signal, blob, fname):
     )
     st.divider()
 
-    # SINGLE source of model ordering for the table AND the chart: this frame,
-    # sorted most-suspicious-first (same convention as the verdict chip grid
-    # above). The chart consumes the resulting Model list as its explicit sort,
-    # so the two views can never drift apart again.
     df = (pd.DataFrame([{"Model": r["Model"], "Front-end": r["Front-end"],
                          "p(spoof)": r["p(spoof)"], "threshold": r.get("thr", 0.5),
                          "Verdict": r["Verdict"]} for r in rows])
@@ -647,7 +594,6 @@ def _render_test_results(rows, signal, blob, fname):
                                                     range=[BONAFIDE_COLOR, SPOOF_COLOR])),
                     tooltip=["Model", "Front-end", "p(spoof)", "threshold", "Verdict"])
                .properties(height=max(150, 42 * len(df))))
-        # Each model's OWN threshold, as a yellow tick on its bar
         ticks = (alt.Chart(df).mark_tick(color="#FFD54F", thickness=2, size=22)
                  .encode(x="threshold:Q", y=alt.Y("Model:N", sort=_model_order)))
         st.altair_chart(bar + ticks, width="stretch")
@@ -671,9 +617,6 @@ def _render_test_results(rows, signal, blob, fname):
         st.pyplot(fig_cnn_input(signal, extractor), clear_figure=True,
                   bbox_inches=None)
 
-    # Canonical display order: 5-Block CNN, +SE, ResNet+SE, ResNeXt+SE, CRNN, so
-    # the 2-per-row grid here AND the dropdown in CNN Learning both read row 1
-    # (cnn, cnn+se) · row 2 (resnet, resnext) · row 3 (crnn).
     _MAP_ORDER = {"cnn5": 0, "cnn5_se": 1, "resnet": 2, "resnext": 3, "crnn": 4}
     _cnn_rows = sorted([r for r in rows if r["_acts"] is not None],
                        key=lambda r: _MAP_ORDER.get(r["key"], 99))
@@ -695,8 +638,6 @@ def _render_test_results(rows, signal, blob, fname):
                 }
                 st.session_state["bench_choice"] = "cnn"
                 st.switch_page("app_pages/2_Benchmark.py")
-        # Two maps per row (instead of cramming all five into one) so each renders
-        # large enough to read; the last row may hold a single map.
         _per_row = 2
         for _start in range(0, len(_cnn_rows), _per_row):
             _cols = st.columns(_per_row)
@@ -710,20 +651,11 @@ def _render_test_results(rows, signal, blob, fname):
                     )
 
 
-# ===========================================================================
-# Tabs, the multi-model "Test an audio" leads on BOTH the web demo and locally,
-# so the layout is identical everywhere (Test an audio first, split second).
-# ===========================================================================
 tab_test, tab_analyse = st.tabs(["Test an audio", "Analyse on a split"])
 
-# These are only meaningful in the (corpus-backed) split analysis below; pre-set
-# so the sidebar never trips over them in the demo.
 source = feat_key = clf_disp = None
 
 
-# ===========================================================================
-# Multi-model file analysis, works fully on CPU, no corpus needed
-# ===========================================================================
 with tab_test:
   if not pre_models:
     demo_corpus_notice(
@@ -745,17 +677,10 @@ with tab_test:
         "**wav2vec 2.0** (0.65) and the best spectrogram net, **ResNeXt+SE** (0.35); "
         "the full panel of every model is shown below."
     )
-    # Per-model decision thresholds, each model's dev EER operating point, recorded
-    # in leaderboard.json by the full sweep (0.5 fallback when not present yet).
     _board = load_leaderboard_models() or {}
     thresholds = {k: float(m["thr_dev"]) for k, m in _board.items()
                   if isinstance(m, dict) and isinstance(m.get("thr_dev"), (int, float))}
 
-    # Corpus → (live split, bundled-clips subset). The picker prefers the FULL
-    # live corpus when it is on disk, and otherwise falls back to the clips
-    # COMMITTED under samples/<corpus>/<subset>/, so the corpus-less web demo can
-    # still pick from the repo's bundled audio (mirrors Signal Explorer). Without
-    # this, corpus_available*() is False on the cloud and the picker was empty.
     _CORPUS_SUBSET = {"2019 LA": "dev", "2021 LA": "eval", "2021 DF": "eval"}
 
     def _corpus_pool(corpus):
@@ -767,47 +692,36 @@ with tab_test:
             live = get_samples_2021_df() if corpus_available_2021_df() else []
         return live or bundled_samples(corpus, _CORPUS_SUBSET[corpus])
 
-    # ── All controls in one compact row ──────────────────────────────────── #
     _c_up, _c_or, _c_corp, _c_type, _c_samp, _c_ana, _c_clr = st.columns([2, 0.6, 0.7, 0.7, 0.7, 1, 0.5], vertical_alignment="top")
 
-    # A corpus is offered when it has ANY clips to pick from (live split or
-    # bundled). The pools are cheap: get_samples* are cached and empty in demo
-    # mode, bundled_samples is a local dir scan, no network here.
     _corpus_opts = [c for c in ("2019 LA", "2021 LA", "2021 DF") if _corpus_pool(c)]
 
-    # Upload
     with _c_up:
         uploaded = st.file_uploader(
             "Upload",
             type=["flac", "wav", "mp3", "ogg", "m4a"],
             key="da_test_upload", label_visibility="collapsed")
 
-    # OR separator
     with _c_or:
         st.markdown("<div style='text-align:center;color:#9EA8C0;font-size:0.85rem;display:flex;align-items:center;justify-content:center;height:56px;width:100%;'>OR</div>",
                    unsafe_allow_html=True)
 
-    # Corpus selector
     with _c_corp:
         with st.container(key="nosearch_corpus"):
             _sel_corp = st.selectbox("Corpus", _corpus_opts or ["—"],
                                     key="da_corpus_sel", label_visibility="collapsed")
 
-    # Type selector (bonafide / spoof)
     with _c_type:
         with st.container(key="nosearch_type"):
             _sel_typ = st.selectbox("Type", ["Bonafide", "Spoof"],
                                    key="da_type_sel", label_visibility="collapsed")
 
-    # Load samples based on corpus selection (live split or bundled repo clips).
     if _sel_corp and _sel_corp != "—":
         _all_samples = _corpus_pool(_sel_corp)
 
-        # Filter by type
         _label_val = 0 if _sel_typ == "Bonafide" else 1
         _filtered_samples = [(p, l) for p, l in _all_samples if l == _label_val]
 
-        # Format samples for display
         _sample_display = []
         _sample_data = []
         for path, label in _filtered_samples[:50]:
@@ -816,7 +730,6 @@ with tab_test:
             _sample_display.append(display_str)
             _sample_data.append((path, label))
 
-        # Sample selector
         with _c_samp:
             with st.container(key="nosearch_sample"):
                 _sel = st.selectbox("Sample", ["—"] + _sample_display,
@@ -837,21 +750,14 @@ with tab_test:
         with _c_samp:
             st.selectbox("Sample", ["—"], label_visibility="collapsed", disabled=True)
 
-    # Analyze button
     with _c_ana:
         _has_audio = st.session_state.get("da_test_bytes") is not None
         do_analyze = st.button("Analyze", type="primary", icon=":material/radar:",
                                width="stretch", key="da_analyze_btn",
                                disabled=not _has_audio)
-        # Arriving from the Voice Cloner: score the clip immediately, no click.
         if _has_audio and st.session_state.pop("da_auto_analyze", False):
             do_analyze = True
 
-    # Clear button. An on_click callback that also resets the upload and sample
-    # widgets: clearing only the payload keys is not enough, because on the next
-    # run the file_uploader (or the sample selectbox) still holds its value and
-    # immediately re-seeds da_test_bytes, so Clear appears to do nothing. Popping
-    # the widget keys makes them come back empty.
     def _clear_da_test():
         for _k in ("da_test_bytes", "da_test_name", "da_test_rows",
                    "da_test_upload", "da_test_sample"):
@@ -861,15 +767,14 @@ with tab_test:
         st.button("Clear", icon=":material/close:", width="stretch",
                   key="da_clear_btn", on_click=_clear_da_test)
 
-    # Handle uploaded file (if file_uploader was used, not the sample selector).
     if uploaded is not None:
         _new = uploaded.getvalue()
         if _new != st.session_state.get("da_test_bytes"):
             st.session_state.pop("da_test_rows", None)
         st.session_state["da_test_bytes"] = _new
-        st.session_state["da_test_name"]  = uploaded.name
+        st.session_state["da_test_name"] = uploaded.name
 
-    _blob  = st.session_state.get("da_test_bytes")
+    _blob = st.session_state.get("da_test_bytes")
     _fname = st.session_state.get("da_test_name")
 
     if _blob is None:
@@ -882,7 +787,6 @@ with tab_test:
         if uploaded is None and _fname:
             st.caption(f"Loaded: **{_fname}**, click Analyze to score, or Clear to discard.")
 
-        # Load signal (needed for both analysis and display). Errors surface here.
         try:
             signal = extractor.load_audio_bytes(_blob, _fname)
         except Exception as _ex:
@@ -912,9 +816,6 @@ with tab_test:
             _render_test_results(_cached_rows, signal, _blob, _fname)
 
 
-# ===========================================================================
-# Analyse one detector on a corpus split (local; needs the dataset)
-# ===========================================================================
 def _clear_split_state() -> None:
     """Discard the current split-analysis result and rerun. Shared verbatim by
     the Clear buttons of both the local-corpus and the web/HF split branches."""
@@ -940,9 +841,6 @@ with tab_analyse:
         source = source or "Classic models"
         _busy = op_busy_notice()
 
-        # Bind all three up front: the store block below reads feat_key/clf_disp/
-        # cnn_name regardless of branch, so selecting CNN/SSL must not leave the
-        # classic-only names unbound (that would NameError on Analyze).
         feat_key = clf_disp = cnn_name = None
         if source == "Classic models":
             c1, c2 = st.columns(2, vertical_alignment="bottom")
@@ -955,14 +853,11 @@ with tab_analyse:
                 with st.container(key="nosearch_da_clf"):
                     clf_disp = st.selectbox("Classifier", list(CLASSIFIERS), key="da_clf")
         elif source == "Deep networks":
-            # Pick WHICH pretrained deep model (ResNet+SE, 5-Block CNN, CRNN, …) to score.
             _cnn_entries = [e for e in pre_models if e["kind"] == "cnn"]
             with st.container(key="nosearch_da_cnn"):
                 cnn_name = st.selectbox("CNN", [e["name"] for e in _cnn_entries],
                                         key="da_cnn")
         elif source == "SSL":
-            # The self-supervised transformer family (wav2vec 2.0), kept distinct
-            # from the CNNs for methodological clarity.
             _ssl_entries = [e for e in pre_models if e["kind"] == "raw"]
             with st.container(key="nosearch_da_ssl"):
                 cnn_name = st.selectbox("SSL model", [e["name"] for e in _ssl_entries],
@@ -1020,7 +915,7 @@ with tab_analyse:
                     name = f"CNN · {corpus} eval"
                 st.session_state["da_scores"] = sc
                 st.session_state["da_labels"] = lb
-                st.session_state["da_name"]   = name
+                st.session_state["da_name"] = name
                 st.session_state["da_detector"] = {
                     "source": source, "feat": feat_key,
                     "clf": clf_disp, "cnn": cnn_name}
@@ -1028,11 +923,9 @@ with tab_analyse:
     _render_split_results()
 
   elif pre_models:
-    # Web demo: score a PRETRAINED registry model on eval clips streamed from the
-    # public Hugging Face datasets (no corpus, no training, cross-dataset eval).
     classic_entries = [e for e in pre_models if e["kind"] == "classic"]
-    cnn_entries     = [e for e in pre_models if e["kind"] == "cnn"]
-    ssl_entries     = [e for e in pre_models if e["kind"] == "raw"]
+    cnn_entries = [e for e in pre_models if e["kind"] == "cnn"]
+    ssl_entries = [e for e in pre_models if e["kind"] == "raw"]
 
     with st.container(border=True):
         st.markdown('<div class="section-label">Detector</div>', unsafe_allow_html=True)
@@ -1044,9 +937,6 @@ with tab_analyse:
         source = source or src_opts[0]
         _busy = op_busy_notice()
 
-        # Bind all three up front: the store block below reads feat_key/clf_disp/
-        # cnn_name regardless of branch, so selecting CNN/SSL must not leave the
-        # classic-only names unbound (that would NameError on Analyze).
         feat_key = clf_disp = cnn_name = None
         if source == "Classic models":
             feats = sorted({e["feat"] for e in classic_entries},
@@ -1119,7 +1009,7 @@ with tab_analyse:
                     name = f"{cnn_name} · {corpus} eval"
                 st.session_state["da_scores"] = sc
                 st.session_state["da_labels"] = lb
-                st.session_state["da_name"]   = name
+                st.session_state["da_name"] = name
                 st.session_state["da_detector"] = {
                     "source": source, "feat": feat_key,
                     "clf": clf_disp, "cnn": cnn_name}
@@ -1134,13 +1024,8 @@ with tab_analyse:
         "Hugging Face weights folder, or run the app locally with the dataset.",
     )
 
-# ── Sidebar ──────────────────────────────────────────────────────────────── #
 with st.sidebar:
     _rows = [("Device", dev_label), ("Models", f"{len(pre_models)} pretrained")]
-    # Detector details belong to the "Analyse on a split" tab, so only show them
-    # once a split has actually been scored (never on the "Test an audio" tab,
-    # where the feature/classifier selection is meaningless). For a classic model
-    # we surface its front-end + classifier; for a deep network, the deep network name.
     if "da_scores" in st.session_state:
         _det = st.session_state.get("da_detector", {})
         _src = _det.get("source")

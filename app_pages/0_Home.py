@@ -19,7 +19,6 @@ from src.ui_helpers import (  # noqa: E402
     load_config, sidebar_panel, themed,
 )
 
-# Audio equaliser colour, follows the accent chosen in Settings.
 _audio_color_name = st.session_state.get("sw_audio_color", "Red")
 _audio_color_hex = ACCENT_COLORS.get(_audio_color_name, ACCENT_COLORS["Red"])
 _audio_grad_light = f"{_audio_color_hex}EE"
@@ -171,21 +170,19 @@ _CSS_BASE = """
 _CSS = _CSS_BASE.replace("AUDIO_GRADIENT_PLACEHOLDER", _audio_gradient).replace("AUDIO_GLOW_PLACEHOLDER", _audio_glow)
 st.markdown(themed(_CSS), unsafe_allow_html=True)
 
-# ── Minimal data needed for the stat strip ──────────────────────────────── #
-config    = load_config()
+config = load_config()
 corpus_ok = corpus_available()
-n_tr      = len(get_samples("train")) if corpus_ok else 0
+n_tr = len(get_samples("train")) if corpus_ok else 0
 
 try:
     import torch
-    torch_ver  = torch.__version__
-    cuda_ok    = torch.cuda.is_available()
+    torch_ver = torch.__version__
+    cuda_ok = torch.cuda.is_available()
     device_str = torch.cuda.get_device_name(0) if cuda_ok else "CPU (no GPU)"
     cuda_badge = "CUDA" if cuda_ok else "CPU"
 except Exception:
     torch_ver, device_str, cuda_badge, cuda_ok = "N/A", "PyTorch not installed", ", ", False
 
-# ── Hero, flush at the very top ────────────────────────────────────────── #
 st.markdown("""
 <div class="hero-banner">
     <div class="hero-overline">TFG · Ingeniería Informática · Universidad de La Laguna</div>
@@ -212,9 +209,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Audio equaliser strip, animated "spectrum" bars replacing the old glowing
-#    accent line under the hero. A travelling wave (per-bar phase delay) makes it
-#    read as live audio. ────────────────────────────────────────────────────── #
 _N_BARS = 96
 _eq_spans = "".join(
     '<span style="height:{h}px;animation-delay:{d:.2f}s"></span>'.format(
@@ -226,10 +220,6 @@ _eq_spans = "".join(
 st.markdown(f'<div class="audio-eq" aria-hidden="true">{_eq_spans}</div>',
             unsafe_allow_html=True)
 
-# Smooth hover SPEED ramp for the equaliser (CSS can't transition animation
-# speed, so we ease each bar's Web-Animation playbackRate toward a target that
-# climbs while hovered and decays back to rest when the pointer leaves).
-# Hosted in a collapsed container so the height=1 iframe never shows as a line.
 with st.container(key="eqramp_host"):
   st.iframe(
     """
@@ -266,7 +256,6 @@ with st.container(key="eqramp_host"):
     height=1,
 )
 
-# ── Stat strip, editorial numerals (full official corpus sizes) ────────── #
 st.markdown(
     '<div class="stat-strip">'
     '<div class="stat-cell"><div class="st-num">25,380</div>'
@@ -284,7 +273,6 @@ st.markdown(
 
 st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 
-# ── Explore, the whole tile is a real clickable link ───────────────────── #
 _ICON_SE = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
             'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
             '<path d="M3 12h2l2-6 3 14 3-11 2 5h6"/></svg>')
@@ -351,7 +339,6 @@ _nav_tile(m_col, "met", "nt-ref nt-wide", _ICON_MET, "Methodology",
           "Corpora, methods &amp; metrics, the full picture behind the "
           "benchmark.", "app_pages/4_Methodology.py")
 
-# ── Tech stack + footer (closed ending, no scroll past this point) ─────── #
 st.markdown("""
 <div class="tech-stack" style="margin-top:1.2rem;">
 <span class="tech-pill">Python 3.12</span>
@@ -375,7 +362,6 @@ app_footer(
     "Anti-spoofing binario (bonafide vs. spoof)",
 )
 
-# ── Public-demo notice, in the SIDEBAR (only on the corpus-less deployment) ─ #
 if demo_mode():
     with st.sidebar:
         sidebar_panel(

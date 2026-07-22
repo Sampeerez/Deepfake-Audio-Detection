@@ -13,26 +13,12 @@ from typing import Tuple
 
 import streamlit as st
 
-# ── Colour palette ────────────────────────────────────────────────────────── #
-BONAFIDE_COLOR = "#42A5F5"   # blue, real voice  (lighter for dark bg)
-SPOOF_COLOR    = "#EF5350"   # red, deepfake
-NEUTRAL_COLOR  = "#78909C"   # slate, unknown / upload
-# ── Shared CSS injected at the top of every page ──────────────────────────── #
-# Page stylesheet externalised to static/styles.css (IDE highlighting + browser
-# caching); loaded once at import. _light_swap() still rewrites its colour
-# literals at build time for the Light Side, so behaviour is unchanged.
+BONAFIDE_COLOR = "#42A5F5"
+SPOOF_COLOR = "#EF5350"
+NEUTRAL_COLOR = "#78909C"
 PAGE_CSS = (Path(__file__).resolve().parents[2] / "static" / "styles.css").read_text(encoding="utf-8")
 
 
-# ===========================================================================
-# Theme, Light Side / Dark Side
-# ===========================================================================
-# The app ships a fully-styled Dark Side (the default, examiners see exactly the
-# original look). The Light Side is an accessibility light theme generated from
-# the SAME stylesheet at build time: the dark colour literals are swapped for
-# light ones via _LIGHT_MAP, so the dark path stays byte-identical and there is a
-# single source of truth for the layout. theme_mode() reads the user's choice
-# from session_state; app.py injects the right palette on every rerun.
 
 def theme_mode() -> str:
     """Active UI side: 'light' (Light Side) or 'dark' (Dark Side, default).
@@ -40,67 +26,52 @@ def theme_mode() -> str:
     return "light" if st.session_state.get("sw_theme") == "light" else "dark"
 
 
-# Dark colour literal -> Light colour literal. Only chrome flips; the data-
-# semantic colours (bonafide blue, spoof red, status green/gold) are preserved so
-# charts and badges stay honest. The hero banner keeps its deep-blue identity in
-# both sides and is restored by _LIGHT_PATCH. Order is irrelevant (no key is a
-# substring of another, and no replacement re-introduces a key).
 _LIGHT_MAP = {
-    # ── solid page / cell surfaces ──────────────────────────────────────────
-    # A deeper blue-grey canvas (the previous near-white made cards and accents
-    # vanish, too low-contrast). Cards stay white, so they now read as elevated.
-    "#0E1117": "#D5DEEE",          # page background (html, body)
-    "#0D1426": "#FFFFFF",          # stat-cell
-    "#111A33": "#E4EBF7",          # stat-cell hover
-    # ── sidebar gradient ────────────────────────────────────────────────────
+    "#0E1117": "#D5DEEE",
+    "#0D1426": "#FFFFFF",
+    "#111A33": "#E4EBF7",
     "#06101F": "#E8EEF8", "#09193A": "#DCE7F6",
     "#0B1E48": "#CFDDF1", "#07131E": "#E4EBF7",
-    # ── card surfaces (translucent navy -> translucent white) ───────────────
     "rgba(12,25,70,0.65)": "rgba(255,255,255,0.9)",
     "rgba(10,22,62,0.65)": "rgba(255,255,255,0.9)",
     "rgba(10,22,62,0.62)": "rgba(255,255,255,0.88)",
-    "rgba(10,22,62,0.6)":  "rgba(255,255,255,0.88)",
+    "rgba(10,22,62,0.6)": "rgba(255,255,255,0.88)",
     "rgba(10,22,62,0.55)": "rgba(255,255,255,0.86)",
-    "rgba(10,22,62,0.5)":  "rgba(255,255,255,0.84)",
+    "rgba(10,22,62,0.5)": "rgba(255,255,255,0.84)",
     "rgba(10,22,62,0.45)": "rgba(255,255,255,0.8)",
-    "rgba(8,18,52,0.55)":  "rgba(255,255,255,0.88)",
-    "rgba(8,18,52,0.5)":   "rgba(255,255,255,0.85)",
+    "rgba(8,18,52,0.55)": "rgba(255,255,255,0.88)",
+    "rgba(8,18,52,0.5)": "rgba(255,255,255,0.85)",
     "rgba(18,38,95,0.45)": "rgba(228,237,250,0.8)",
-    "rgba(14,28,78,0.4)":  "rgba(228,237,250,0.7)",
+    "rgba(14,28,78,0.4)": "rgba(228,237,250,0.7)",
     "rgba(14,28,75,0.38)": "rgba(228,237,250,0.68)",
     "rgba(14,28,75,0.35)": "rgba(228,237,250,0.62)",
-    "rgba(14,28,75,0.3)":  "rgba(228,237,250,0.55)",
+    "rgba(14,28,75,0.3)": "rgba(228,237,250,0.55)",
     "rgba(14,28,75,0.28)": "rgba(228,237,250,0.52)",
     "rgba(14,28,75,0.22)": "rgba(228,237,250,0.45)",
-    "rgba(14,28,75,0.2)":  "rgba(228,237,250,0.42)",
+    "rgba(14,28,75,0.2)": "rgba(228,237,250,0.42)",
     "rgba(12,24,65,0.35)": "rgba(228,237,250,0.62)",
     "rgba(12,24,65,0.32)": "rgba(228,237,250,0.58)",
-    "rgba(12,24,65,0.3)":  "rgba(228,237,250,0.55)",
-    # ── drop shadows (navy -> soft slate) ───────────────────────────────────
-    "rgba(7,15,43,0.7)":  "rgba(70,90,140,0.18)",
-    "rgba(7,15,43,0.6)":  "rgba(70,90,140,0.16)",
+    "rgba(12,24,65,0.3)": "rgba(228,237,250,0.55)",
+    "rgba(7,15,43,0.7)": "rgba(70,90,140,0.18)",
+    "rgba(7,15,43,0.6)": "rgba(70,90,140,0.16)",
     "rgba(7,15,43,0.35)": "rgba(70,90,140,0.12)",
     "rgba(9,28,78,0.55)": "rgba(70,90,140,0.16)",
     "rgba(9,28,78,0.45)": "rgba(70,90,140,0.14)",
-    "rgba(9,28,78,0.4)":  "rgba(70,90,140,0.13)",
+    "rgba(9,28,78,0.4)": "rgba(70,90,140,0.13)",
     "rgba(9,28,78,0.35)": "rgba(70,90,140,0.12)",
     "rgba(9,28,78,0.25)": "rgba(70,90,140,0.1)",
-    # ── light-blue text -> darker blue (readable on a light background) ──────
-    "#E8EDF8": "#1B2438",          # main text + section titles + card bodies
+    "#E8EDF8": "#1B2438",
     "#82B1FF": "#1E5FCF", "#90CAF9": "#1F6FC0", "#64B5F6": "#1565C0",
     "#BFE0FF": "#2C6FCF", "#C2CFEC": "#3A4E78", "#C9D7F5": "#3A4E78",
     "#AFC3E8": "#42567F", "#8FA3CE": "#46588A", "#6E87C9": "#46588A",
     "#7487B0": "#586A92", "#5E7FD4": "#3458AE", "#9FB6E0": "#46588A",
     "#8AABEF": "#2E5AA8", "#4FC3F7": "#1597C7",
-    # grey-blue captions on the Detection Analysis verdict/chips panels
     "#9EA8C0": "#4E5C7A", "#8A95AE": "#586684",
-    # ── purple operation banner ─────────────────────────────────────────────
     "rgba(74,20,110,0.62)": "rgba(124,63,176,0.14)",
-    "rgba(34,16,74,0.6)":   "rgba(124,63,176,0.08)",
+    "rgba(34,16,74,0.6)": "rgba(124,63,176,0.08)",
     "#E6D6FF": "#5B2A86", "#C7B6E6": "#6A4A92", "#C9A6FF": "#7C3FB8",
     "#A98FD0": "#6A4A92", "#8A78AE": "#7A6A98", "#C77DFF": "#9B30D8",
     "#C9A6E8": "#7C3FB0",
-    # ── gold / amber text (champion + ratio) ────────────────────────────────
     "#FFD454": "#B8860B", "#FFE08A": "#A8780A", "#FFB74D": "#C77B00",
 }
 
@@ -119,21 +90,15 @@ def _light_page_css() -> str:
     return _light_swap(PAGE_CSS)
 
 
-# Lightsaber accent: the one decorative colour, exposed as a CSS variable so the
-# blade styling (below) and the verdict glow can read it. The user picks a blade
-# colour in Settings (session key 'sw_saber'); "Auto" follows the side, a red
-# Sith blade on the Dark Side, a blue Jedi blade on the Light Side.
 _SABER_NAMED = {
-    "Blue":   ("#2C82FF", "44,130,255"),
-    "Green":  ("#46E36B", "70,227,107"),
-    "Red":    ("#FF3B3B", "255,59,59"),
+    "Blue": ("#2C82FF", "44,130,255"),
+    "Green": ("#46E36B", "70,227,107"),
+    "Red": ("#FF3B3B", "255,59,59"),
     "Purple": ("#B36BFF", "179,107,255"),
-    "Amber":  ("#FFB23B", "255,178,59"),
+    "Amber": ("#FFB23B", "255,178,59"),
 }
 _SABER_AUTO = {"dark": "Red", "light": "Blue"}
 
-# Public name → hex map for every UI that offers the saber/accent palette
-# (Settings picker, Home equaliser). Single source of truth: _SABER_NAMED.
 ACCENT_COLORS = {name: hex_ for name, (hex_, _rgb) in _SABER_NAMED.items()}
 
 
@@ -145,10 +110,6 @@ def saber_choice(theme: str) -> Tuple[str, str]:
     return _SABER_NAMED[pick]
 
 
-# Turns the existing flat accent rules (.gradient-bar and the section header rule)
-# into a GLOWING, animated lightsaber blade with an ignition flicker + travelling
-# shimmer and a small hilt cap. Appended LAST so it wins over the earlier cyan
-# definitions. Blade colour comes from --saber. Motion stops under reduce-motion.
 _SABER_CSS = """
 @keyframes saberPulse {
     0%,100% { box-shadow: 0 0 8px var(--saber-glow), 0 0 20px var(--saber-glow),
@@ -260,17 +221,12 @@ def _accessibility_css() -> str:
     """Extra CSS from the Settings page: reduced motion, high contrast, text size.
     Appended LAST so it overrides the base + saber rules."""
     out = []
-    # Reduced motion (also gated on the <html data-reduce-motion> attribute set by
-    # the live-settings iframe; the attribute selector beats !important animations).
     out.append(
         'html[data-reduce-motion="1"] *,'
         'html[data-reduce-motion="1"] *::before,'
         'html[data-reduce-motion="1"] *::after'
         '{animation:none !important;transition:none !important;}'
     )
-    # Bump only the *content* text, not the whole rem system (scaling the root
-    # font grew the sidebar/hero and deformed the layout). Targeting text-bearing
-    # elements keeps the structure intact.
     scale = st.session_state.get("sw_text_scale", "Normal")
     if scale in ("Large", "Larger"):
         f = "1.12em" if scale == "Large" else "1.26em"
@@ -285,7 +241,6 @@ def _accessibility_css() -> str:
             "[data-testid=\"stWidgetLabel\"] p{font-size:" + f + " !important;}"
         )
     if st.session_state.get("sw_contrast"):
-        # Boost text and borders for legibility (works on both sides).
         out.append(
             '[data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] *,'
             '[data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] *'
@@ -295,16 +250,12 @@ def _accessibility_css() -> str:
             '.pipe-step, .stat-strip{border-width:2px !important;}'
             'a, .hero-author a{text-decoration:underline !important;}'
         )
-    # Always-underlined links (WCAG 1.4.1: colour must not be the only cue).
-    # High contrast already underlines; this offers it independently.
     if st.session_state.get("sw_underline"):
         out.append(
             'a, [data-testid="stMarkdownContainer"] a, .hero-author a'
             '{text-decoration: underline !important;'
             'text-underline-offset: 0.15em;}'
         )
-    # Comfortable text spacing (in the spirit of WCAG 1.4.12): looser leading,
-    # letter and word spacing on running text; helps dyslexic readers.
     if st.session_state.get("sw_text_spacing"):
         out.append(
             '[data-testid="stMarkdownContainer"] p,'
@@ -317,10 +268,6 @@ def _accessibility_css() -> str:
     return "".join(out)
 
 
-# Re-applied AFTER the light swap. Two jobs: (1) keep the hero banner's deep-blue
-# identity (its text must stay light even on the Light Side); (2) flip Streamlit's
-# own native chrome (text, dropdown popovers) which is driven by config.toml's
-# dark base and so isn't reached by our class-level CSS.
 _LIGHT_PATCH = """
 /* Native Streamlit text -> dark on the light canvas */
 [data-testid="stApp"] {
@@ -437,7 +384,7 @@ li[role="option"][aria-selected="true"], [role="option"][aria-selected="true"] {
 [data-testid="stBaseButton-segmented_controlActive"] * {
     color: #FFFFFF !important;
 }
-/* Hero banner stays a deep-blue colored banner on BOTH sides, restore its light
+/* Hero banner stays a deep-blue colored banner on both sides, restore its light
    text (placed last so it beats the generic dark-text rule above). */
 .hero-banner, .hero-banner h1, .hero-banner p, .hero-overline, .hero-meta,
 .hero-author .ha-name, .hero-author a { color: #EAF1FF !important; }
@@ -454,7 +401,7 @@ def build_page_css(theme: str) -> str:
     if theme == "light":
         css = _light_page_css()
         inject += _LIGHT_PATCH
-    inject += _accessibility_css()          # appended LAST so it always wins
+    inject += _accessibility_css()
     return css.replace("</style>", inject + "\n</style>", 1)
 
 

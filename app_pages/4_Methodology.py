@@ -166,17 +166,16 @@ st.markdown(themed("""
 </style>
 """), unsafe_allow_html=True)
 
-# ── Data gathered up front ───────────────────────────────────────────────── #
-config    = load_config()
+config = load_config()
 corpus_ok = corpus_available()
-la21_ok   = corpus_configured_2021_la()
-df21_ok   = corpus_configured_2021_df()
+la21_ok = corpus_configured_2021_la()
+df21_ok = corpus_configured_2021_df()
 
 if corpus_ok:
-    train_s  = get_samples("train")
-    dev_s    = get_samples("dev")
-    n_tr     = len(train_s)
-    n_dev    = len(dev_s)
+    train_s = get_samples("train")
+    dev_s = get_samples("dev")
+    n_tr = len(train_s)
+    n_dev = len(dev_s)
     n_bon_tr = sum(1 for _, l in train_s if l == 0)
     n_spo_tr = n_tr - n_bon_tr
     n_bon_dv = sum(1 for _, l in dev_s if l == 0)
@@ -192,7 +191,6 @@ st.caption(
     "wav2vec 2.0 transformer, and the detection metrics."
 )
 
-# Quick-nav: one chip per section, jumps via the section_header anchors.
 st.markdown(
     '<div class="toc-row">'
     '<a class="toc-chip" href="#m-data"><b>01</b>Data &amp; Corpora</a>'
@@ -204,7 +202,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── 01 · Data & corpora ──────────────────────────────────────────────────── #
 section_header("01", "Data & Corpora",
                "Three corpora with increasing difficulty, from the official "
                "2019 benchmark to in-the-wild 2021 deepfakes.",
@@ -296,7 +293,6 @@ if corpus_ok and train_s:
 
 st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 
-# ── 02 · Pipeline & methods ──────────────────────────────────────────────── #
 section_header("02", "Pipeline & Methods",
                "Full pipeline: feature extraction → classification → detection metrics.",
                anchor="m-pipeline")
@@ -359,7 +355,6 @@ st.markdown(
 
 st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 
-# ── 03 · Spoofing attacks ────────────────────────────────────────────────── #
 section_header("03", "Spoofing attacks (logical access)",
                "How the fakes are made, and why the eval set is so much harder "
                "than dev.", anchor="m-attacks")
@@ -408,7 +403,6 @@ st.markdown(
 
 st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 
-# ── 04 · Evaluation protocol ─────────────────────────────────────────────── #
 section_header("04", "Evaluation protocol",
                "Exactly how ASVspoof scores a countermeasure (ASVspoof 2019 "
                "evaluation plan).", anchor="m-protocol")
@@ -466,7 +460,6 @@ st.markdown(
 
 st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
 
-# ── 05 · Voice cloning (the attack side) ─────────────────────────────────── #
 section_header("05", "Voice cloning: the attack side",
                "The offensive counterpart to detection. If a voice can be cloned "
                "from a few seconds of audio, detection is not optional.",

@@ -13,19 +13,15 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-# Make `src` importable without installing the project.
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.features import FeatureExtractor  # noqa: E402
 
 CONFIG_PATH = str(ROOT / "config" / "config.yaml")
-SAMPLE_RATE = 16_000  # Hz, matches config.yaml
+SAMPLE_RATE = 16_000
 
 
-# ---------------------------------------------------------------------------
-# Core fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
 def config_path():
@@ -61,9 +57,6 @@ def silence():
     return np.zeros(SAMPLE_RATE, dtype=np.float32)
 
 
-# ---------------------------------------------------------------------------
-# Synthetic audio-file factories (write real files to tmp_path)
-# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def make_audio(tmp_path):
@@ -91,7 +84,7 @@ def labelled_samples(tmp_path):
     def _make(n=8, sr=SAMPLE_RATE, seconds=1.0):
         samples = []
         for i in range(n):
-            label = i % 2                       # 0,1,0,1,…  → both classes
+            label = i % 2
             freq = 220.0 if label == 0 else 660.0
             t = np.arange(int(seconds * sr)) / sr
             sig = (0.5 * np.sin(2 * np.pi * freq * t)).astype(np.float32)

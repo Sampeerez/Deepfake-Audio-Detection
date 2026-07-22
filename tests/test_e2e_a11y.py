@@ -30,25 +30,18 @@ pw = pytest.importorskip("playwright.sync_api")
 
 pytestmark = pytest.mark.e2e
 
-ROOT   = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent
 AXE_JS = Path(__file__).parent / "assets" / "axe.min.js"
-PORT   = 8610
-URL    = f"http://localhost:{PORT}"
+PORT = 8610
+URL = f"http://localhost:{PORT}"
 
-# Streamlit-owned chrome we cannot fix from this repo (documented blind spot).
 _AXE_EXCLUDE = [
     '[data-testid="stToolbar"]',
     '[data-testid="stStatusWidget"]',
     '[data-testid="stDecoration"]',
-    "iframe",                      # helper iframes: scripts only, no UI inside
+    "iframe",
 ]
 
-# Upstream-Streamlit violations outside our control, reviewed one by one before
-# being allowed here. Each entry is (rule id, node selector) so an allowance
-# never blinds the audit to the same rule elsewhere in OUR markup.
-#   • aria-allowed-attr on .stSidebar: Streamlit's <section class="stSidebar">
-#     carries aria-expanded, which ARIA does not allow on that role. Upstream
-#     markup, not reachable from this repo.
 _ALLOWED: set = {("aria-allowed-attr", ".stSidebar")}
 
 
@@ -96,7 +89,7 @@ def _open(browser, url: str):
     page = browser.new_page(viewport={"width": 1440, "height": 900})
     page.goto(url, wait_until="networkidle")
     page.wait_for_selector('[data-testid="stAppViewContainer"]', timeout=30_000)
-    page.wait_for_timeout(2_500)               # let fonts/canvas/css settle
+    page.wait_for_timeout(2_500)
     return page
 
 
@@ -141,7 +134,6 @@ def test_axe_settings_both_sides(server, browser):
     page = _open(browser, server + "/settings")
     try:
         _assert_clean(_axe_scan(page), "Settings (Dark Side)")
-        # Flip to the Light Side and re-audit the light palette.
         page.get_by_text("Light Side", exact=True).first.click()
         page.wait_for_timeout(2_500)
         _assert_clean(_axe_scan(page), "Settings (Light Side)")
@@ -156,17 +148,11 @@ def test_efficiency_hover_survives_interaction(server, browser):
     switching tabs / clicking around."""
     page = _open(browser, server + "/benchmark")
     page.get_by_role("button", name="Open Full comparison").click(timeout=45_000)
-    # First open prefetches/loads every pretrained model before the leaderboard
-    # appears; wait for the tab itself rather than sleeping a fixed time.
     page.get_by_role("tab", name="Efficiency").wait_for(timeout=240_000)
     page.get_by_role("tab", name="Efficiency").click()
     page.wait_for_timeout(2_500)
 
     def hover_shows_tooltip() -> bool:
-        # Vega renders SVG here (not canvas): hover a scatter mark DIRECTLY.
-        # With st.tabs every panel's chart is in the DOM, so filter to the
-        # visible one; it sits below the fold, so scroll it into view first or
-        # the mouse events never reach it.
         charts = page.locator('[data-testid*="VegaLiteChart"]:visible')
         if not charts.count():
             return False
@@ -176,18 +162,11 @@ def test_efficiency_hover_survives_interaction(server, browser):
         n = marks.count()
         if not n:
             return False
-        # Try a few different marks with fresh enter events: a single hover can
-        # race the tab re-layout, several attempts make the probe deterministic
-        # while still failing reliably when the handler is truly gone (the bug).
         for i in range(min(3, n)):
-            page.mouse.move(10, 10)             # leave, so hover is a fresh enter
+            page.mouse.move(10, 10)
             page.wait_for_timeout(300)
             marks.nth(i).hover(force=True)
-            # Poll the class attribute ourselves: Playwright's own visibility
-            # wait rejects the tooltip when its box computes as empty mid-
-            # animation, which produced false negatives under load. The class
-            # flip is the signal vega-tooltip actually guarantees.
-            for _ in range(16):                 # up to ~4 s per mark
+            for _ in range(16):
                 tip = page.locator("#vg-tooltip-element")
                 if tip.count() and "visible" in (tip.first.get_attribute("class")
                                                  or ""):
@@ -198,9 +177,6 @@ def test_efficiency_hover_survives_interaction(server, browser):
     try:
         assert hover_shows_tooltip(), "tooltip never appeared on first entry"
 
-        # The old repro: CLICKING THE CHART (which used to fire the keyed
-        # selection and a rerun) killed the hover for good. Click it, bounce
-        # through another tab and back, then hover again.
         chart = page.locator('[data-testid*="VegaLiteChart"]:visible').first
         chart.scroll_into_view_if_needed()
         box = chart.bounding_box()
@@ -212,7 +188,7 @@ def test_efficiency_hover_survives_interaction(server, browser):
         page.get_by_role("tab", name="Efficiency").click()
         page.wait_for_timeout(1_800)
         ok = hover_shows_tooltip()
-        if not ok:                              # dump diagnostics for triage
+        if not ok:
             page.screenshot(path="/tmp/e2e_hover_fail.png", full_page=True)
             with open("/tmp/e2e_hover_fail.txt", "w") as fh:
                 fh.write("visible charts: %d\n" % page.locator(

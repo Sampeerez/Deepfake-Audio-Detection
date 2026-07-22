@@ -20,7 +20,7 @@
 [![CI](https://github.com/Sampeerez/Deepfake-Audio-Detection/actions/workflows/ci.yml/badge.svg)](https://github.com/Sampeerez/Deepfake-Audio-Detection/actions/workflows/ci.yml)
 ![Tests](https://img.shields.io/badge/tests-104_passing-2ea043)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Thesis](https://img.shields.io/badge/Thesis-PDF_(soon)-8A2BE2)](#)
+[![Thesis](https://img.shields.io/badge/Thesis-PDF-8A2BE2)](docs/TFG_Samuel_Perez_Lopez.pdf)
 
 <sub><b>Final Degree Project (TFG)</b> &nbsp;·&nbsp; Computer Engineering, <i>Ingeniería Informática</i></sub>
 <br/>
@@ -127,6 +127,20 @@ verdict   =   65%   · wav2vec 2.0   +   35%   · ResNeXt+SE
 | **Settings** | **Light / Dark Side** theme, animated background, accessibility, and a few easter eggs. |
 
 </div>
+
+<div align="center">
+
+### See the app in action
+
+</div>
+
+<table>
+<tr>
+<td width="33%" valign="top"><img src="assets/signal_explorer.png" alt="Signal Explorer" width="100%"/><br/><sub><b>Signal Explorer</b> &nbsp;·&nbsp; waveform and every spectral view, or a real voice vs a deepfake side by side.</sub></td>
+<td width="33%" valign="top"><img src="assets/leaderboard.png" alt="Benchmark leaderboard" width="100%"/><br/><sub><b>Benchmark</b> &nbsp;·&nbsp; all 21 models ranked by EER and minDCF across every corpus.</sub></td>
+<td width="33%" valign="top"><img src="assets/voice_cloner.png" alt="Voice Cloner" width="100%"/><br/><sub><b>Voice Cloner</b> &nbsp;·&nbsp; clone a voice, then watch the detectors flag the fake.</sub></td>
+</tr>
+</table>
 
 ---
 
@@ -396,6 +410,10 @@ eval sets (A07-A19, 2021 LA/DF) are never touched by training or selection.
 <summary><b>Papers, datasets & learning resources that shaped this project</b></summary>
 
 <br/>
+
+**Thesis document**
+
+- Samuel Pérez López. *Deepfake Audio Detection: A Comparative Study of Classic DSP, Deep Networks and Self-Supervised Models.* Final Degree Project (TFG), Computer Engineering, Universidad de La Laguna, 2026. [Read the full thesis (PDF)](docs/TFG_Samuel_Perez_Lopez.pdf).
 
 **Key academic references**
 

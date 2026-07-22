@@ -46,9 +46,9 @@ from src.ui_helpers import (  # noqa: E402
     running_on_gpu, show_empty_state, sidebar_panel,
 )
 
-config    = load_config()
+config = load_config()
 extractor = get_extractor()
-device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dev_label = "CUDA GPU" if device.type == "cuda" else "CPU"
 
 st.title("Deep Networks Learning")
@@ -57,10 +57,6 @@ st.caption(
     "their learning dynamics and internal representations in real time."
 )
 
-# ── Activation-map handoff from Detection Analysis ─────────────────────────── #
-# When the user clicks "See full maps in Deep Networks Learning" on an uploaded clip, the
-# per-block activations (already computed there) are stashed in session_state;
-# render the FULL feature-map grids for that clip and short-circuit the page.
 _handoff = st.session_state.get("cnn_handoff")
 if _handoff:
     if st.button("← Back to Deep Networks training", key="cnn_handoff_back"):
@@ -73,9 +69,6 @@ if _handoff:
     )
     _items = _handoff.get("items", [])
     _names = [it["name"] for it in _items]
-    # Pick WHICH model's maps to show, instead of stacking all of them down the
-    # page. Dropdown-only (no typing, via the nosearch container); the option
-    # order is the canonical 5-Block → +SE → ResNet → ResNeXt → CRNN set upstream.
     with st.container(key="nosearch_cnn_handoff"):
         _pick = (st.selectbox("Show maps for", _names, key="cnn_handoff_pick")
                  if len(_items) > 1 else (_names[0] if _names else None))
@@ -98,9 +91,6 @@ if _handoff:
         st.divider()
     st.stop()
 
-# On the corpus-less web demo we DON'T bail out: the page renders like local but
-# training is off, you can still evaluate the pretrained neural networks on eval clips
-# streamed from Hugging Face (see eval_corpora_for).
 _web = not corpus_available()
 if _web:
     demo_corpus_notice(
@@ -111,16 +101,11 @@ if _web:
         "streamed from Hugging Face, the same view you get locally.",
     )
 
-# ===========================================================================
-# Training configuration, main-area panel
-# ===========================================================================
 
-ARCH_CNN    = "5-Block CNN"
+ARCH_CNN = "5-Block CNN"
 ARCH_RESNET = "ResNet + SE"
-ARCH_CRNN   = "CRNN"
+ARCH_CRNN = "CRNN"
 
-# Right column tweaks: the Evaluate/Score box fills the full column width and
-# the Train CNN button matches the height of the classifier row (like Classic).
 st.markdown("""
 <style>
 [class*="st-key-evalgrp_cnn"] { width: 100% !important; justify-content: space-between; }
@@ -135,7 +120,6 @@ with st.container(border=True):
 
     _is_busy = op_in_progress()
 
-    # Row 1: Architecture | Train on / Evaluate on / Score on controls
     _r1l, _r1r = st.columns(2, gap="large")
     with _r1l:
         with st.container(key="nosearch_arch"):
@@ -147,7 +131,6 @@ with st.container(border=True):
         eval_corpus, score_split = eval_score_controls("cnn", train_label=_train_lbl)
         _busy = op_busy_notice()
 
-    # Row 2: Advanced + Clear | Train CNN + Evaluate (same row → natural alignment)
     _r2l, _r2r = st.columns(2, gap="large")
     with _r2l:
         with st.container(key="advbtn_cnn"):
@@ -178,7 +161,6 @@ with st.container(border=True):
                     "SpecAugment (recommended)", value=True,
                     help="Random time + frequency masking on each training "
                          "spectrogram. Strongly reduces overfitting on small subsets.")
-                # Architecture-specific switches.
                 use_se = use_resnext = False
                 if arch == ARCH_CNN:
                     use_se = st.toggle(
@@ -195,7 +177,6 @@ with st.container(border=True):
         clear_btn = st.button("Clear results", icon=":material/delete:",
                               width="stretch", disabled=_is_busy)
 
-    # Resolve the canonical arch key from the selector + advanced toggles.
     if arch == ARCH_RESNET:
         arch_key = "resnext" if use_resnext else "resnet"
     elif arch == ARCH_CRNN:
@@ -204,12 +185,9 @@ with st.container(border=True):
         arch_key = "cnn_se" if use_se else "cnn"
 
     with _r2r:
-        # Evaluate is enabled only when the selected architecture is actually on disk.
         arch_hf_key = {"cnn": "cnn5", "cnn_se": "cnn5_se", "resnet": "resnet",
                        "resnext": "resnext", "crnn": "crnn"}.get(arch_key, "cnn5")
         _hf_cnn = [e for e in available_pretrained_models() if e["kind"] == "cnn"]
-        # Locally we require the checkpoint to be on disk; on the web demo the
-        # registry entries are downloadable, so allow eval (it fetches on click).
         _hf_for_arch = [e for e in _hf_cnn if e["key"] == arch_hf_key
                         and (model_downloaded(e) or _web)]
         _has_model_for_eval = "cnn_model" in st.session_state or bool(_hf_for_arch)
@@ -235,10 +213,6 @@ if clear_btn:
         st.session_state.pop(_k, None)
     st.rerun()
 
-# ===========================================================================
-# Architecture & design panels, defined as reusable renderers so they stay
-# visible ALWAYS (before training AND after, alongside the result tabs).
-# ===========================================================================
 
 def _render_architecture(arch_key):
     if True:
@@ -300,40 +274,38 @@ def _render_architecture(arch_key):
             _grp = " (grouped, 32 groups)" if arch_key == "resnext" else ""
             if _is_resid:
                 arch_rows = [
-                    {"Block / Layer": "Input",            "Output shape": "(1, 1, 128, 300)",   "Description": "z-scored STFT-dB spectrogram"},
-                    {"Block / Layer": "Res Block 1",      "Output shape": "(1, 32, 64, 150)",   "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + skip → SE → MaxPool"},
-                    {"Block / Layer": "Res Block 2",      "Output shape": "(1, 64, 32, 75)",    "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + proj-skip → SE → MaxPool"},
-                    {"Block / Layer": "Res Block 3",      "Output shape": "(1, 128, 16, 37)",   "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + proj-skip → SE → MaxPool"},
-                    {"Block / Layer": "Res Block 4",      "Output shape": "(1, 128, 8, 18)",    "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + identity → SE → MaxPool"},
-                    {"Block / Layer": "AdaptiveAvgPool",  "Output shape": "(1, 128, 4, 8)",     "Description": "Adaptive average pooling to fixed spatial size"},
-                    {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)",               "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
+                    {"Block / Layer": "Input", "Output shape": "(1, 1, 128, 300)", "Description": "z-scored STFT-dB spectrogram"},
+                    {"Block / Layer": "Res Block 1", "Output shape": "(1, 32, 64, 150)", "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + skip → SE → MaxPool"},
+                    {"Block / Layer": "Res Block 2", "Output shape": "(1, 64, 32, 75)", "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + proj-skip → SE → MaxPool"},
+                    {"Block / Layer": "Res Block 3", "Output shape": "(1, 128, 16, 37)", "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + proj-skip → SE → MaxPool"},
+                    {"Block / Layer": "Res Block 4", "Output shape": "(1, 128, 8, 18)", "Description": f"Conv3×3{_grp} → BN → ReLU → Conv3×3 → BN + identity → SE → MaxPool"},
+                    {"Block / Layer": "AdaptiveAvgPool", "Output shape": "(1, 128, 4, 8)", "Description": "Adaptive average pooling to fixed spatial size"},
+                    {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)", "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
                 ]
             elif arch_key == "crnn":
                 arch_rows = [
-                    {"Block / Layer": "Input",            "Output shape": "(1, 1, 128, 300)",  "Description": "z-scored STFT-dB spectrogram"},
-                    {"Block / Layer": "Conv Blocks 1-5",  "Output shape": "(1, 256, 4, 9)",    "Description": "5× (Conv2d 3×3 → BatchNorm → ReLU → MaxPool2d 2×2)"},
-                    {"Block / Layer": "Freq pool + reshape", "Output shape": "(1, 9, 1024)",   "Description": "AdaptiveAvgPool freq→4, per-frame vectors over time"},
-                    {"Block / Layer": "BiGRU",            "Output shape": "(1, 9, 256)",       "Description": "Bidirectional GRU (hidden 128 × 2) over the time axis"},
-                    {"Block / Layer": "Temporal mean",    "Output shape": "(1, 256)",          "Description": "Mean-pool recurrent states over time"},
-                    {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)",              "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
+                    {"Block / Layer": "Input", "Output shape": "(1, 1, 128, 300)", "Description": "z-scored STFT-dB spectrogram"},
+                    {"Block / Layer": "Conv Blocks 1-5", "Output shape": "(1, 256, 4, 9)", "Description": "5× (Conv2d 3×3 → BatchNorm → ReLU → MaxPool2d 2×2)"},
+                    {"Block / Layer": "Freq pool + reshape", "Output shape": "(1, 9, 1024)", "Description": "AdaptiveAvgPool freq→4, per-frame vectors over time"},
+                    {"Block / Layer": "BiGRU", "Output shape": "(1, 9, 256)", "Description": "Bidirectional GRU (hidden 128 × 2) over the time axis"},
+                    {"Block / Layer": "Temporal mean", "Output shape": "(1, 256)", "Description": "Mean-pool recurrent states over time"},
+                    {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)", "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
                 ]
             else:
                 arch_rows = [
-                    {"Block / Layer": "Input",            "Output shape": "(1, 1, 128, 300)",  "Description": "z-scored STFT-dB spectrogram"},
-                    {"Block / Layer": "Conv Block 1",     "Output shape": "(1, 16, 64, 150)",  "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
-                    {"Block / Layer": "Conv Block 2",     "Output shape": "(1, 32, 32, 75)",   "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
-                    {"Block / Layer": "Conv Block 3",     "Output shape": "(1, 64, 16, 37)",   "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
-                    {"Block / Layer": "Conv Block 4",     "Output shape": "(1, 128, 8, 18)",   "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
-                    {"Block / Layer": "Conv Block 5",     "Output shape": "(1, 256, 4, 9)",    "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
-                    {"Block / Layer": "AdaptiveAvgPool",  "Output shape": "(1, 256, 4, 8)",    "Description": "Adaptive average pooling to fixed spatial size"},
-                    {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)",              "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
+                    {"Block / Layer": "Input", "Output shape": "(1, 1, 128, 300)", "Description": "z-scored STFT-dB spectrogram"},
+                    {"Block / Layer": "Conv Block 1", "Output shape": "(1, 16, 64, 150)", "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "Conv Block 2", "Output shape": "(1, 32, 32, 75)", "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "Conv Block 3", "Output shape": "(1, 64, 16, 37)", "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "Conv Block 4", "Output shape": "(1, 128, 8, 18)", "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "Conv Block 5", "Output shape": "(1, 256, 4, 9)", "Description": f"Conv2d 3×3 → BatchNorm → ReLU{_se} → MaxPool2d 2×2"},
+                    {"Block / Layer": "AdaptiveAvgPool", "Output shape": "(1, 256, 4, 8)", "Description": "Adaptive average pooling to fixed spatial size"},
+                    {"Block / Layer": "Dropout + Linear", "Output shape": "(1,)", "Description": "BCEWithLogitsLoss → p(spoof) via sigmoid"},
                 ]
             st.dataframe(
                 pd.DataFrame(arch_rows), width="stretch", hide_index=True,
                 column_config={
                     "Block / Layer": st.column_config.TextColumn(width="small"),
-                    # Keep the shape column tight so the Description gets the room
-                    # it needs and stops wrapping/clipping.
                     "Output shape": st.column_config.TextColumn(width="small"),
                     "Description": st.column_config.TextColumn(width="large"),
                 },
@@ -426,29 +398,22 @@ def _render_design(arch_key):
                 "enabling fine-grained convergence without manual tuning.",
             )
 
-# ===========================================================================
-# Training
-# ===========================================================================
 
 if train_btn:
-    # Training always uses the official 2019 LA train/dev splits.
     train_samples = stratified_subsample(get_samples("train"), int(subset), int(seed))
-    dev_samples   = stratified_subsample(get_samples("dev"),   int(subset), int(seed) + 1)
+    dev_samples = stratified_subsample(get_samples("dev"), int(subset), int(seed) + 1)
 
     params = dict(config["train_params"])
     params.update({
-        "seed":                    int(seed),
-        "epochs":                  int(epochs),
-        "batch_size":              int(batch_size),
-        "lr":                      float(lr),
+        "seed": int(seed),
+        "epochs": int(epochs),
+        "batch_size": int(batch_size),
+        "lr": float(lr),
         "early_stopping_patience": int(patience),
-        "augment":                 bool(augment),
-        "arch":                    arch_key,
+        "augment": bool(augment),
+        "arch": arch_key,
     })
 
-    # Train ONLY, no eval corpus scoring (use Evaluate button for that).
-    # The background worker still uses dev_samples for val loss / early stopping,
-    # but we mark train_only so app.py skips adding rows to cnn_runs.
     st.session_state["cnn_train_only"] = True
     st.session_state["cnn_future"] = submit_cnn_training(
         train_samples=train_samples, dev_samples=dev_samples,
@@ -457,12 +422,11 @@ if train_btn:
     st.session_state["cnn_pending"] = {"dev": dev_samples, "arch": arch,
                                        "corpus": train_corpus}
     st.session_state["op_running"] = True
-    st.session_state["cnn_focus_curves"] = True   # redirect to Training curves
+    st.session_state["cnn_focus_curves"] = True
     st.rerun()
 
 if eval_btn:
     _eval_params = dict(config["train_params"])
-    # Resolve which model to use: prefer session-trained, fall back to HF pretrained.
     _model = st.session_state.get("cnn_model")
     _arch_lbl = st.session_state.get("cnn_arch_trained", arch)
     if _model is None:
@@ -499,14 +463,11 @@ if eval_btn:
         st.session_state["cnn_results"] = _new_rows
     st.rerun()
 
-# ── Live training view, a self-refreshing fragment that redraws the loss curve
-#    from the background worker's epoch records every 2 s (only this block reruns,
-#    not the whole app). The running MESSAGE lives in the sidebar banner. ─────── #
 @st.fragment(run_every=2.0)
 def _live_training_view(max_epochs):
     fut = st.session_state.get("cnn_future")
     if fut is None or fut.done():
-        return                                   # banner fragment does the full rerun
+        return
     st.subheader("Live training")
     _epochs = cnn_epochs()
     if _epochs:
@@ -538,22 +499,12 @@ if st.session_state.get("cnn_error"):
 if st.session_state.pop("cnn_cancelled", False):
     st.info("Deep network training cancelled.", icon=":material/cancel:")
 
-# ===========================================================================
-# Unified panels, Architecture & Design choices are ALWAYS shown. The live
-# training curve and the results appear as ADDITIONAL tabs (they never push the
-# overview down): switch tabs freely while a model trains in the background,
-# watch the curve in "Training curves", and the final graphs stay there after.
-# ===========================================================================
 
-_cnn_fut   = st.session_state.get("cnn_future")
-_training  = _cnn_fut is not None and not _cnn_fut.done()
+_cnn_fut = st.session_state.get("cnn_future")
+_training = _cnn_fut is not None and not _cnn_fut.done()
 _has_model = "cnn_history" in st.session_state
-_cnn_runs  = st.session_state.get("cnn_runs", [])
+_cnn_runs = st.session_state.get("cnn_runs", [])
 
-# Stable order at all times, "Training curves" is always the 3rd tab (the panel
-# order never reshuffles). When a training has just been launched we redirect to
-# it with a tiny script (st.tabs has no programmatic selection), but we do NOT
-# move it to the front.
 _tab_names = ["Architecture", "Design choices"]
 if _training or _has_model:
     _tab_names.append("Training curves")
@@ -564,7 +515,6 @@ if _has_model:
 
 _tabmap = dict(zip(_tab_names, st.tabs(_tab_names)))
 
-# One-shot redirect to the live curve right after launching a training.
 if _training and st.session_state.pop("cnn_focus_curves", False):
     st.iframe(
         """
@@ -592,7 +542,6 @@ with _tabmap["Architecture"]:
 with _tabmap["Design choices"]:
     _render_design(arch_key)
 
-# ── Training curves, live while training, fixed (non-zoomable) afterwards ─── #
 if "Training curves" in _tabmap:
     with _tabmap["Training curves"]:
         if _training:
@@ -624,7 +573,6 @@ if "Training curves" in _tabmap:
                 st.caption("Flat = stable LR. Drops = ReduceLROnPlateau halved "
                            "the rate after a validation-loss plateau.")
 
-# ── Results, every deep network scored this session (both architectures, dev + eval) ─ #
 if "Results" in _tabmap:
     with _tabmap["Results"]:
         st.markdown(
@@ -634,18 +582,18 @@ if "Results" in _tabmap:
         )
         _rrows = []
         for _r in _cnn_runs:
-            _name   = str(_r.get(COL_MODEL, ""))
+            _name = str(_r.get(COL_MODEL, ""))
             _corpus = str(_r.get("Corpus", "")).strip()
-            _split  = _r.get("Split") or (
+            _split = _r.get("Split") or (
                 (f"eval · {_corpus}" if _corpus else "eval")
                 if "[EVAL]" in _name else "dev")
             for _m in ("[EVAL]", "[CPU]", "[CUDA]"):
                 _name = _name.replace(_m, "")
             _rrows.append({
-                "Model":    _name.strip(),
-                "Split":    _split,
-                "minDCF":   pd.to_numeric(_r.get(COL_MIN_DCF), errors="coerce"),
-                "EER (%)":  pd.to_numeric(_r.get(COL_EER), errors="coerce"),
+                "Model": _name.strip(),
+                "Split": _split,
+                "minDCF": pd.to_numeric(_r.get(COL_MIN_DCF), errors="coerce"),
+                "EER (%)": pd.to_numeric(_r.get(COL_EER), errors="coerce"),
                 "Accuracy": pd.to_numeric(_r.get(COL_ACCURACY), errors="coerce"),
             })
         _rdf = (pd.DataFrame(_rrows)
@@ -659,10 +607,9 @@ if "Results" in _tabmap:
         st.caption("Ranked by minDCF (primary metric), EER as tiebreaker. After "
                    "a full comparison both CNNs appear here, dev and eval.")
 
-# ── Activation maps (dev sample), only when a model was trained this session ─ #
 if "Activation maps" in _tabmap:
     model = st.session_state["cnn_model"]
-    dev   = st.session_state["cnn_dev"]
+    dev = st.session_state["cnn_dev"]
     with _tabmap["Activation maps"]:
         st.markdown(
             "Each convolutional block transforms the input spectrogram into a "
@@ -671,7 +618,7 @@ if "Activation maps" in _tabmap:
         )
 
         bonafide_pool = [p for p, e in dev if e == LABEL_BONAFIDE]
-        spoof_pool    = [p for p, e in dev if e == LABEL_SPOOF]
+        spoof_pool = [p for p, e in dev if e == LABEL_SPOOF]
 
         act_choice = st.radio(
             "Sample class to inspect",
@@ -683,7 +630,7 @@ if "Activation maps" in _tabmap:
         if not pool:
             st.warning("No sample of that class in the current dev subset.")
         else:
-            path   = pool[0]
+            path = pool[0]
             signal = extractor.load_audio(path)
             matrix = extractor.get_spectrogram_matrix(signal)
             tensor = (
@@ -697,7 +644,7 @@ if "Activation maps" in _tabmap:
             prob = torch.sigmoid(logit).item()
 
             color = SPOOF_COLOR if prob >= 0.5 else BONAFIDE_COLOR
-            pred  = "spoof" if prob >= 0.5 else "bonafide"
+            pred = "spoof" if prob >= 0.5 else "bonafide"
             st.markdown(
                 f"`{os.path.basename(path)}` → "
                 f"<span style='color:{color};font-weight:600;'>"
@@ -716,22 +663,21 @@ if "Activation maps" in _tabmap:
                 )
 
 
-# ── Sidebar: live model state (rendered last, when results exist) ───────── #
 
 with st.sidebar:
     _rows = [("Device", dev_label)]
     if "cnn_history" in st.session_state:
         _hist = st.session_state["cnn_history"]
-        _res  = st.session_state.get("cnn_results", [])   # may be absent in train-only mode
+        _res = st.session_state.get("cnn_results", [])
         _last = _res[-1] if _res else {}
         _rows += [
-            ("Status",   "Trained"),
-            ("Arch",     st.session_state.get("cnn_arch_trained", ", ")),
-            ("Corpus",   st.session_state.get("cnn_train_corpus", ", ")),
-            ("Epochs",   str(len(_hist))),
+            ("Status", "Trained"),
+            ("Arch", st.session_state.get("cnn_arch_trained", ", ")),
+            ("Corpus", st.session_state.get("cnn_train_corpus", ", ")),
+            ("Epochs", str(len(_hist))),
             ("Best val", f"{min(r['val_loss'] for r in _hist):.4f}"),
             ("minDCF dev", f'{_last.get(COL_MIN_DCF, ", ")}'),
-            ("EER dev",  f'{_last.get(COL_EER, ", ")} %'),
+            ("EER dev", f'{_last.get(COL_EER, ", ")} %'),
         ]
     else:
         _rows += [("Status", "Not trained yet")]

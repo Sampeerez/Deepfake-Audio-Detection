@@ -12,13 +12,7 @@ import streamlit as st
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Pre-computed metrics for the pretrained models, written automatically by a
-# local Benchmark → Full comparison and committed, so the web demo can show the
-# real EER/minDCF leaderboard without the corpus. Maps model key ->
-# {"eer_dev", "mindcf_dev", "eer_eval", "mindcf_eval"}.
 LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "leaderboard.json")
-# Previous filename, still read as a fallback so an un-regenerated repo keeps
-# showing its committed metrics after the rename.
 _LEGACY_LEADERBOARD_PATH = os.path.join(_REPO_ROOT, "demo_leaderboard.json")
 
 
@@ -43,7 +37,6 @@ def load_leaderboard() -> Dict:
         data.setdefault("models", {})
         data.setdefault("rows", [])
         return data
-    # Legacy flat dict {key: metrics}.
     return {"models": data if isinstance(data, dict) else {}, "rows": []}
 
 
@@ -55,6 +48,6 @@ def load_leaderboard_models() -> Dict[str, Dict]:
 
 def load_leaderboard_rows() -> List[Dict]:
     """Every leaderboard ROW (one per model × split/corpus) exactly as produced by a
-    local Full comparison, so the web demo can render the IDENTICAL filterable
+    local Full comparison, so the web demo can render the identical filterable
     table/chart, not just a condensed summary."""
     return load_leaderboard().get("rows", [])
