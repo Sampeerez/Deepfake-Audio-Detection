@@ -16,10 +16,12 @@ State model
 - The representation picker uses ONE key ("se_views") in the main area.
 """
 
+import base64
 import io
 import os
 import random
 import sys
+import wave
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -395,12 +397,35 @@ def _view_png(view: str, source_id: str, label: str, y: np.ndarray,
     return buf.getvalue()
 
 
+def _data_uri(raw: bytes, mime: str) -> str:
+    """Embed media in the page so it does not depend on Streamlit's media URL."""
+    encoded = base64.b64encode(raw).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def _audio_data_uri(y: np.ndarray, sample_rate: int) -> str:
+    """Encode a mono float waveform as an embedded PCM WAV."""
+    samples = np.asarray(y, dtype=np.float64)
+    peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+    if peak > 0:
+        samples = samples / peak
+    pcm = np.clip(samples * 32767, -32768, 32767).astype("<i2").tobytes()
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+    return _data_uri(buf.getvalue(), "audio/wav")
+
+
 def _render_views(y: np.ndarray, label: str, views: list, source_id: str) -> None:
     """Render each selected visualisation for one audio signal."""
     _theme = theme_mode()
     for view in views:
         with st.spinner(f"Projecting the hologram, {view}…"):
-            st.image(_view_png(view, source_id, str(label), y, _theme),
+            st.image(_data_uri(_view_png(view, source_id, str(label), y, _theme),
+                               "image/png"),
                      width="stretch")
 
 
@@ -564,7 +589,8 @@ else:
         with res_cols[i]:
             if sigs[i] is not None:
                 _audio_header(lbls[i], srcs[i])
-                st.audio(sigs[i], sample_rate=extractor.sample_rate)
+                st.audio(_audio_data_uri(sigs[i], extractor.sample_rate),
+                         format="audio/wav")
                 _show_signal_stats(sigs[i], n_metrics=n_metrics)
                 if views:
                     st.divider()
